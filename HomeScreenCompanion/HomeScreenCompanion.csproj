@@ -10,7 +10,7 @@
 		<AssemblyName>HomeScreenCompanion</AssemblyName>
 		<RootNamespace>HomeScreenCompanion</RootNamespace>
 		
-		<Version>4.1.4.0</Version>
+		<Version>4.1.5.0</Version>
 
 		<Product>Home Screen Companion</Product>
 		
@@ -31,7 +31,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <PackageReference Include="SkiaSharp" Version="2.88.0" />
+	  <PackageReference Include="SkiaSharp" Version="2.88.9" />
 	  <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
 	  <PackageReference Include="System.Memory" Version="4.6.0" />
 	</ItemGroup>

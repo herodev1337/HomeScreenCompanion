@@ -28,7 +28,7 @@ namespace HomeScreenCompanion
 
         public static Plugin? Instance { get; private set; }
         public static IApplicationPaths AppPaths { get; private set; } = null!;
-        public static IXmlSerializer XmlSerializer { get; private set; } = null!;
+        public static new IXmlSerializer XmlSerializer { get; private set; } = null!;
 
         public IEnumerable<PluginPageInfo> GetPages()
         {

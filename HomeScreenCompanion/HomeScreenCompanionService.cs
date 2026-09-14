@@ -1161,7 +1161,7 @@ public class HomeScreenCompanionService : IService
 
                 // First pass: deduplicate and preserve query order
                 var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var selected = new List<(string BaseName, string FilePath, string? PosterPath, string? ThumbPath)>();
+                var selected = new List<(string BaseName, string FilePath, BaseItem Item)>();
                 foreach (var item in items)
                 {
                     if (string.IsNullOrEmpty(item.Path)) continue;
@@ -1169,9 +1169,7 @@ public class HomeScreenCompanionService : IService
                     if (item.ProductionYear.HasValue && item.ProductionYear > 0)
                         baseName += $" ({item.ProductionYear})";
                     if (!seenKeys.Add(baseName)) continue;
-                    var posterPath = item.ImageInfos?.FirstOrDefault(i => i.Type == ImageType.Primary)?.Path;
-                    var thumbPath  = item.ImageInfos?.FirstOrDefault(i => i.Type == ImageType.Thumb)?.Path;
-                    selected.Add((baseName, item.Path, posterPath, thumbPath));
+                    selected.Add((baseName, item.Path, item));
                 }
 
                 // Apply max-items limit before writing
@@ -1190,17 +1188,11 @@ public class HomeScreenCompanionService : IService
                     count++;
                     var sortPrefix = count.ToString().PadLeft(digits, '0');
                     var fileName = entry.BaseName;
+                    File.WriteAllText(Path.Combine(folderPath, fileName + ".nfo"), BuildTopListNfo(entry.Item, sortPrefix));
+                    WriteRankedImages(entry.Item, count, Path.Combine(folderPath, fileName), request.BadgeStyle, tempDir);
+                    // .strm last: the folder is a watched library, and Emby creates the item the
+                    // moment it sees the .strm — the nfo and badged images must already be there.
                     File.WriteAllText(Path.Combine(folderPath, fileName + ".strm"), entry.FilePath);
-                    var nfo = $"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<movie>\n  <sorttitle>{sortPrefix}</sorttitle>\n  <lockedfields>SortName|Images</lockedfields>\n</movie>";
-                    File.WriteAllText(Path.Combine(folderPath, fileName + ".nfo"), nfo);
-                    var localPoster = EnsureLocalImagePath(_httpClient, entry.PosterPath, tempDir);
-                    if (!string.IsNullOrEmpty(localPoster))
-                        try { CreateRankedPoster(localPoster, count, Path.Combine(folderPath, fileName + ".jpg"), request.BadgeStyle); }
-                        catch { }
-                    var localThumb = EnsureLocalImagePath(_httpClient, entry.ThumbPath, tempDir);
-                    if (!string.IsNullOrEmpty(localThumb))
-                        try { CreateRankedPoster(localThumb, count, Path.Combine(folderPath, fileName + "-thumb.jpg"), request.BadgeStyle); }
-                        catch { }
                 }
                 }
                 finally { try { Directory.Delete(tempDir, true); } catch { } }
@@ -1572,7 +1564,7 @@ public class HomeScreenCompanionService : IService
 
                 var items    = request.Items ?? new List<ManualTopListItem>();
                 var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var selected = new List<(string BaseName, string FilePath, string? PosterPath, string? ThumbPath)>();
+                var selected = new List<(string BaseName, string FilePath, BaseItem Item)>();
                 var strmToOriginal = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var entry in items)
@@ -1584,9 +1576,7 @@ public class HomeScreenCompanionService : IService
                     if (mediaItem.ProductionYear.HasValue && mediaItem.ProductionYear > 0)
                         baseName += $" ({mediaItem.ProductionYear})";
                     if (!seenKeys.Add(baseName)) continue;
-                    var posterPath = mediaItem.ImageInfos?.FirstOrDefault(i => i.Type == ImageType.Primary)?.Path;
-                    var thumbPath  = mediaItem.ImageInfos?.FirstOrDefault(i => i.Type == ImageType.Thumb)?.Path;
-                    selected.Add((baseName, mediaItem.Path, posterPath, thumbPath));
+                    selected.Add((baseName, mediaItem.Path, mediaItem));
                     strmToOriginal[Path.Combine(folderPath, baseName + ".strm")] = mediaItem;
                 }
 
@@ -1600,17 +1590,10 @@ public class HomeScreenCompanionService : IService
                 {
                     count++;
                     var sortPrefix = count.ToString().PadLeft(digits, '0');
+                    File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".nfo"), BuildTopListNfo(entry.Item, sortPrefix));
+                    WriteRankedImages(entry.Item, count, Path.Combine(folderPath, entry.BaseName), request.BadgeStyle, tempDir2);
+                    // .strm last — see PrepareTopListFolderRequest handler.
                     File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".strm"), entry.FilePath);
-                    var nfo = $"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<movie>\n  <sorttitle>{sortPrefix}</sorttitle>\n  <lockedfields>SortName|Images</lockedfields>\n</movie>";
-                    File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".nfo"), nfo);
-                    var localPoster = EnsureLocalImagePath(_httpClient, entry.PosterPath, tempDir2);
-                    if (!string.IsNullOrEmpty(localPoster))
-                        try { CreateRankedPoster(localPoster, count, Path.Combine(folderPath, entry.BaseName + ".jpg"), request.BadgeStyle); }
-                        catch { }
-                    var localThumb = EnsureLocalImagePath(_httpClient, entry.ThumbPath, tempDir2);
-                    if (!string.IsNullOrEmpty(localThumb))
-                        try { CreateRankedPoster(localThumb, count, Path.Combine(folderPath, entry.BaseName + "-thumb.jpg"), request.BadgeStyle); }
-                        catch { }
                 }
                 }
                 finally { try { Directory.Delete(tempDir2, true); } catch { } }
@@ -1655,6 +1638,9 @@ public class HomeScreenCompanionService : IService
                             if (prop?.CanWrite == true) prop.SetValue(li, newSort);
                         }
 
+                        // Point poster and thumb at our local ranked images
+                        ApplyRankedImages(li, folderPath);
+
                         // Merge STRM as an alternate version of the original library movie.
                         try
                         {
@@ -1678,6 +1664,133 @@ public class HomeScreenCompanionService : IService
             {
                 return new PrepareTopListFolderResponse { Success = false, Message = ex.Message };
             }
+        }
+
+        // Builds the .nfo for a top-list .strm entry. Carries the original movie's IMDb/TMDb ids
+        // so Emby identifies the .strm item deterministically instead of guessing from the
+        // "Title (Year)" file name — a wrong guess means no merge (duplicates in the UI) or a
+        // merge with the wrong film.
+        internal static string BuildTopListNfo(BaseItem item, string sortPrefix)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<movie>\n");
+            sb.Append("  <sorttitle>").Append(sortPrefix).Append("</sorttitle>\n");
+
+            var imdb = item.GetProviderId("Imdb");
+            if (!string.IsNullOrWhiteSpace(imdb))
+                sb.Append("  <imdbid>").Append(System.Security.SecurityElement.Escape(imdb)).Append("</imdbid>\n");
+            var tmdb = item.GetProviderId("Tmdb");
+            if (!string.IsNullOrWhiteSpace(tmdb))
+                sb.Append("  <tmdbid>").Append(System.Security.SecurityElement.Escape(tmdb)).Append("</tmdbid>\n");
+
+            sb.Append("  <lockedfields>SortName|Images</lockedfields>\n</movie>");
+            return sb.ToString();
+        }
+
+        // Renders <outputBase>.jpg and <outputBase>-thumb.jpg for a top-list entry, badged with
+        // its rank. Fetches (and if needed refreshes) the source images first.
+        internal static void WriteRankedImages(
+            BaseItem item, int rank, string outputBase, string badgeStyle, string tempDir,
+            IHttpClient httpClient, IProviderManager providerManager, ILibraryManager libraryManager,
+            IFileSystem fileSystem, Action<string>? log = null)
+        {
+            var (poster, thumb) = FetchImageSources(item, httpClient, tempDir, providerManager, libraryManager, fileSystem, log);
+
+            if (poster != null)
+                try { CreateRankedPoster(poster, rank, outputBase + ".jpg", badgeStyle); }
+                catch (Exception ex) { log?.Invoke($"Top-list: poster badge failed for '{item.Name}' — {ex.Message}"); }
+
+            if (thumb != null)
+                try { CreateRankedPoster(thumb, rank, outputBase + "-thumb.jpg", badgeStyle); }
+                catch (Exception ex) { log?.Invoke($"Top-list: thumb badge failed for '{item.Name}' — {ex.Message}"); }
+        }
+
+        private void WriteRankedImages(BaseItem item, int rank, string outputBase, string badgeStyle, string tempDir)
+            => WriteRankedImages(item, rank, outputBase, badgeStyle, tempDir,
+                _httpClient, _providerManager, _libraryManager, _fileSystem, m => _logger.Info(m));
+
+        // Produces the local source files a top-list entry's ranked poster/thumb are rendered
+        // from. Returned paths are files that exist on disk (or null when nothing is available).
+        //
+        // Thumb rows on the home screen fall back to Backdrop when an item has no Thumb, so we
+        // do the same here — otherwise Emby shows its own unnumbered backdrop instead of our
+        // badged image.
+        //
+        // The decision to refresh is based on whether the image could actually be obtained,
+        // not on whether ImageInfos has a path: a path may point at a file that is gone, or at
+        // a remote URL that fails to download. Only when the first attempt comes up short do
+        // we run a targeted image refresh on that single item and try once more.
+        internal static (string? Poster, string? Thumb) FetchImageSources(
+            BaseItem item, IHttpClient httpClient, string tempDir,
+            IProviderManager providerManager, ILibraryManager libraryManager, IFileSystem fileSystem,
+            Action<string>? log = null)
+        {
+            var first = TryFetchImages(item, httpClient, tempDir);
+            if (first.Poster != null && first.Thumb != null)
+                return first;
+
+            try
+            {
+                log?.Invoke($"Top-list: could not get {(first.Poster == null ? "poster" : "thumb/backdrop")} for '{item.Name}' — refreshing images and retrying");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                providerManager.RefreshFullItem(item, new MetadataRefreshOptions(fileSystem)
+                {
+                    MetadataRefreshMode = MetadataRefreshMode.ValidationOnly,
+                    ImageRefreshMode    = MetadataRefreshMode.FullRefresh,
+                    ReplaceAllImages    = false,
+                    ForceSave           = true
+                }, cts.Token).GetAwaiter().GetResult();
+
+                // Re-read from the library so we see the ImageInfos the refresh persisted.
+                var refreshed = libraryManager.GetItemById(item.InternalId) ?? item;
+                var second = TryFetchImages(refreshed, httpClient, tempDir);
+                var result = (second.Poster ?? first.Poster, second.Thumb ?? first.Thumb);
+                if (result.Item1 == null || result.Item2 == null)
+                    log?.Invoke($"Top-list: still no {(result.Item1 == null ? "poster" : "thumb/backdrop")} for '{item.Name}' after refresh — check the library's image providers");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"Top-list: image refresh for '{item.Name}' failed — {ex.Message}");
+                return first;
+            }
+        }
+
+        private static (string? Poster, string? Thumb) TryFetchImages(BaseItem item, IHttpClient httpClient, string tempDir)
+        {
+            var images = item.ImageInfos ?? Array.Empty<ItemImageInfo>();
+            var poster = EnsureLocalImagePath(httpClient, images.FirstOrDefault(i => i.Type == ImageType.Primary)?.Path, tempDir);
+            var thumb  = EnsureLocalImagePath(httpClient, images.FirstOrDefault(i => i.Type == ImageType.Thumb)?.Path, tempDir)
+                      ?? EnsureLocalImagePath(httpClient, images.FirstOrDefault(i => i.Type == ImageType.Backdrop)?.Path, tempDir);
+            return (poster, thumb);
+        }
+
+        // Points an already-indexed top-list .strm item at the ranked images on disk so the
+        // new badge shows up without waiting for a library scan. Both files are regenerated in
+        // place on every run, so DateModified must be refreshed too or Emby keeps serving the
+        // previously cached (stale-numbered) image.
+        internal static bool ApplyRankedImages(BaseItem li, string folderPath)
+        {
+            var baseName = Path.GetFileNameWithoutExtension(li.Path);
+            var images = (li.ImageInfos ?? Array.Empty<ItemImageInfo>()).ToList();
+            bool changed = false;
+
+            foreach (var (type, suffix) in new[] { (ImageType.Primary, ".jpg"), (ImageType.Thumb, "-thumb.jpg") })
+            {
+                var path = Path.Combine(folderPath, baseName + suffix);
+                if (!File.Exists(path)) continue;
+                images.RemoveAll(i => i.Type == type);
+                images.Add(new ItemImageInfo
+                {
+                    Path = path,
+                    Type = type,
+                    DateModified = File.GetLastWriteTimeUtc(path)
+                });
+                changed = true;
+            }
+
+            if (changed) li.ImageInfos = images.ToArray();
+            return changed;
         }
 
         internal static string EnsureLocalImagePath(IHttpClient httpClient, string path, string tempDir)
@@ -1706,9 +1819,11 @@ public class HomeScreenCompanionService : IService
         internal static void CreateRankedPoster(string sourcePath, int rank, string outputPath, string badgeStyle = "neutral")
         {
             using var original = SKBitmap.Decode(sourcePath);
-            if (original == null) return;
+            if (original == null)
+                throw new InvalidOperationException($"SkiaSharp could not decode '{sourcePath}' (unsupported format or corrupt file)");
 
-            using var surface = SKSurface.Create(new SKImageInfo(original.Width, original.Height));
+            using var surface = SKSurface.Create(new SKImageInfo(original.Width, original.Height))
+                ?? throw new InvalidOperationException($"SkiaSharp could not create a {original.Width}x{original.Height} surface");
             var canvas = surface.Canvas;
             canvas.DrawBitmap(original, 0, 0);
 
