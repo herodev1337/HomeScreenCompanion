@@ -1,6 +1,8 @@
 # 🎬 Home Screen Companion for Emby
 
-<img width="481" height="142" alt="HSC" src="https://github.com/user-attachments/assets/2887420a-7198-472e-8afb-a49eda3231d9" />
+<img width="747" height="420" alt="HSCv2" src="https://github.com/user-attachments/assets/c5c99ee4-f90b-4aad-9a74-70eaf4f64836" />
+
+
 
 **Home Screen Companion** is the ultimate plugin for your Emby server. It automates the management of tags, collections, and playlists for your movies and TV shows, while keeping everyone's home screens perfectly synchronized and looking great.
 
