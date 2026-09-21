@@ -72,6 +72,7 @@ namespace HomeScreenCompanion
         public string LastSyncResult { get; set; } = "";
         public int SectionsCopied { get; set; }
         public List<string> Logs { get; set; } = new List<string>();
+        public string StartedUtc { get; set; } = "";
     }
 
     [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/UserSections", "GET")]

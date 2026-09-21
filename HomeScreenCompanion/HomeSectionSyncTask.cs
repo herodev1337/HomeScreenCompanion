@@ -22,11 +22,14 @@ namespace HomeScreenCompanion
         public static string LastSyncResult { get; private set; } = "";
         public static int LastSectionsCopied { get; private set; } = 0;
         public static List<string> ExecutionLog { get; } = new List<string>();
+        public static DateTime? LastStartedUtc { get; private set; }
+        private RunLog _log;
 
         public HomeSectionSyncTask(IUserManager userManager, ILogManager logManager)
         {
             _userManager = userManager;
             _logger = logManager.GetLogger("HomeScreenCompanion_HSC");
+            _log = new RunLog(ExecutionLog, _logger, "[Home Screen]", false);
         }
 
         public string Key => "HomeSectionSyncTask";
@@ -43,29 +46,35 @@ namespace HomeScreenCompanion
         {
             IsRunning = true;
             lock (ExecutionLog) { ExecutionLog.Clear(); }
+            LastStartedUtc = DateTime.UtcNow;
             try
             {
                 var config = Plugin.Instance?.Configuration;
                 if (config == null) return Task.CompletedTask;
 
                 bool debug = config.ExtendedConsoleOutput;
+                _log = new RunLog(ExecutionLog, _logger, "[Home Screen]", debug);
+                var startTime = DateTime.Now;
+                _log.Rule();
+                _log.Info($"Home Screen Sync  ·  {startTime:yyyy-MM-dd HH:mm}");
+                _log.Rule();
 
                 if (!config.HomeSyncEnabled)
                 {
-                    LogSummary("Sync is disabled. Skipping.");
+                    _log.Skip("Home Screen Sync is disabled in Settings — nothing to do");
                     return Task.CompletedTask;
                 }
 
                 if (string.IsNullOrWhiteSpace(config.HomeSyncSourceUserId))
                 {
-                    LogSummary("No source user configured. Skipping.", "Warn");
+                    _log.Warn("No master user is selected in Settings — nothing to sync");
                     LastSyncResult = "No source user configured.";
                     return Task.CompletedTask;
                 }
 
                 if (config.HomeSyncTargetUserIds == null || config.HomeSyncTargetUserIds.Count == 0)
                 {
-                    LogSummary("No target users configured. Skipping.", "Warn");
+                    _log.Warn("No target users are selected in Settings — nothing to sync");
                     LastSyncResult = "No target users configured.";
                     return Task.CompletedTask;
                 }
@@ -80,21 +89,21 @@ namespace HomeScreenCompanion
 
                 if (sourceSections?.Sections == null || sourceSections.Sections.Length == 0)
                 {
-                    LogSummary($"  ! {sourceName} has no home sections configured. Skipping.", "Warn");
+                    _log.Warn($"Master user {sourceName} has no home screen sections — nothing to copy");
                     LastSyncResult = "Source user has no home sections.";
                     return Task.CompletedTask;
                 }
 
-                LogSummary($"  Source: {sourceName}  ·  {sourceSections.Sections.Length} section(s)");
-                if (debug)
-                {
-                    foreach (var s in sourceSections.Sections)
-                        LogDebug($"  [HS] [{s.SectionType}] \"{s.CustomName ?? s.Name}\"");
-                }
+                _log.Info($"  Master: {sourceName}  ·  {RunLog.Plural(sourceSections.Sections.Length, "section")}");
+                _log.Section("Master sections");
+                foreach (var s in sourceSections.Sections)
+                    _log.Debug($"  [{s.SectionType}] \"{s.CustomName ?? s.Name}\"");
 
                 progress.Report(20);
-                int totalCopied = 0;
+                int totalCopied = 0, failedUsers = 0;
                 int targetCount = config.HomeSyncTargetUserIds.Count;
+                _log.Blank();
+                _log.Info("» Copying home screen");
 
                 for (int i = 0; i < targetCount; i++)
                 {
@@ -111,7 +120,7 @@ namespace HomeScreenCompanion
                         var existing = _userManager.GetHomeSections(targetInternalId, cancellationToken);
                         if (existing?.Sections?.Length > 0)
                         {
-                            if (debug) LogDebug($"  [HS] {targetName}: replacing {existing.Sections.Length} existing section(s)");
+                            _log.Debug($"  {targetName}: replacing {existing.Sections.Length} existing sections");
                             var idsToDelete = existing.Sections
                                 .Where(s => !string.IsNullOrEmpty(s.Id))
                                 .Select(s => s.Id)
@@ -122,16 +131,17 @@ namespace HomeScreenCompanion
 
                         foreach (var section in sourceSections.Sections)
                         {
-                            if (debug) LogDebug($"  [HS] {targetName}: + [{section.SectionType}] \"{section.CustomName ?? section.Name}\"");
+                            _log.Debug($"  {targetName}: + [{section.SectionType}] \"{section.CustomName ?? section.Name}\"");
                             _userManager.AddHomeSection(targetInternalId, CopySection(section), cancellationToken);
                             totalCopied++;
                         }
 
-                        LogSummary($"  + {targetName}  ·  {sourceSections.Sections.Length} section(s) synced");
+                        _log.Ok($"{targetName}: {RunLog.Plural(sourceSections.Sections.Length, "section")} copied");
                     }
                     catch (Exception ex)
                     {
-                        LogSummary($"  ! {targetName}  ·  {ex.Message}", "Error");
+                        failedUsers++;
+                        _log.Error($"{targetName}: could not copy home screen — {ex.Message}");
                     }
 
                     progress.Report(20 + (int)(80.0 * (i + 1) / targetCount));
@@ -139,8 +149,8 @@ namespace HomeScreenCompanion
 
                 if (config.HomeSyncLibraryOrder)
                 {
-                    LogSummary("  --------------------------------------------------");
-                    LogSummary("  Library order sync");
+                    _log.Blank();
+                    _log.Info("» Library order");
                     try
                     {
                         var sourceUser = _userManager.GetUserById(config.HomeSyncSourceUserId);
@@ -149,8 +159,7 @@ namespace HomeScreenCompanion
                             var sourceConf = _userManager.GetUserConfiguration(sourceUser);
                             if (sourceConf?.OrderedViews != null && sourceConf.OrderedViews.Length > 0)
                             {
-                                if (debug)
-                                    LogDebug($"  [LibOrder] Source order: [{string.Join(", ", sourceConf.OrderedViews)}]");
+                                _log.Debug($"  Master order: [{string.Join(", ", sourceConf.OrderedViews)}]");
                                 foreach (var targetIdStr in config.HomeSyncTargetUserIds)
                                 {
                                     string targetName2 = Guid.TryParse(targetIdStr, out var tgtGuid2)
@@ -164,46 +173,49 @@ namespace HomeScreenCompanion
                                         if (targetConf == null) continue;
                                         targetConf.OrderedViews = sourceConf.OrderedViews;
                                         _userManager.UpdateConfiguration(_userManager.GetInternalId(targetIdStr), targetConf);
-                                        LogSummary($"  + {targetName2}  ·  library order synced");
+                                        _log.Ok($"{targetName2}: library order copied");
                                     }
                                     catch (Exception ex)
                                     {
-                                        LogSummary($"  ! {targetName2}  ·  library order failed: {ex.Message}", "Warn");
+                                        _log.Warn($"{targetName2}: library order could not be copied — {ex.Message}");
                                     }
                                 }
                             }
                             else
                             {
-                                LogSummary($"  ! {sourceName} has no custom library order. Skipping.", "Warn");
+                                _log.Skip($"{sourceName} has no custom library order — nothing to copy");
                             }
                         }
                         else
                         {
-                            LogSummary($"  ! Could not load source user. Skipping.", "Warn");
+                            _log.Warn("Master user could not be loaded — library order not copied");
                         }
                     }
                     catch (Exception ex)
                     {
-                        LogSummary($"  ! Library order sync failed: {ex.Message}", "Error");
+                        _log.Error($"Library order sync failed: {ex.Message}");
                     }
                 }
 
                 LastSectionsCopied = totalCopied;
                 LastSyncTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 LastSyncResult = $"OK — {totalCopied} section(s) copied to {targetCount} user(s).";
-                LogSummary("  --------------------------------------------------");
-                LogSummary($"  Done  ·  {totalCopied} section(s) synced to {targetCount} user(s)");
+                _log.Rule();
+                _log.Info("Summary");
+                _log.Info($"  Sections:      {totalCopied} copied to {RunLog.Plural(targetCount - failedUsers, "user")}{(failedUsers > 0 ? $", {RunLog.Plural(failedUsers, "user")} failed" : "")}");
+                _log.Info($"  Done in {RunLog.Elapsed(DateTime.Now - startTime)}  ·  {(failedUsers > 0 ? "✖ Completed with " + RunLog.Plural(failedUsers, "error") : "✔ Completed")}");
+                _log.Rule();
                 progress.Report(100);
             }
             catch (OperationCanceledException)
             {
                 LastSyncResult = "Cancelled.";
-                LogSummary("Sync was cancelled.", "Warn");
+                _log.Warn("Sync was cancelled");
             }
             catch (Exception ex)
             {
                 LastSyncResult = $"Error: {ex.Message}";
-                LogSummary($"Unexpected error: {ex.Message}", "Error");
+                _log.Error($"Sync aborted: {ex.Message}");
             }
             finally
             {
@@ -211,21 +223,6 @@ namespace HomeScreenCompanion
             }
 
             return Task.CompletedTask;
-        }
-
-        private void LogSummary(string message, string level = "Info")
-        {
-            var msg = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            lock (ExecutionLog) { ExecutionLog.Add(msg); }
-            if (level == "Error") _logger.Error($"[Home Screen] {message}");
-            else if (level == "Warn") _logger.Warn($"[Home Screen] {message}");
-            else _logger.Info($"[Home Screen] {message}");
-        }
-
-        private void LogDebug(string message)
-        {
-            var msg = $"[{DateTime.Now:HH:mm:ss}] [DEBUG] {message}";
-            lock (ExecutionLog) { ExecutionLog.Add(msg); }
         }
 
         private static ContentSection CopySection(ContentSection source)

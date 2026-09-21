@@ -24,6 +24,8 @@ namespace HomeScreenCompanion
 
         public static List<string> ExecutionLog { get; } = new List<string>();
         public static bool IsRunning { get; private set; } = false;
+        public static DateTime? LastStartedUtc { get; private set; }
+        private static RunLog _log = new RunLog(ExecutionLog, null, "", false);
         public static string LastRunStatus { get; private set; } = "Never";
 
         public TopListSyncTask(ILibraryManager libraryManager, IUserViewManager userViewManager, IUserManager userManager, IJsonSerializer jsonSerializer, ILogManager logManager)
@@ -45,7 +47,6 @@ namespace HomeScreenCompanion
         public Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
             IsRunning = true;
-            lock (ExecutionLog) { ExecutionLog.Clear(); }
             try
             {
                 var (_, msg) = SyncAll(_libraryManager, _userViewManager, _userManager, _jsonSerializer, _logger, cancellationToken);
@@ -54,7 +55,7 @@ namespace HomeScreenCompanion
             catch (Exception ex)
             {
                 LastRunStatus = $"Error: {ex.Message}";
-                Log($"Unexpected error: {ex.Message}");
+                _log.Error($"Top-list sync aborted: {ex.Message}");
             }
             finally
             {
@@ -63,10 +64,15 @@ namespace HomeScreenCompanion
             return Task.CompletedTask;
         }
 
-        internal static void Log(string message)
+        private static string UserLabel(IUserManager userManager, string userId)
         {
-            var msg = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            lock (ExecutionLog) { ExecutionLog.Add(msg); }
+            try
+            {
+                if (Guid.TryParse(userId, out var guid))
+                    return userManager.GetUserById(guid)?.Name ?? userId;
+            }
+            catch { }
+            return userId;
         }
 
         internal static (int updated, string message) SyncAll(
@@ -75,16 +81,34 @@ namespace HomeScreenCompanion
             IUserManager userManager,
             IJsonSerializer jsonSerializer,
             ILogger logger,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            RunLog? log = null)
         {
             var config = Plugin.Instance?.Configuration;
-            if (config == null) { Log("No config."); return (0, "No config."); }
+            var startTime = DateTime.Now;
+            // When called from the main sync, lines go into that run's log (under its "» Top-lists"
+            // heading). On its own (scheduled task / UI button) this task keeps its own log.
+            bool standalone = log == null;
+            if (standalone)
+            {
+                lock (ExecutionLog) { ExecutionLog.Clear(); }
+                LastStartedUtc = DateTime.UtcNow;
+                _log = new RunLog(ExecutionLog, null, "", config?.ExtendedConsoleOutput ?? false);
+                _log.Rule();
+                _log.Info($"Top-list section sync  ·  {startTime:yyyy-MM-dd HH:mm}");
+                _log.Rule();
+            }
+            else
+            {
+                _log = log!;
+            }
+            if (config == null) { _log.Error("Plugin configuration could not be loaded"); return (0, "No config."); }
 
             var topLists = config.TopLists ?? new List<TopListHomeSection>();
-            if (topLists.Count == 0) { Log("No top-lists configured."); return (0, "No top-lists configured."); }
+            if (topLists.Count == 0) { _log.Skip("No top-lists configured — nothing to do"); return (0, "No top-lists configured."); }
 
-            Log($"Starting top-list sync  ·  {topLists.Count} top-list(s)");
-            int totalUpdated = 0;
+            if (standalone) { _log.Blank(); _log.Info($"» Top-list sections  ·  {RunLog.Plural(topLists.Count, "top-list")}"); }
+            int totalUpdated = 0, totalErrors = 0;
 
             // Collect all configured top-list library IDs so each top-list always excludes
             // its siblings, even if their libraries haven't been discovered via GetVirtualFolders yet.
@@ -95,8 +119,10 @@ namespace HomeScreenCompanion
 
             foreach (var tl in topLists)
             {
-                Log($"  Processing: {tl.TagName ?? "(unnamed)"}");
-                if (string.IsNullOrEmpty(tl.HomeSectionLibraryId) || tl.HomeSectionLibraryId == "auto") { Log($"    Skipped — no library id"); continue; }
+                string tlName = tl.TagName ?? "(unnamed)";
+                _log.Section($"Top-list '{tlName}'");
+                if (string.IsNullOrEmpty(tl.HomeSectionLibraryId) || tl.HomeSectionLibraryId == "auto") { _log.Skip($"Top-list '{tlName}': skipped — no library has been created for it yet"); continue; }
+                int tlUpdated = 0, tlRemoved = 0;
 
                 var ownId = tl.HomeSectionLibraryId.Trim().ToLowerInvariant();
                 var safeTag = new string((tl.TagName ?? "").Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
@@ -121,9 +147,10 @@ namespace HomeScreenCompanion
                             var uid = userManager.GetInternalId(t.UserId);
                             userManager.DeleteHomeSections(uid, new[] { t.SectionId }, cancellationToken);
                             tl.HomeSectionTracked.Remove(t);
-                            Log($"    Removed home section for unassigned user {t.UserId}");
+                            tlRemoved++;
+                            _log.Debug($"  {UserLabel(userManager, t.UserId)}: section removed (user no longer selected)");
                         }
-                        catch (Exception ex) { Log($"    Error removing section for {t.UserId}: {ex.Message}"); }
+                        catch (Exception ex) { totalErrors++; _log.Warn($"Top-list '{tlName}': could not remove section for {UserLabel(userManager, t.UserId)} — {ex.Message}"); }
                     }
                 }
 
@@ -218,11 +245,16 @@ namespace HomeScreenCompanion
                             jsonSerializer, settingsDict, tl.HomeSectionLibraryId, owned);
                         typeof(ContentSection).GetProperty("Id")?.SetValue(updated, owned.Id);
                         userManager.UpdateHomeSection(uid, updated, cancellationToken);
-                        Log($"    Updated section for user {tracking.UserId}");
+                        _log.Debug($"  {UserLabel(userManager, tracking.UserId)}: section updated");
                         totalUpdated++;
+                        tlUpdated++;
                     }
-                    catch (Exception ex) { Log($"    Error for user {tracking.UserId}: {ex.Message}"); }
+                    catch (Exception ex) { totalErrors++; _log.Warn($"Top-list '{tlName}': section could not be updated for {UserLabel(userManager, tracking.UserId)} — {ex.Message}"); }
                 }
+                if (tlUpdated > 0 || tlRemoved > 0)
+                    _log.Ok($"Top-list '{tlName}': {RunLog.Plural(tlUpdated, "section")} updated{(tlRemoved > 0 ? $", {tlRemoved} removed" : "")}");
+                else
+                    _log.Skip($"Top-list '{tlName}': no home sections to update");
             }
 
             // Ensure ALL top-list libraries are excluded from every TAG items-type section.
@@ -313,7 +345,7 @@ namespace HomeScreenCompanion
 
             Plugin.Instance?.SaveConfiguration();
             var summary = $"Updated {totalUpdated} section(s) across {topLists.Count} top-list(s).";
-            Log(summary);
+            _log.Info($"    {RunLog.Plural(totalUpdated, "section")} updated across {RunLog.Plural(topLists.Count, "top-list")}{(totalErrors > 0 ? $", {RunLog.Plural(totalErrors, "error")}" : "")}  ·  {RunLog.Elapsed(DateTime.Now - startTime)}");
             return (totalUpdated, summary);
         }
 

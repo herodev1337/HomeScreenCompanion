@@ -3,6 +3,9 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
 
     var pluginId = "7c10708f-43e4-4d69-923c-77d01802315b";
     var statusInterval = null;
+    // Live log modal: latest status per task and the tab the user picked (null = automatic)
+    var _lastStatus = { sync: null, hsc: null, tl: null };
+    var _logTab = null;
     var originalConfigState = null;
     var statusRequestId = 0;
 
@@ -2553,6 +2556,99 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
     }
 
 
+    // Renders the merged execution log as colour-coded lines. Classification is based on the
+    // leading symbol each server task writes (✔ ⚠ ✖ –) and on the [DEBUG] token, which is
+    // stripped for display. A source badge is shown only when several tasks have output.
+    function renderLogLines(container, entries, isRunning) {
+        var stickToBottom = isRunning && (container.scrollHeight - container.scrollTop - container.clientHeight) < 40;
+        var wasEmpty = container.childElementCount === 0;
+        if (!entries.length) { container.textContent = '(no logs yet)'; return; }
+
+        var srcCount = {};
+        entries.forEach(function (e) { srcCount[e.src] = 1; });
+        var showSrc = Object.keys(srcCount).length > 1;
+
+        var frag = document.createDocumentFragment();
+        entries.forEach(function (e) {
+            var raw = e.text || '';
+            var ts = '';
+            var m = raw.match(/^\[(\d{2}:\d{2}:\d{2})\] ?/);
+            if (m) { ts = m[1]; raw = raw.substring(m[0].length); }
+
+            var cls = '';
+            if (/^\[DEBUG\] ?/.test(raw)) { cls = 'log-debug'; raw = raw.replace(/^\[DEBUG\] ?/, ''); }
+            else if (raw.trim() === '') cls = 'log-blank';
+            else if (/^═+$/.test(raw.trim())) cls = 'log-rule';
+            else if (raw.indexOf('✖') >= 0) cls = 'log-err';
+            else if (raw.indexOf('⚠') >= 0) cls = 'log-warn';
+            else if (raw.indexOf('✔') >= 0) cls = 'log-ok';
+            else if (/^\s{1,3}– /.test(raw)) cls = 'log-skip';
+            else if (/^(»|Results$|Summary$|\[Cleanup\]$|\[\d+\/\d+\] |Home Screen (Companion|Sync) )/.test(raw)) cls = 'log-head';
+
+            var line = document.createElement('div');
+            line.className = 'log-line' + (cls ? ' ' + cls : '');
+            if (cls !== 'log-blank') {
+                var tsEl = document.createElement('span');
+                tsEl.className = 'log-ts';
+                tsEl.textContent = ts;
+                line.appendChild(tsEl);
+                if (showSrc) {
+                    var srcEl = document.createElement('span');
+                    srcEl.className = 'log-src';
+                    srcEl.textContent = e.src;
+                    line.appendChild(srcEl);
+                }
+                line.appendChild(document.createTextNode(raw));
+            } else {
+                line.textContent = ' ';
+            }
+            frag.appendChild(line);
+        });
+        container.textContent = '';
+        container.appendChild(frag);
+        if (stickToBottom || wasEmpty) container.scrollTop = container.scrollHeight;
+    }
+
+    // Picks which task's log to show (running task, else the most recently started one, unless the
+    // user chose a tab), updates the tab bar and renders that single log.
+    function renderLogModal(view) {
+        var content = view.querySelector('#logContent');
+        var tabs = view.querySelectorAll('#logTabs .log-tab');
+        if (!content) return;
+
+        var keys = ['sync', 'hsc', 'tl'];
+        function startedMs(k) { var s = _lastStatus[k]; var t = s && s.StartedUtc ? Date.parse(s.StartedUtc) : NaN; return isNaN(t) ? 0 : t; }
+        function running(k) { return !!(_lastStatus[k] && _lastStatus[k].IsRunning); }
+        function logs(k) { return (_lastStatus[k] && _lastStatus[k].Logs) || []; }
+
+        var selected = _logTab;
+        if (!selected) {
+            selected = keys.filter(running)[0];
+            if (!selected) {
+                var best = 0;
+                keys.forEach(function (k) { if (startedMs(k) > best) { best = startedMs(k); selected = k; } });
+            }
+            if (!selected) selected = 'sync';
+        }
+
+        tabs.forEach(function (tab) {
+            var k = tab.getAttribute('data-log');
+            tab.classList.toggle('active', k === selected);
+            tab.classList.toggle('empty', logs(k).length === 0 && !running(k));
+            var dot = tab.querySelector('.status-dot');
+            if (dot) { dot.className = 'status-dot'; if (running(k)) dot.classList.add('running'); dot.style.visibility = (running(k) || logs(k).length) ? 'visible' : 'hidden'; }
+            var timeEl = tab.querySelector('.log-tab-time');
+            if (timeEl) {
+                var ms = startedMs(k);
+                timeEl.textContent = ms ? new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+            }
+        });
+
+        var entries = logs(selected).map(function (l) { return { src: selected, text: l }; });
+        if (!entries.length) { content.textContent = '(no runs yet)'; return; }
+        renderLogLines(content, entries, running(selected));
+    }
+
     function refreshStatus(view) {
         var myId = ++statusRequestId;
         Promise.all([
@@ -2580,28 +2676,14 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             if (label) label.textContent = result.LastRunStatus || "Never";
             if (dot) {
                 dot.className = "status-dot";
-                if (result.LastRunStatus.includes("Running")) dot.classList.add("running");
-                else if (result.LastRunStatus.includes("Failed")) dot.classList.add("failed");
+                var st = result.LastRunStatus || '';
+                if (st.includes("Running")) dot.classList.add("running");
+                else if (/failed|error/i.test(st)) dot.classList.add("failed");
+                else if (/warning/i.test(st)) dot.classList.add("warn");
             }
 
-            if (content) {
-                function getLogTime(entry) {
-                    var m = entry.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
-                    return m ? m[1] : '00:00:00';
-                }
-                var allLogs = [];
-                (result.Logs || []).forEach(function (l) {
-                    allLogs.push({ t: getLogTime(l), text: l.replace(/^(\[\d{2}:\d{2}:\d{2}\]) /, '$1 [HSC] ') });
-                });
-                (hscResult && hscResult.Logs || []).forEach(function (l) {
-                    allLogs.push({ t: getLogTime(l), text: l.replace(/^(\[\d{2}:\d{2}:\d{2}\]) /, '$1 [Home Screen] ') });
-                });
-                (tlResult && tlResult.Logs || []).forEach(function (l) {
-                    allLogs.push({ t: getLogTime(l), text: l.replace(/^(\[\d{2}:\d{2}:\d{2}\]) /, '$1 [Top-List] ') });
-                });
-                allLogs.sort(function (a, b) { return a.t.localeCompare(b.t); });
-                content.textContent = allLogs.map(function (x) { return x.text; }).join('\n') || '(no logs yet)';
-            }
+            _lastStatus = { sync: result, hsc: hscResult, tl: tlResult };
+            if (content) renderLogModal(view);
         }).catch(function () {
             if (myId !== statusRequestId) return;
         });
@@ -3312,6 +3394,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             OllamaModel: (view.querySelector('#txtOllamaModel') || {}).value || '',
             AiSystemPrompt: (view.querySelector('#txtAiSystemPrompt') || {}).value || '',
             ExtendedConsoleOutput: view.querySelector('#chkExtendedConsoleOutput').checked,
+            LogMissingItems: view.querySelector('#chkLogMissingItems').checked,
             DryRunMode: view.querySelector('#chkDryRunMode').checked,
             PreserveTagsOnEmptyResult: view.querySelector('#chkPreserveTagsOnEmptyResult').checked,
             Tags: flatTags,
@@ -4256,7 +4339,8 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         // Step 0: Snapshot all user policies server-side BEFORE library creation.
         // POST Library/VirtualFolders causes Emby to set EnableAllFolders=true for all users.
         // The server stores the exact per-user state and restores it in step 4b.
-        fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/SnapshotPolicies'), {
+        // The chain is returned so silent callers (backup restore) can await it.
+        return fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/SnapshotPolicies'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
             body: JSON.stringify({})
@@ -4528,6 +4612,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             saveBtn.disabled = false;
             saveBtn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">check</i>Save and apply';
             errEl.textContent = err.message || String(err);
+            if (ui.silent) throw err;
         });
         }); // end step 0 wrapper
     }
@@ -4538,7 +4623,8 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         { val: 'emby-green', label: 'Emby green', bg: 'rgba(82,181,75,0.78)',    textColor: '#fff' },
         { val: 'ocean-blue', label: 'Ocean blue', bg: 'rgba(46,134,193,0.82)',   textColor: '#fff' },
         { val: 'soft-red',   label: 'Soft red',   bg: 'rgba(201,69,69,0.82)',    textColor: '#fff' },
-        { val: 'violet',     label: 'Violet',     bg: 'rgba(123,82,181,0.82)',   textColor: '#fff' }
+        { val: 'violet',     label: 'Violet',     bg: 'rgba(123,82,181,0.82)',   textColor: '#fff' },
+        { val: 'none',       label: 'No number',  bg: 'transparent',             textColor: '#fff', noNumber: true }
     ];
 
     function buildBadgePickerHtml(selectedVal) {
@@ -4553,7 +4639,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                 var active = s.val === sel;
                 return '<label class="tl-badge-opt" style="' + (active ? cardActive : cardInactive) + '">' +
                     '<input type="radio" name="tlBadgeStyle" value="' + s.val + '" style="position:absolute;opacity:0;pointer-events:none;"' + (active ? ' checked' : '') + '>' +
-                    '<div style="width:46px;height:46px;border-radius:50%;background:' + s.bg + ';display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:' + s.textColor + ';font-family:sans-serif;">7</div>' +
+                    '<div style="width:46px;height:46px;border-radius:50%;background:' + s.bg + ';display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:' + s.textColor + ';font-family:sans-serif;">' + (s.noNumber ? '' : '7') + '</div>' +
                     '<span style="font-size:0.78em;opacity:0.8;white-space:nowrap;">' + s.label + '</span>' +
                     '</label>';
             }).join('') +
@@ -5536,6 +5622,271 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         renderStep1();
     }
 
+    // ── Backup & Restore ─────────────────────────────────────────────────────────────
+    // Sections mirror the server's BackupFile. Only configuration is exported; everything the
+    // sync tasks generate (tags, collections, playlists, top-list files, images) is rebuilt on run.
+    var _backupSections = [
+        { key: 'Settings',     label: 'General settings',          desc: 'AI models, system prompt, logging, dry run, preserve-on-empty.' },
+        { key: 'ApiKeys',      label: 'API keys',                  desc: 'Trakt, MDBList, TMDB, OpenAI, Gemini, Claude. Stored in plain text in the file.' },
+        { key: 'Tags',         label: 'Tag & collection groups',   desc: 'All source groups incl. schedules, blacklists, filters, collection settings, home sections and playlists.' },
+        { key: 'SavedFilters', label: 'Saved media-info filters',  desc: 'Your saved filter presets.' },
+        { key: 'TopLists',     label: 'Top lists',                 desc: 'Top-list settings and the movie lists of manual top-lists.' },
+        { key: 'HomeSync',     label: 'Home screen sync',          desc: 'Source user, target users and library-order sync.' }
+    ];
+
+    function buildBackupModalShell() {
+        var modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        modal.renderBox = function (content) {
+            modal.innerHTML =
+                '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);' +
+                'border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;' +
+                'padding:28px;max-width:560px;width:90%;max-height:85vh;overflow-y:auto;">' +
+                content + '</div>';
+        };
+        function onEsc(e) { if (e.key === 'Escape') modal.close(); }
+        modal.close = function () { modal.remove(); document.removeEventListener('keydown', onEsc); };
+        document.addEventListener('keydown', onEsc);
+        modal.addEventListener('click', function (e) { if (e.target === modal && !modal.dataset.busy) modal.close(); });
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    // available: null = every section selectable; otherwise a Set of section keys present in the file
+    function buildBackupSectionsHtml(available, chkClass) {
+        return _backupSections.map(function (s) {
+            var present = !available || available.has(s.key);
+            var rowStyle = 'display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-color,rgba(255,255,255,0.08));' + (present ? '' : 'opacity:0.45;');
+            return '<label style="' + rowStyle + 'cursor:' + (present ? 'pointer' : 'default') + ';">' +
+                '<input type="checkbox" class="' + chkClass + '" data-section="' + s.key + '"' + (present ? ' checked' : ' disabled') + ' style="margin-top:3px;" />' +
+                '<span style="flex:1;">' +
+                '<span style="display:block;font-weight:600;font-size:0.95em;">' + s.label + (present ? '' : ' <span style="font-weight:400;opacity:0.7;">(not in file)</span>') + '</span>' +
+                '<span style="display:block;font-size:0.82em;opacity:0.65;margin-top:2px;">' + s.desc + '</span>' +
+                '</span></label>';
+        }).join('');
+    }
+
+    function readBackupSectionFlags(modal, chkClass) {
+        var flags = {};
+        modal.querySelectorAll('.' + chkClass).forEach(function (c) { flags[c.dataset.section] = !c.disabled && c.checked; });
+        return flags;
+    }
+
+    var _backupBtnPrimary = 'cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:4px;padding:10px 26px;font-size:0.95em;font-weight:600;';
+    var _backupBtnSecondary = 'cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;';
+    var _backupTitleStyle = 'margin:0 0 6px;font-size:1.15em;font-weight:600;';
+    var _backupHintStyle = 'font-size:0.88em;opacity:0.7;margin:0 0 14px;line-height:1.45;';
+
+    function showBackupModal() {
+        var modal = buildBackupModalShell();
+        modal.renderBox(
+            '<h3 style="' + _backupTitleStyle + '">Download Backup</h3>' +
+            '<p style="' + _backupHintStyle + '">Choose what to include. Only configuration is saved – tags, collections, playlists, top-list files and images are recreated by the plugin on the next sync run.</p>' +
+            '<div style="margin-bottom:16px;">' + buildBackupSectionsHtml(null, 'chkBackupSection') + '</div>' +
+            '<div class="backup-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:6px;"></div>' +
+            '<div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">' +
+            '<button type="button" class="btnBackupCancel" style="' + _backupBtnSecondary + '">Cancel</button>' +
+            '<button type="button" class="btnBackupDownload" style="' + _backupBtnPrimary + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">download</i>Download</button>' +
+            '</div>'
+        );
+        modal.querySelector('.btnBackupCancel').addEventListener('click', modal.close);
+        modal.querySelector('.btnBackupDownload').addEventListener('click', function () {
+            var btn = this;
+            var errEl = modal.querySelector('.backup-error');
+            var flags = readBackupSectionFlags(modal, 'chkBackupSection');
+            if (!Object.keys(flags).some(function (k) { return flags[k]; })) { errEl.textContent = 'Select at least one section.'; return; }
+            errEl.textContent = '';
+            btn.disabled = true;
+            btn.innerHTML = 'Preparing <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+            modal.dataset.busy = '1';
+            var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
+            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Backup/Export'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
+                body: JSON.stringify(flags)
+            })
+            .then(function (r) { if (!r.ok) throw new Error('Server returned ' + r.status); return r.json(); })
+            .then(function (backup) {
+                var json = JSON.stringify(backup, null, 2);
+                var blob = new Blob([json], { type: 'application/json' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = 'HSC_Backup_' + new Date().toISOString().split('T')[0] + '.json';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                modal.close();
+            })
+            .catch(function (err) {
+                delete modal.dataset.busy;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">download</i>Download';
+                errEl.textContent = 'Backup failed: ' + (err.message || err);
+            });
+        });
+    }
+
+    // Reads which sections a backup file contains. Current files list them; legacy files were a
+    // raw config dump, so infer from the keys that are present.
+    function detectBackupSections(parsed) {
+        var info = { legacy: false, sections: new Set(), createdUtc: '', pluginVersion: '' };
+        if (parsed && typeof parsed.BackupVersion === 'number') {
+            (parsed.Sections || []).forEach(function (s) { info.sections.add(s); });
+            info.createdUtc = parsed.CreatedUtc || '';
+            info.pluginVersion = parsed.PluginVersion || '';
+            return info;
+        }
+        info.legacy = true;
+        info.sections.add('Settings');
+        info.sections.add('ApiKeys');
+        if (Array.isArray(parsed.Tags)) info.sections.add('Tags');
+        if (Array.isArray(parsed.SavedFilters)) info.sections.add('SavedFilters');
+        return info;
+    }
+
+    // onRestored(result) is called after a successful import so the page can reload its state.
+    function showRestoreModal(rawText, onRestored) {
+        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+        var parsed;
+        try { parsed = JSON.parse(rawText); } catch (err) {
+            window.Dashboard.alert('Failed to parse configuration file. The file may be corrupt or not a valid backup file. Error: ' + err.message);
+            return;
+        }
+        if (!parsed || typeof parsed !== 'object') {
+            window.Dashboard.alert('The selected file is not a Home Screen Companion backup.');
+            return;
+        }
+        var info = detectBackupSections(parsed);
+
+        var fileInfo = info.legacy
+            ? 'Legacy backup (created by an older plugin version)'
+            : 'Created ' + (info.createdUtc ? new Date(info.createdUtc).toLocaleString() : 'unknown') + (info.pluginVersion ? ' · plugin v' + escHtml(info.pluginVersion) : '');
+
+        var modal = buildBackupModalShell();
+        modal.renderBox(
+            '<h3 style="' + _backupTitleStyle + '">Restore Backup</h3>' +
+            '<p style="' + _backupHintStyle + 'margin-bottom:6px;">' + fileInfo + '</p>' +
+            '<p style="' + _backupHintStyle + '">Select what to restore. Each selected section <strong>replaces</strong> the current configuration on the server immediately. Sections you leave unchecked are not touched.</p>' +
+            '<div style="margin-bottom:16px;">' + buildBackupSectionsHtml(info.sections, 'chkRestoreSection') + '</div>' +
+            '<div class="backup-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:6px;"></div>' +
+            '<div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">' +
+            '<button type="button" class="btnRestoreCancel" style="' + _backupBtnSecondary + '">Cancel</button>' +
+            '<button type="button" class="btnRestoreApply" style="' + _backupBtnPrimary + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">upload</i>Restore</button>' +
+            '</div>'
+        );
+        modal.querySelector('.btnRestoreCancel').addEventListener('click', modal.close);
+        modal.querySelector('.btnRestoreApply').addEventListener('click', function () {
+            var btn = this;
+            var errEl = modal.querySelector('.backup-error');
+            var flags = readBackupSectionFlags(modal, 'chkRestoreSection');
+            if (!Object.keys(flags).some(function (k) { return flags[k]; })) { errEl.textContent = 'Select at least one section.'; return; }
+            errEl.textContent = '';
+            btn.disabled = true;
+            btn.innerHTML = 'Restoring <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+            modal.dataset.busy = '1';
+            var body = Object.assign({ BackupJson: rawText }, flags);
+            var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
+            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Backup/Import'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
+                body: JSON.stringify(body)
+            })
+            .then(function (r) { if (!r.ok) throw new Error('Server returned ' + r.status); return r.json(); })
+            .then(function (result) {
+                if (!result || !result.Success) throw new Error((result && result.Message) || 'Unknown error');
+                delete modal.dataset.busy;
+                if (typeof onRestored === 'function') onRestored(result);
+                renderRestoreResult(modal, result);
+            })
+            .catch(function (err) {
+                delete modal.dataset.busy;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">upload</i>Restore';
+                errEl.textContent = 'Restore failed: ' + (err.message || err);
+            });
+        });
+    }
+
+    function renderRestoreResult(modal, result) {
+        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+        var pending = result.TopListsNeedingLibrary || [];
+        var listStyle = 'margin:0 0 14px;padding-left:20px;font-size:0.9em;line-height:1.5;';
+
+        var html =
+            '<div style="text-align:center;padding:4px 0 14px;">' +
+            '<i class="md-icon" style="font-size:2.5em;color:#52B54B;display:block;margin-bottom:8px;">check_circle</i>' +
+            '<p style="margin:0;font-size:1.05em;font-weight:500;">Backup restored</p>' +
+            '</div>' +
+            '<span style="font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:4px;">Applied</span>' +
+            '<ul style="' + listStyle + '">' + (result.Applied || []).map(function (a) { return '<li>' + escHtml(a) + '</li>'; }).join('') + '</ul>';
+
+        if ((result.Warnings || []).length > 0) {
+            html += '<span style="font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:#e0a030;display:block;margin-bottom:4px;">Warnings</span>' +
+                '<ul style="' + listStyle + 'opacity:0.85;">' + result.Warnings.map(function (w) { return '<li>' + escHtml(w) + '</li>'; }).join('') + '</ul>';
+        }
+
+        if (pending.length > 0) {
+            html += '<div style="border:1px solid rgba(224,160,48,0.5);background:rgba(224,160,48,0.08);border-radius:6px;padding:12px 14px;margin-bottom:14px;font-size:0.9em;line-height:1.5;">' +
+                '<strong>' + pending.length + ' top-list' + (pending.length !== 1 ? 's' : '') + ' need' + (pending.length === 1 ? 's' : '') + ' an Emby library:</strong> ' +
+                pending.map(function (p) { return escHtml(p.CustomName || p.TagName); }).join(', ') + '.<br/>' +
+                'Their settings and files are restored, but no library exists for them on this server yet. Create them now (this creates the libraries, home sections and access rights exactly like <em>+ Create New</em>), or later by opening each list in the Top Lists tab and clicking Save.' +
+                '<div class="restore-tl-progress" style="margin-top:8px;font-size:0.88em;opacity:0.8;"></div>' +
+                '</div>';
+        }
+
+        html += '<p style="' + _backupHintStyle + '">Run a sync afterwards to rebuild tags, collections, playlists and home sections from the restored configuration.</p>' +
+            '<div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;padding-top:14px;border-top:1px solid var(--line-color);">' +
+            (pending.length > 0 ? '<button type="button" class="btnRestoreCreateLibs" style="' + _backupBtnPrimary + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">library_add</i>Create libraries now</button>' : '') +
+            '<button type="button" class="btnRestoreDone" style="' + (pending.length > 0 ? _backupBtnSecondary : _backupBtnPrimary) + '">Close</button>' +
+            '</div>';
+
+        modal.renderBox(html);
+        modal.querySelector('.btnRestoreDone').addEventListener('click', modal.close);
+
+        var createBtn = modal.querySelector('.btnRestoreCreateLibs');
+        if (createBtn) {
+            createBtn.addEventListener('click', function () {
+                createBtn.disabled = true;
+                modal.querySelector('.btnRestoreDone').disabled = true;
+                modal.dataset.busy = '1';
+                var progressEl = modal.querySelector('.restore-tl-progress');
+                var failures = [];
+                // Dummy UI targets: executeTopListCreationSteps writes its status into these.
+                var dummyBtn = document.createElement('button');
+                var dummyErr = document.createElement('div');
+                var dummyModal = document.createElement('div');
+
+                pending.reduce(function (p, tl, idx) {
+                    return p.then(function () {
+                        progressEl.textContent = 'Creating ' + (idx + 1) + ' of ' + pending.length + ': ' + (tl.CustomName || tl.TagName) + '…';
+                        return new Promise(function (resolve, reject) {
+                            executeTopListCreationSteps(
+                                tl.TagName, tl.CustomName || tl.TagName, tl.UserIds || [], tl.DisplayMode || '', tl.CustomName || tl.TagName,
+                                tl.ImageType || '', tl.MaxItems || 0, { FolderPath: tl.FolderPath, FilesCreated: 0 },
+                                { saveBtn: dummyBtn, errEl: dummyErr, modal: dummyModal, badgeStyle: tl.BadgeStyle || 'neutral', silent: true, closeHandler: resolve }
+                            ).catch(reject);
+                        }).catch(function (err) {
+                            failures.push((tl.CustomName || tl.TagName) + ': ' + (err && err.message ? err.message : err));
+                        });
+                    });
+                }, Promise.resolve()).then(function () {
+                    delete modal.dataset.busy;
+                    modal.querySelector('.btnRestoreDone').disabled = false;
+                    if (failures.length === 0) {
+                        progressEl.style.color = '#52B54B';
+                        progressEl.textContent = 'All ' + pending.length + ' librar' + (pending.length === 1 ? 'y' : 'ies') + ' created. Finishing touches continue in the background.';
+                        createBtn.style.display = 'none';
+                    } else {
+                        progressEl.style.color = '#cc3333';
+                        progressEl.innerHTML = 'Some libraries could not be created:<br/>' + failures.map(escHtml).join('<br/>');
+                        createBtn.disabled = false;
+                    }
+                    var tlContainer = document.querySelector('#tlContainer');
+                    if (tlContainer) tlContainer.dataset.loaded = '';
+                });
+            });
+        }
+    }
+
     function loadTopListsTab(view) {
         var container = view.querySelector('#tlContainer');
         if (!container) return;
@@ -6193,9 +6544,12 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                 var helpOverlay = view.querySelector('#helpModalOverlay');
                 var bugOverlay = view.querySelector('#bugReportModalOverlay');
 
-                view.querySelector('#btnOpenLogs').addEventListener('click', e => { e.preventDefault(); logOverlay.classList.add('modal-visible'); });
-                view.querySelector('#btnCloseLogs').addEventListener('click', () => logOverlay.classList.remove('modal-visible'));
-                logOverlay.addEventListener('click', e => { if (e.target === logOverlay) logOverlay.classList.remove('modal-visible'); });
+                view.querySelector('#btnOpenLogs').addEventListener('click', e => { e.preventDefault(); _logTab = null; renderLogModal(view); logOverlay.classList.add('modal-visible'); });
+                view.querySelector('#btnCloseLogs').addEventListener('click', () => { _logTab = null; logOverlay.classList.remove('modal-visible'); });
+                logOverlay.addEventListener('click', e => { if (e.target === logOverlay) { _logTab = null; logOverlay.classList.remove('modal-visible'); } });
+                view.querySelectorAll('#logTabs .log-tab').forEach(function (tab) {
+                    tab.addEventListener('click', function () { _logTab = tab.getAttribute('data-log'); renderLogModal(view); });
+                });
 
                 view.querySelector('#btnOpenHelp').addEventListener('click', () => helpOverlay.classList.add('modal-visible'));
                 view.querySelector('#btnCloseHelp').addEventListener('click', () => helpOverlay.classList.remove('modal-visible'));
@@ -6322,75 +6676,35 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                     applyFilters(view);
                 });
 
-                view.querySelector('#btnBackupConfig').addEventListener('click', () => {
-                    window.ApiClient.getPluginConfiguration(pluginId).then(config => {
-                        var backup = Object.assign({}, config);
-                        delete backup.TopLists;
-                        delete backup.HomeSyncEnabled;
-                        delete backup.HomeSyncSourceUserId;
-                        delete backup.HomeSyncTargetUserIds;
-                        delete backup.HomeSyncLibraryOrder;
-                        backup.Tags = (config.Tags || []).map(function (t) {
-                            var tag = Object.assign({}, t);
-                            delete tag.HomeSectionUserIds;
-                            delete tag.HomeSectionLibraryId;
-                            delete tag.HomeSectionSettings;
-                            delete tag.HomeSectionTracked;
-                            delete tag.PlaylistUserIds;
-                            delete tag.PlaylistMappings;
-                            return tag;
-                        });
-                        var json = JSON.stringify(backup, null, 2);
-                        var blob = new Blob([json], { type: "application/json" });
-                        var url = URL.createObjectURL(blob);
-                        var a = document.createElement('a');
-                        a.href = url; a.download = `HSC_Backup_${new Date().toISOString().split('T')[0]}.json`;
-                        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                    });
+                view.querySelector('#btnBackupConfig').addEventListener('click', function () {
+                    showBackupModal();
                 });
 
                 var fileInput = view.querySelector('#fileRestoreConfig');
-                view.querySelector('#btnRestoreConfigTrigger').addEventListener('click', () => fileInput.click());
+                view.querySelector('#btnRestoreConfigTrigger').addEventListener('click', function () {
+                    if (hasDirtyState() && !confirm('You have unsaved changes. They will be discarded when a backup is restored. Continue?')) return;
+                    fileInput.click();
+                });
                 fileInput.addEventListener('change', function (e) {
                     var file = e.target.files[0]; if (!file) return;
                     var reader = new FileReader();
-                    reader.onload = function (e) {
-                        try {
-                            var config = JSON.parse(e.target.result);
-                            view.querySelector('#txtTraktClientId').value = config.TraktClientId || '';
-                            view.querySelector('#txtMdblistApiKey').value = config.MdblistApiKey || '';
-                            view.querySelector('#txtTmdbApiKey').value = config.TmdbApiKey || '';
-                            var oaEl = view.querySelector('#txtOpenAiApiKey'); if (oaEl) oaEl.value = config.OpenAiApiKey || '';
-                            var oamEl = view.querySelector('#txtOpenAiModel'); if (oamEl) oamEl.value = config.OpenAiModel || 'gpt-4o-mini';
-                            var gmEl = view.querySelector('#txtGeminiApiKey'); if (gmEl) gmEl.value = config.GeminiApiKey || '';
-                            var gmmEl = view.querySelector('#txtGeminiModel'); if (gmmEl) gmmEl.value = config.GeminiModel || 'gemini-2.5-flash-lite';
-                            var clEl = view.querySelector('#txtClaudeApiKey'); if (clEl) clEl.value = config.ClaudeApiKey || '';
-                            var clmEl = view.querySelector('#txtClaudeModel'); if (clmEl) clmEl.value = config.ClaudeModel || 'claude-haiku-4-5-20251001';
-                            var olEl = view.querySelector('#txtOllamaBaseUrl'); if (olEl) olEl.value = config.OllamaBaseUrl || 'http://localhost:11434';
-                            var omEl = view.querySelector('#txtOllamaModel'); if (omEl) omEl.value = config.OllamaModel || '';
-                            var spEl = view.querySelector('#txtAiSystemPrompt'); if (spEl) spEl.value = config.AiSystemPrompt || ''; updateSystemPromptResetBtn(view);
-                            view.querySelector('#chkExtendedConsoleOutput').checked = config.ExtendedConsoleOutput || false;
-                            view.querySelector('#chkDryRunMode').checked = config.DryRunMode || false;
-                            view.querySelector('#chkPreserveTagsOnEmptyResult').checked = config.PreserveTagsOnEmptyResult !== false;
-
-                            var container = view.querySelector('#tagListContainer'); container.innerHTML = '';
-                            if (config.TopLists) _topListTagNames = new Set(config.TopLists.map(function (tl) { return (tl.TagName || '').toLowerCase(); }).filter(Boolean));
-                            var grouped = groupConfigTags(config.Tags);
-
-                            var keys = Object.keys(grouped);
-                            keys.forEach((k, i) => renderTagGroup(grouped[k], container, false, i));
-                            if (keys.length === 0) renderTagGroup({ Tag: '', Urls: [{ url: '', limit: 50 }], Active: true }, container, false, 0);
-
-                            applyFilters(view);
-
-                            requestAnimationFrame(function () {
-                                window.Dashboard.alert("Configuration loaded!");
-                                checkFormState();
-                            });
-                        } catch (err) {
-                            window.Dashboard.alert("Failed to parse configuration file. The file may be corrupt or not a valid backup file. Error: " + err.message);
-                        }
+                    reader.onload = function (ev) {
                         fileInput.value = '';
+                        showRestoreModal(ev.target.result, function () {
+                            // Server config changed underneath us — reload every tab from scratch.
+                            ['#hscContainer', '#hscManageContainer', '#tlContainer', '#tcManageContainer'].forEach(function (sel) {
+                                var el = view.querySelector(sel);
+                                if (el) el.dataset.loaded = '';
+                            });
+                            loadConfig().then(function () {
+                                refreshMySavedFiltersPanels();
+                                var activeTab = view.querySelector('.page-tab-btn.active');
+                                var target = activeTab ? activeTab.getAttribute('data-page-tab') : '';
+                                if (target === 'HomeCompanion') { loadHscUsers(view); loadHscManageTab(view); }
+                                else if (target === 'TopLists') loadTopListsTab(view);
+                                else if (target === 'Cleanup') loadTagManageTab(view);
+                            });
+                        });
                     };
                     reader.readAsText(file);
                 });
@@ -6671,6 +6985,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                 var omElInit = view.querySelector('#txtOllamaModel'); if (omElInit) omElInit.value = config.OllamaModel || '';
                 var spElInit = view.querySelector('#txtAiSystemPrompt'); if (spElInit) spElInit.value = config.AiSystemPrompt || ''; updateSystemPromptResetBtn(view);
                 view.querySelector('#chkExtendedConsoleOutput').checked = config.ExtendedConsoleOutput || false;
+                view.querySelector('#chkLogMissingItems').checked = config.LogMissingItems || false;
                 view.querySelector('#chkDryRunMode').checked = config.DryRunMode || false;
                 view.querySelector('#chkPreserveTagsOnEmptyResult').checked = config.PreserveTagsOnEmptyResult || false;
                 if (view.querySelector('#txtSearchTags')) {

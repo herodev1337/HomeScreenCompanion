@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Tasks;
 using System;
@@ -22,13 +23,17 @@ namespace HomeScreenCompanion
 
         public static List<string> ExecutionLog { get; } = new List<string>();
         public static bool IsRunning { get; private set; } = false;
+        private static RunLog _log = new RunLog(ExecutionLog, null, "", false);
         public static string LastRunStatus { get; private set; } = "Never";
 
-        public MergeTopListVersionsTask(ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem)
+        private readonly ILogger _logger;
+
+        public MergeTopListVersionsTask(ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILogManager logManager)
         {
             _libraryManager = libraryManager;
             _providerManager = providerManager;
             _fileSystem = fileSystem;
+            _logger = logManager.GetLogger("HomeScreenCompanion_TopListMerge");
         }
 
         // Forces Emby to ffprobe a top-list .strm item so it gets a real RunTimeTicks and
@@ -68,28 +73,25 @@ namespace HomeScreenCompanion
         {
             IsRunning = true;
             lock (ExecutionLog) { ExecutionLog.Clear(); }
+            var startTime = DateTime.Now;
+            _log = new RunLog(ExecutionLog, _logger, "[Top-list merge]", Plugin.Instance?.Configuration?.ExtendedConsoleOutput ?? false);
             try
             {
+                _log.Info($"» Merging top-list versions with library  ·  {startTime:yyyy-MM-dd HH:mm}");
                 var merged = MergeAll(_libraryManager, _providerManager, _fileSystem, cancellationToken);
                 LastRunStatus = $"Done — {merged} item(s) linked.";
-                Log(LastRunStatus);
+                _log.Ok($"{RunLog.Plural(merged, "top-list item")} linked to library movies  ·  {RunLog.Elapsed(DateTime.Now - startTime)}");
             }
             catch (Exception ex)
             {
                 LastRunStatus = $"Error: {ex.Message}";
-                Log(LastRunStatus);
+                _log.Error($"Merge aborted: {ex.Message}");
             }
             finally
             {
                 IsRunning = false;
             }
             return Task.CompletedTask;
-        }
-
-        private static void Log(string message)
-        {
-            var msg = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            lock (ExecutionLog) { ExecutionLog.Add(msg); }
         }
 
         internal static int MergeAll(ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, CancellationToken cancellationToken)
@@ -117,7 +119,7 @@ namespace HomeScreenCompanion
                     origLookup[imdb] = m;
             }
 
-            Log($"Original movies in lookup: {origLookup.Count}");
+            _log.Debug($"  {origLookup.Count:N0} library movies with IMDb id");
 
             // Find all indexed STRM items living under any top-list subfolder
             var strmItems = libraryManager.GetItemList(new InternalItemsQuery
@@ -129,7 +131,7 @@ namespace HomeScreenCompanion
                        && i.Path.StartsWith(topListsFolder, StringComparison.OrdinalIgnoreCase))
               .ToList();
 
-            Log($"Indexed top-list STRM items found: {strmItems.Count}");
+            _log.Debug($"  {strmItems.Count} indexed top-list items found");
 
             int merged = 0;
 
@@ -147,11 +149,11 @@ namespace HomeScreenCompanion
                     libraryManager.MergeItems(new[] { primary, li });
                     QueueStrmProbe(providerManager, fileSystem, li);
                     merged++;
-                    Log($"Merged '{li.Name}' with '{primary.Name}'");
+                    _log.Debug($"  '{li.Name}' linked to '{primary.Name}'");
                 }
                 catch (Exception ex)
                 {
-                    Log($"Could not merge '{li.Name}': {ex.Message}");
+                    _log.Warn($"'{li.Name}' could not be linked to '{primary.Name}': {ex.Message}");
                 }
             }
 

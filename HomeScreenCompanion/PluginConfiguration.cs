@@ -28,6 +28,7 @@ namespace HomeScreenCompanion
             "Return exactly the items requested. Do not add any commentary. " +
             "Example: [{\"title\":\"Inception\",\"year\":2010,\"imdb_id\":\"tt1375666\",\"type\":\"movie\"}]";
         public bool ExtendedConsoleOutput { get; set; } = false;
+        public bool LogMissingItems { get; set; } = false;
         public bool DryRunMode { get; set; } = false;
         public bool PreserveTagsOnEmptyResult { get; set; } = true;
         public List<TagConfig> Tags { get; set; } = new List<TagConfig>();

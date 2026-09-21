@@ -75,7 +75,10 @@ With **Home Screen Sync**, you choose one user as the "Master" and copy their en
 
 * **Fail-Safe Cleanup:** If an external list fails to download, the plugin skips the cleanup process for that tag, ensuring your library never accidentally loses data.
 * **Dry Run Mode:** Want to test your rules without changing anything? Turn on Dry Run to see exactly what *would* happen in the logs.
-* **Live Logging:** Follow the execution in real-time directly from the plugin's settings page.
+* **Live Logging:** Follow the execution in real-time directly from the plugin's settings page. Every group gets a clear ✔ / ⚠ / ✖ result and the run ends with a summary of what changed.
+* **Extended Log:** Turn it on in Settings to get source details, per-item changes, timings and error details — perfect for troubleshooting or bug reports.
+* **Log Missing Movies and Shows:** Enable it in Settings and the log lists, per group, which titles from your External and AI lists are not in your library yet.
+* **Backup & Restore:** Download your configuration as a JSON file and pick what to include — general settings, API keys, tag & collection groups, saved filters, top lists (including the movie lists of manual top-lists) and home screen sync. Restoring lets you choose the same sections again; each one replaces the current configuration on the server. Generated data (tags, collections, playlists, top-list files, images) is not part of the backup — the plugin rebuilds it on the next sync run.
 
 ---
 

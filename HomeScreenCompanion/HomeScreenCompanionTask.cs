@@ -35,11 +35,13 @@ namespace HomeScreenCompanion
         private readonly IPlaylistManager _playlistManager;
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
+        private RunLog _log;
 
         public static HomeScreenCompanionTask? Instance { get; private set; }
         public static string LastRunStatus { get; private set; } = "Unknown (resets at server restart)";
         public static List<string> ExecutionLog { get; } = new List<string>();
         public static bool IsRunning { get; private set; } = false;
+        public static DateTime? LastStartedUtc { get; private set; }
 
         private struct CachedMediaInfo
         {
@@ -93,6 +95,17 @@ namespace HomeScreenCompanion
             public string? CollectionName;
             public int GroupIndex;
             public int GroupTotal;
+            // Display-only fields used by the execution log
+            public string? SourceLabel;                 // "Trakt", "AI · OpenAI", "Smart playlist", ...
+            public bool EnablePlaylist;
+            public string? PlaylistName;
+            public int PlaylistUsersTotal;
+            public int PlaylistUsersCreated;
+            public int PlaylistUsersUpdated;
+            public int PlaylistUsersFailed;
+            public List<string> Warnings = new List<string>();
+            public List<string> MissingItems = new List<string>(); // list titles not found in the library
+            public long ElapsedMs;
         }
 
         public HomeScreenCompanionTask(ILibraryManager libraryManager, ICollectionManager collectionManager, IPlaylistManager playlistManager, IUserManager userManager, IUserViewManager userViewManager, IUserDataManager userDataManager, IHttpClient httpClient, IJsonSerializer jsonSerializer, ILogManager logManager, ILibraryMonitor libraryMonitor, IProviderManager providerManager, IFileSystem fileSystem)
@@ -109,6 +122,7 @@ namespace HomeScreenCompanion
             _playlistManager = playlistManager;
             _providerManager = providerManager;
             _fileSystem = fileSystem;
+            _log = new RunLog(ExecutionLog, _logger, "", false);
             Instance = this;
         }
 
@@ -128,6 +142,7 @@ namespace HomeScreenCompanion
             try
             {
                 lock (ExecutionLog) ExecutionLog.Clear();
+                LastStartedUtc = DateTime.UtcNow;
                 LastRunStatus = "Running...";
 
                 var config = Plugin.Instance?.Configuration;
@@ -135,11 +150,14 @@ namespace HomeScreenCompanion
 
                 bool debug = config.ExtendedConsoleOutput;
                 bool dryRun = config.DryRunMode;
+                bool logMissing = config.LogMissingItems;
+                _log = new RunLog(ExecutionLog, _logger, "", debug);
 
                 var startTime = DateTime.Now;
-                LogSummary("══════════════════════════════════════════════════");
-                LogSummary($"Home Screen Companion v{Plugin.Instance?.Version}  ·  {startTime:yyyy-MM-dd HH:mm}");
-                if (dryRun) LogSummary("  ! DRY RUN — no changes will be written");
+                var runTimer = System.Diagnostics.Stopwatch.StartNew();
+                _log.Rule();
+                _log.Info($"Home Screen Companion v{Plugin.Instance?.Version}  ·  {startTime:yyyy-MM-dd HH:mm}  ·  Full sync");
+                if (dryRun) _log.Warn("DRY RUN — nothing will be changed, the log shows what would happen");
 
                 var allItems = _libraryManager.GetItemList(new InternalItemsQuery
                 {
@@ -170,9 +188,10 @@ namespace HomeScreenCompanion
                 int movieCount = allItems.Count(i => i.GetType().Name.Contains("Movie"));
                 int seriesCount = allItems.Count(i => i.GetType().Name.Contains("Series"));
                 int activeGroupTotal = config.Tags.Count(t => t.Active && !string.IsNullOrWhiteSpace(t.Tag));
-                LogSummary($"  Library: {movieCount} movies, {seriesCount} series");
-                LogSummary($"  Active groups: {activeGroupTotal}");
-                LogSummary("══════════════════════════════════════════════════");
+                _log.Info($"  Library: {movieCount:N0} movies, {seriesCount:N0} series");
+                _log.Info($"  Groups: {activeGroupTotal} active");
+                _log.Rule();
+                _log.Debug($"Library scan: {allItems.Count:N0} items, {imdbLookup.Count:N0} with IMDb id  ·  {RunLog.Elapsed(runTimer.Elapsed)}");
 
                 var fetcher = new ListFetcher(_httpClient, _jsonSerializer);
                 var desiredTagsMap = new Dictionary<Guid, HashSet<string>>();
@@ -428,7 +447,13 @@ namespace HomeScreenCompanion
                     }
                 }
 
+                _log.Debug($"Caches ready after {RunLog.Elapsed(runTimer.Elapsed)}  ·  media-info {mediaInfoCache.Count:N0} items  ·  user-data {userDataCache.Count:N0} entries for {preloadedUsers?.Length ?? 0} users  ·  person lookups {personCache.Count}  ·  collection/playlist lookups {collectionMembershipCache.Count}");
+                _log.Blank();
+                _log.Info("» Fetching sources");
+                var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
+
                 var statsList = new List<GroupRunStats>();
+                var statsByGroupKey = new Dictionary<string, GroupRunStats>(StringComparer.OrdinalIgnoreCase);
                 int activeGroupIdx = 0;
                 bool aiConfigChanged = false;
                 var tagAddedByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -471,14 +496,23 @@ namespace HomeScreenCompanion
                         BoxSetHse = IsBoxSetHomeSectionEntry(tagConfig),
                         TagName = tagName,
                         GroupIndex = activeGroupIdx,
-                        GroupTotal = activeGroupTotal
+                        GroupTotal = activeGroupTotal,
+                        SourceLabel = DescribeSource(tagConfig),
+                        EnablePlaylist = tagConfig.EnablePlaylist,
+                        PlaylistName = string.IsNullOrWhiteSpace(tagConfig.PlaylistName) ? tagConfig.Name : tagConfig.PlaylistName,
+                        PlaylistUsersTotal = tagConfig.PlaylistUserIds?.Count ?? 0
                     };
+                    // A multi-source group is stored as several flat entries; the playlist is synced once
+                    // per group, so only the first entry's stats carry (and display) the playlist result.
+                    if (!statsByGroupKey.ContainsKey(GroupKey(tagConfig))) statsByGroupKey[GroupKey(tagConfig)] = gs;
+                    else gs.EnablePlaylist = false;
 
                     if (!IsScheduleActive(tagConfig.ActiveIntervals))
                     {
                         gs.Skipped = true;
-                        gs.SkipReason = "out of schedule";
+                        gs.SkipReason = "not in schedule";
                         statsList.Add(gs);
+                        WriteFetchLine(gs);
                         continue;
                     }
 
@@ -488,8 +522,9 @@ namespace HomeScreenCompanion
                     {
                         var _nextAiRun = tagConfig.AiLastRunDate.AddDays(tagConfig.AiRefreshIntervalDays);
                         gs.Skipped = true;
-                        gs.SkipReason = $"AI refresh not due (next: {_nextAiRun:yyyy-MM-dd})";
+                        gs.SkipReason = $"AI refresh not due until {_nextAiRun:yyyy-MM-dd}";
                         statsList.Add(gs);
+                        WriteFetchLine(gs);
                         continue;
                     }
 
@@ -501,8 +536,9 @@ namespace HomeScreenCompanion
                          (tagConfig.EnableCollection && activeCollectionOverrides.Contains(cName))))
                     {
                         gs.Skipped = true;
-                        gs.SkipReason = "suppressed (overridden by priority entry)";
+                        gs.SkipReason = "overridden by a priority group with the same tag";
                         statsList.Add(gs);
+                        WriteFetchLine(gs);
                         continue;
                     }
                     if (tagConfig.EnableCollection)
@@ -514,10 +550,12 @@ namespace HomeScreenCompanion
                             collectionPosters[cName] = tagConfig.CollectionPosterPath;
                     }
 
+                    var groupTimer = System.Diagnostics.Stopwatch.StartNew();
                     try
                     {
-                        if (debug) LogDebug($"── [{gs.GroupIndex}/{gs.GroupTotal}] {displayName}  ({srcLabel}) ──");
                         int effectiveLimit = tagConfig.Limit <= 0 ? 10000 : tagConfig.Limit;
+                        _log.Section($"[{gs.GroupIndex}/{gs.GroupTotal}] {displayName}");
+                        _log.Debug("  " + DescribeSourceDetail(tagConfig, effectiveLimit));
                         var blacklist = new HashSet<string>(tagConfig.Blacklist ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
                         var matchedLocalItems = new List<BaseItem>();
                         List<BaseItem> tagOutputItems = matchedLocalItems;
@@ -546,8 +584,11 @@ namespace HomeScreenCompanion
 
                         if (string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External")
                         {
+                            var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
                             var items = await fetcher.FetchItems(tagConfig.Url, effectiveLimit, config.TraktClientId, config.MdblistApiKey, config.TmdbApiKey, cancellationToken);
+                            fetchTimer.Stop();
                             gs.ListCount = items.Count;
+                            int _extBlacklisted = 0, _extNoImdb = 0;
 
                             if (items.Count > 0)
                             {
@@ -555,11 +596,12 @@ namespace HomeScreenCompanion
 
                                 foreach (var extItem in items)
                                 {
-                                    if (string.IsNullOrEmpty(extItem.Imdb)) continue;
+                                    if (string.IsNullOrEmpty(extItem.Imdb)) { _extNoImdb++; continue; }
 
                                     if (blacklist.Contains(extItem.Imdb))
                                     {
-                                        if (debug) LogDebug($"  Blacklisted: {extItem.Name} ({extItem.Imdb})");
+                                        _extBlacklisted++;
+                                        _log.Debug($"    Blacklisted: {extItem.Name} ({extItem.Imdb})");
                                         continue;
                                     }
 
@@ -573,9 +615,13 @@ namespace HomeScreenCompanion
                                             if (!matchedLocalItems.Contains(localItem)) matchedLocalItems.Add(localItem);
                                         }
                                     }
+                                    else
+                                    {
+                                        gs.MissingItems.Add($"{extItem.Name}  {extItem.Imdb}");
+                                    }
                                 }
                             }
-                            if (debug) LogDebug($"  Fetched {gs.ListCount} from list  ·  {matchedLocalItems.Count} matched in library");
+                            _log.Debug($"  Fetched {gs.ListCount} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched by IMDb id  ·  {gs.MissingItems.Count} not in library  ·  {_extBlacklisted} blacklisted  ·  {_extNoImdb} without IMDb id");
                         }
                         else if (tagConfig.SourceType == "LocalCollection" || tagConfig.SourceType == "LocalPlaylist")
                         {
@@ -596,7 +642,7 @@ namespace HomeScreenCompanion
                                 if (localSourceFolder != null)
                                 {
                                     var children = new List<BaseItem>();
-                                    if (debug) LogDebug($"  Source: '{localSourceFolder.Name}'  ({localSourceFolder.GetType().Name})");
+                                    _log.Debug($"  Found source '{localSourceFolder.Name}'  ({localSourceFolder.GetType().Name})");
 
                                     if (tagConfig.SourceType == "LocalCollection")
                                     {
@@ -616,13 +662,9 @@ namespace HomeScreenCompanion
 
                                     gs.ListCount = children.Count;
                                     if (children.Count == 0)
-                                    {
-                                        LogSummary($"  ! {displayName}  ·  '{tagConfig.LocalSourceId}' is empty or virtual", "Warn");
-                                    }
-                                    else if (debug)
-                                    {
-                                        LogDebug($"  Items in source: {children.Count}");
-                                    }
+                                        gs.Warnings.Add($"'{tagConfig.LocalSourceId}' is empty (or only contains virtual items)");
+                                    else
+                                        _log.Debug($"  Items in source: {children.Count}");
 
                                     foreach (var child in children)
                                     {
@@ -652,7 +694,7 @@ namespace HomeScreenCompanion
                                         var imdb = itemToTag.GetProviderId("Imdb");
                                         if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb))
                                         {
-                                            if (debug) LogDebug($"  Blacklisted: {itemToTag.Name} ({imdb})");
+                                            _log.Debug($"    Blacklisted: {itemToTag.Name} ({imdb})");
                                             continue;
                                         }
 
@@ -661,10 +703,11 @@ namespace HomeScreenCompanion
                                             matchedLocalItems.Add(itemToTag);
                                         }
                                     }
+                                    _log.Debug($"  {matchedLocalItems.Count} usable movies/series in source");
                                 }
                                 else
                                 {
-                                    LogSummary($"  ! {displayName}  ·  {tagConfig.SourceType} '{tagConfig.LocalSourceId}' not found", "Warn");
+                                    gs.Warnings.Add($"{DescribeSource(tagConfig)} '{tagConfig.LocalSourceId}' was not found in the library");
                                 }
 
                                 if (effectiveLimit < 10000 && matchedLocalItems.Count > effectiveLimit)
@@ -681,7 +724,7 @@ namespace HomeScreenCompanion
                                 CachedMediaInfo? ci = mediaInfoCache.TryGetValue(item.InternalId, out var ciVal) ? ciVal : (CachedMediaInfo?)null;
                                 return ItemMatchesMediaInfo(item, tagConfig, debug, seriesEpisodeCache, personCache, userDataCache, ci, preloadedUsers, seriesLastPlayedCache, collectionMembershipCache, seriesEpisodeNamesCache);
                             }).ToList();
-                            if (debug) LogDebug($"  MediaInfo post-filter: {beforeCount} → {matchedLocalItems.Count} items");
+                            _log.Debug($"  Filter conditions: {beforeCount} → {matchedLocalItems.Count} items");
                         }
 
                         if (tagConfig.SourceType == "MediaInfo")
@@ -742,16 +785,16 @@ namespace HomeScreenCompanion
                                     {
                                         // Collapse up: episodes → season/series
                                         if (ep) list.AddRange(matchedLocalItems);
-                                        if (sea) { var s = ResolveParentSeasons(matchedLocalItems); if (debug) LogDebug($"  Season ↑: {matchedLocalItems.Count} eps → {s.Count}"); list.AddRange(s); foreach (var x in s) allScannedSeasonItems.TryAdd(x.Id, x); }
-                                        if (ser) { var s = ResolveParentSeries(matchedLocalItems); if (debug) LogDebug($"  Series ↑: {matchedLocalItems.Count} eps → {s.Count}"); list.AddRange(s); }
+                                        if (sea) { var s = ResolveParentSeasons(matchedLocalItems); _log.Debug($"  Output level: {matchedLocalItems.Count} episodes → {s.Count} seasons"); list.AddRange(s); foreach (var x in s) allScannedSeasonItems.TryAdd(x.Id, x); }
+                                        if (ser) { var s = ResolveParentSeries(matchedLocalItems); _log.Debug($"  Output level: {matchedLocalItems.Count} episodes → {s.Count} series"); list.AddRange(s); }
                                     }
                                     else
                                     {
                                         // Expand down: series → seasons/episodes; movies stay as-is for any target
                                         var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
                                         if (ser) list.AddRange(matchedLocalItems);
-                                        if (sea) { var s = ResolveChildSeasons(seriesOnly); if (debug) LogDebug($"  Season ↓: {seriesOnly.Count} series → {s.Count}"); list.AddRange(s); foreach (var x in s) allScannedSeasonItems.TryAdd(x.Id, x); list.AddRange(movies); }
-                                        if (ep)  { var e = ResolveChildEpisodes(seriesOnly); if (debug) LogDebug($"  Episode ↓: {seriesOnly.Count} series → {e.Count}"); list.AddRange(e); foreach (var x in e) allScannedEpisodeItems.TryAdd(x.Id, x); list.AddRange(movies); }
+                                        if (sea) { var s = ResolveChildSeasons(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {s.Count} seasons"); list.AddRange(s); foreach (var x in s) allScannedSeasonItems.TryAdd(x.Id, x); list.AddRange(movies); }
+                                        if (ep)  { var e = ResolveChildEpisodes(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {e.Count} episodes"); list.AddRange(e); foreach (var x in e) allScannedEpisodeItems.TryAdd(x.Id, x); list.AddRange(movies); }
                                     }
                                     return list;
                                 }
@@ -761,29 +804,14 @@ namespace HomeScreenCompanion
                             }
                             if (debug)
                             {
-                                var _dbgItems = tagOutputItems.Count >= collectionOutputItems.Count ? tagOutputItems : collectionOutputItems;
-                                LogDebug($"  Scanned {itemsToScan.Count} items  ·  {matchedLocalItems.Count} matched  (tag→{tagOutputItems.Count}, coll→{collectionOutputItems.Count})");
-                                if (matchedLocalItems.Count > 0)
-                                {
-                                    LogDebug("  Matched items:");
-                                    int _miShown = 0;
-                                    foreach (var _mi in matchedLocalItems)
-                                    {
-                                        if (_miShown >= 50) { LogDebug($"    ... and {matchedLocalItems.Count - _miShown} more"); break; }
-                                        var _miYr = _mi.ProductionYear.HasValue ? $" ({_mi.ProductionYear})" : "";
-                                        var _miTp = _mi.GetType().Name.Contains("Series") ? "Series"
-                                                  : _mi.GetType().Name.Contains("Episode") ? "Episode"
-                                                  : _mi.GetType().Name.Contains("Season") ? "Season"
-                                                  : "Movie";
-                                        LogDebug($"    {_mi.Name}{_miYr}  [{_miTp}]");
-                                        _miShown++;
-                                    }
-                                }
+                                _log.Debug($"  Scanned {itemsToScan.Count:N0} items in {groupTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched  (tag output {tagOutputItems.Count}, collection output {collectionOutputItems.Count})");
+                                WriteMatchedItemsDebug(matchedLocalItems);
                             }
                         }
                         else if (tagConfig.SourceType == "AI")
                         {
                             var recentlyWatchedContext = BuildRecentlyWatchedContext(tagConfig);
+                            var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
                             var aiItems = await fetcher.FetchAiList(
                                 tagConfig.AiProvider,
                                 tagConfig.AiPrompt,
@@ -799,19 +827,23 @@ namespace HomeScreenCompanion
                                 recentlyWatchedContext,
                                 effectiveLimit,
                                 cancellationToken);
+                            fetchTimer.Stop();
 
                             gs.ListCount = aiItems.Count;
+                            int _aiTitleMatched = 0, _aiBlacklisted = 0;
 
                             foreach (var aiItem in aiItems)
                             {
                                 if (string.IsNullOrWhiteSpace(aiItem.title)) continue;
+                                string _aiLabel = aiItem.year.HasValue ? $"{aiItem.title} ({aiItem.year})" : aiItem.title;
 
                                 if (!string.IsNullOrEmpty(aiItem.imdb_id))
                                 {
                                     var imdbId = aiItem.imdb_id.Trim();
                                     if (blacklist.Contains(imdbId))
                                     {
-                                        if (debug) LogDebug($"  Blacklisted: {aiItem.title} ({imdbId})");
+                                        _aiBlacklisted++;
+                                        _log.Debug($"    Blacklisted: {_aiLabel} ({imdbId})");
                                         continue;
                                     }
 
@@ -829,8 +861,9 @@ namespace HomeScreenCompanion
                                     else
                                     {
                                         // IMDB ID not found in library — fall back to title+year match
-                                        if (debug) LogDebug($"  IMDB {imdbId} not in library, trying title match for '{aiItem.title}'");
                                         var titleMatches = FindByTitleAndYear(allItems, aiItem.title, aiItem.year);
+                                        if (titleMatches.Count > 0) { _aiTitleMatched++; _log.Debug($"    {imdbId} not in library — matched '{_aiLabel}' by title"); }
+                                        else gs.MissingItems.Add($"{_aiLabel}  {imdbId}");
                                         foreach (var localItem in titleMatches)
                                         {
                                             var imdb = localItem.GetProviderId("Imdb");
@@ -844,12 +877,15 @@ namespace HomeScreenCompanion
                                 {
                                     // Fallback: title+year match when AI didn't return an IMDB ID
                                     var titleMatches = FindByTitleAndYear(allItems, aiItem.title, aiItem.year);
+                                    if (titleMatches.Count > 0) _aiTitleMatched++;
+                                    else gs.MissingItems.Add($"{_aiLabel}  (no IMDb id from AI)");
                                     foreach (var localItem in titleMatches)
                                     {
                                         var imdb = localItem.GetProviderId("Imdb");
                                         if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb))
                                         {
-                                            if (debug) LogDebug($"  Blacklisted: {localItem.Name} ({imdb})");
+                                            _aiBlacklisted++;
+                                            _log.Debug($"    Blacklisted: {localItem.Name} ({imdb})");
                                             continue;
                                         }
                                         if (!matchedLocalItems.Contains(localItem))
@@ -858,7 +894,7 @@ namespace HomeScreenCompanion
                                 }
                             }
 
-                            if (debug) LogDebug($"  AI returned {gs.ListCount} items  ·  {matchedLocalItems.Count} matched in library");
+                            _log.Debug($"  AI ({tagConfig.AiProvider}) returned {gs.ListCount} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched ({_aiTitleMatched} by title only)  ·  {gs.MissingItems.Count} not in library  ·  {_aiBlacklisted} blacklisted");
                             if (tagConfig.AiRefreshIntervalDays > 0)
                             {
                                 tagConfig.AiLastRunDate = DateTime.UtcNow;
@@ -916,15 +952,23 @@ namespace HomeScreenCompanion
                         bool isRemoteSource = string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External" || tagConfig.SourceType == "AI";
                         if (isRemoteSource && gs.ListCount == 0 && config.PreserveTagsOnEmptyResult)
                         {
-                            LogSummary($"  ! {displayName}  ·  Source returned 0 items — preserving existing tags (see Settings to change this behaviour)", "Warn");
+                            gs.Warnings.Add(tagConfig.SourceType == "AI"
+                                ? "The AI returned 0 items — existing tags, collection and playlist were kept. Check the prompt and the API key in Settings."
+                                : "The list returned 0 items — existing tags, collection and playlist were kept. Check the list URL and the API key in Settings.");
                             failedFetches.Add(tagName);
                             if (tagConfig.EnableCollection) failedFetches.Add(cName);
                             playlistGroupsToSkip.Add(GroupKey(tagConfig));
+                            gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
                             statsList.Add(gs);
+                            WriteFetchLine(gs);
                             currentProgress += step;
                             progress.Report(currentProgress);
                             continue;
                         }
+                        if (isRemoteSource && gs.ListCount == 0)
+                            gs.Warnings.Add(tagConfig.SourceType == "AI"
+                                ? "The AI returned 0 items — its tags, collection and playlist are being cleared (\"Preserve tags and collections on empty result\" is off in Settings)"
+                                : "The list returned 0 items — its tags, collection and playlist are being cleared (\"Preserve tags and collections on empty result\" is off in Settings). Check the list URL and the API key.");
 
                         if (tagConfig.EnableTag && !tagConfig.OnlyCollection && !IsBoxSetHomeSectionEntry(tagConfig))
                         {
@@ -965,27 +1009,56 @@ namespace HomeScreenCompanion
 
                         gs.BoxSetFound = ApplyTagToSourceBoxSet(tagConfig, tagName, dryRun, cancellationToken);
                         gs.BoxSetTaggedCount = gs.BoxSetFound ? 1 : 0;
+                        if (gs.BoxSetHse && !gs.BoxSetFound)
+                            gs.Warnings.Add($"Collection '{tagConfig.LocalSourceId}' was not found in the library");
+                        if (gs.MissingItems.Count > 0 && debug)
+                        {
+                            _log.Debug($"  Not in library ({gs.MissingItems.Count}):");
+                            foreach (var _missing in gs.MissingItems) _log.Debug("    " + _missing);
+                        }
+                        _log.Debug($"  Group done in {groupTimer.ElapsedMilliseconds} ms");
                     }
                     catch (Exception ex)
                     {
                         gs.ErrorMessage = ex.Message;
-                        LogSummary($"  ! {displayName}  ·  Error: {ex.Message}", "Error");
+                        WriteExceptionDebug(ex);
                         failedFetches.Add(tagName);
                         if (tagConfig.EnableCollection) failedFetches.Add(cName);
                         playlistGroupsToSkip.Add(GroupKey(tagConfig));
                     }
 
+                    gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
                     statsList.Add(gs);
+                    WriteFetchLine(gs);
                     currentProgress += step;
                     progress.Report(currentProgress);
                 }
+                _log.Debug($"Fetch phase done in {RunLog.Elapsed(phaseTimer.Elapsed)}");
 
                 // Playlist sync — once per group, with the union of all its sources.
                 // Skipped for groups where any source failed, so a bad fetch never empties the playlist.
+                if (groupPlaylistItems.Count > 0)
+                {
+                    _log.Blank();
+                    _log.Info("» Playlists");
+                    phaseTimer.Restart();
+                    if (dryRun) _log.Skip("Dry run — playlists are not changed");
+                }
                 foreach (var kvp in groupPlaylistItems)
                 {
-                    if (playlistGroupsToSkip.Contains(kvp.Key)) continue;
-                    await SyncPlaylistsForEntryAsync(kvp.Value.Owner, kvp.Value.Items, dryRun);
+                    statsByGroupKey.TryGetValue(kvp.Key, out var plStats);
+                    if (playlistGroupsToSkip.Contains(kvp.Key))
+                    {
+                        plStats?.Warnings.Add("Playlist left unchanged because the source failed or returned nothing");
+                        _log.Skip($"Playlist for '{plStats?.DisplayName ?? kvp.Value.Owner.Name}' left unchanged — source failed or returned nothing");
+                        continue;
+                    }
+                    await SyncPlaylistsForEntryAsync(kvp.Value.Owner, kvp.Value.Items, dryRun, plStats);
+                }
+                if (groupPlaylistItems.Count > 0 && !dryRun)
+                {
+                    int _plCreated = statsList.Sum(g => g.PlaylistUsersCreated), _plUpdated = statsList.Sum(g => g.PlaylistUsersUpdated), _plFailed = statsList.Sum(g => g.PlaylistUsersFailed);
+                    _log.Info($"    {_plCreated} created, {_plUpdated} updated{(_plFailed > 0 ? $", {_plFailed} failed" : "")}  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
                 }
 
                 if (!dryRun)
@@ -1022,6 +1095,9 @@ namespace HomeScreenCompanion
                         allScannedSeasonItems.TryAdd(s.Id, s);
                 }
 
+                _log.Blank();
+                _log.Info("» Applying tags");
+                phaseTimer.Restart();
                 int tagsAdded = 0, tagsRemoved = 0, itemsChanged = 0, updateCount = 0;
                 var _dbgTagAdded = debug ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase) : null;
                 var _dbgTagRemoved = debug ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase) : null;
@@ -1049,7 +1125,7 @@ namespace HomeScreenCompanion
                         foreach (var t in toRemove) { item.RemoveTag(t); tagsRemoved++; tagRemovedByTag[t] = tagRemovedByTag.GetValueOrDefault(t) + 1; }
                         foreach (var t in toAdd) { item.AddTag(t); tagsAdded++; tagAddedByTag[t] = tagAddedByTag.GetValueOrDefault(t) + 1; }
                         try { _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null); }
-                        catch (Exception ex) { LogSummary($"  ! Failed to save tags for '{item.Name}': {ex.Message}", "Warn"); }
+                        catch (Exception ex) { _log.Warn($"Could not save tags for '{item.Name}': {ex.Message}"); }
                         if (++updateCount % 25 == 0)
                             await Task.Yield();
                     }
@@ -1083,7 +1159,7 @@ namespace HomeScreenCompanion
                         foreach (var t in toRemove) { item.RemoveTag(t); tagsRemoved++; tagRemovedByTag[t] = tagRemovedByTag.GetValueOrDefault(t) + 1; }
                         foreach (var t in toAdd) { item.AddTag(t); tagsAdded++; tagAddedByTag[t] = tagAddedByTag.GetValueOrDefault(t) + 1; }
                         try { _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null); }
-                        catch (Exception ex) { LogSummary($"  ! Failed to save tags for '{item.Name}': {ex.Message}", "Warn"); }
+                        catch (Exception ex) { _log.Warn($"Could not save tags for '{item.Name}': {ex.Message}"); }
                         if (++updateCount % 25 == 0)
                             await Task.Yield();
                     }
@@ -1117,7 +1193,7 @@ namespace HomeScreenCompanion
                         foreach (var t in toRemove) { item.RemoveTag(t); tagsRemoved++; tagRemovedByTag[t] = tagRemovedByTag.GetValueOrDefault(t) + 1; }
                         foreach (var t in toAdd) { item.AddTag(t); tagsAdded++; tagAddedByTag[t] = tagAddedByTag.GetValueOrDefault(t) + 1; }
                         try { _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null); }
-                        catch (Exception ex) { LogSummary($"  ! Failed to save tags for season '{item.Name}': {ex.Message}", "Warn"); }
+                        catch (Exception ex) { _log.Warn($"Could not save tags for season '{item.Name}': {ex.Message}"); }
                         if (++updateCount % 25 == 0)
                             await Task.Yield();
                     }
@@ -1137,34 +1213,18 @@ namespace HomeScreenCompanion
                     }
                 }
 
-                if (debug && (_dbgTagAdded!.Count > 0 || _dbgTagRemoved!.Count > 0))
-                {
-                    LogDebug("── Tags ──────────────────────────────────────────");
-                    var _allTagNames = _dbgTagAdded!.Keys.Concat(_dbgTagRemoved!.Keys)
-                        .Distinct(StringComparer.OrdinalIgnoreCase);
-                    foreach (var _tName in _allTagNames)
-                    {
-                        LogDebug($"  {_tName}");
-                        var _added = _dbgTagAdded.GetValueOrDefault(_tName) ?? new List<string>();
-                        var _removed = _dbgTagRemoved.GetValueOrDefault(_tName) ?? new List<string>();
-                        int _shown = 0;
-                        foreach (var _lbl in _added)
-                        {
-                            if (_shown >= 30) { LogDebug($"    ... and {_added.Count - _shown} more added"); break; }
-                            LogDebug($"    + {_lbl}"); _shown++;
-                        }
-                        _shown = 0;
-                        foreach (var _lbl in _removed)
-                        {
-                            if (_shown >= 30) { LogDebug($"    ... and {_removed.Count - _shown} more removed"); break; }
-                            LogDebug($"    - {_lbl}"); _shown++;
-                        }
-                    }
-                }
+                WriteTagDiffDebug(_dbgTagAdded, _dbgTagRemoved);
+                _log.Info(tagsAdded == 0 && tagsRemoved == 0
+                    ? $"    No tag changes needed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}"
+                    : dryRun
+                        ? $"    Would add {tagsAdded} and remove {tagsRemoved} tags on {RunLog.Plural(itemsChanged, "item")}"
+                        : $"    +{tagsAdded} added, -{tagsRemoved} removed on {RunLog.Plural(itemsChanged, "item")}  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
 
-                int collCreated = 0, collUpdated = 0;
-                if (debug && desiredCollectionsMap.Count > 0)
-                    LogDebug("── Collections ───────────────────────────────────");
+                _log.Blank();
+                _log.Info("» Collections");
+                phaseTimer.Restart();
+                int collCreated = 0, collUpdated = 0, collWouldCreate = 0, collWouldUpdate = 0;
+                _log.Section("Collections");
                 foreach (var kvp in desiredCollectionsMap)
                 {
                     string cName = kvp.Key;
@@ -1177,14 +1237,14 @@ namespace HomeScreenCompanion
 
                         if (existingColl == null)
                         {
-                            if (dryRun) continue;
+                            if (dryRun) { collWouldCreate++; _log.Debug($"  {cName}  →  would be created ({desiredIds.Count} items)"); continue; }
                             var createdRef = await _collectionManager.CreateCollection(new CollectionCreationOptions { Name = cName, IsLocked = false, ItemIdList = desiredIds.ToArray() });
                             if (createdRef != null)
                             {
                                 collCreated++;
                                 collCreatedSet.Add(cName);
                                 collItemsAdded[cName] = desiredIds.Count;
-                                if (debug) LogDebug($"  {cName}  →  created ({desiredIds.Count} items)");
+                                _log.Debug($"  {cName}  →  created ({desiredIds.Count} items)");
                                 if (collectionDescriptions.ContainsKey(cName) || collectionPosters.ContainsKey(cName))
                                     ApplyCollectionMeta(createdRef, cName, collectionDescriptions, collectionPosters, debug);
                             }
@@ -1205,12 +1265,21 @@ namespace HomeScreenCompanion
                                 collItemsRemoved[cName] = toRemove.Count;
                                 if (debug)
                                 {
-                                    LogDebug($"  {cName}  →  updated (+{toAdd.Count}, -{toRemove.Count})");
+                                    _log.Debug($"  {cName}  →  updated (+{toAdd.Count}, -{toRemove.Count})");
                                     var _collMap = allItems.ToDictionary(i => i.InternalId, i => i.Name + (i.ProductionYear.HasValue ? $" ({i.ProductionYear})" : ""));
                                     string CollLabel(long id) => _collMap.TryGetValue(id, out var _cn) ? _cn : id.ToString();
-                                    foreach (var id in toAdd) LogDebug($"    + {CollLabel(id)}");
-                                    foreach (var id in toRemove) LogDebug($"    - {CollLabel(id)}");
+                                    foreach (var id in toAdd) _log.Debug($"    + {CollLabel(id)}");
+                                    foreach (var id in toRemove) _log.Debug($"    - {CollLabel(id)}");
                                 }
+                            }
+                            else if (toAdd.Count > 0 || toRemove.Count > 0)
+                            {
+                                collWouldUpdate++;
+                                _log.Debug($"  {cName}  →  would be updated (+{toAdd.Count}, -{toRemove.Count})");
+                            }
+                            else
+                            {
+                                _log.Debug($"  {cName}  →  up to date ({currentMembers.Count} items)");
                             }
                             if (!dryRun && (collectionDescriptions.ContainsKey(cName) || collectionPosters.ContainsKey(cName)))
                                 ApplyCollectionMeta(existingColl, cName, collectionDescriptions, collectionPosters, debug);
@@ -1218,8 +1287,10 @@ namespace HomeScreenCompanion
                     }
                     catch (Exception ex)
                     {
-                        LogSummary($"  ! Collection '{cName}'  ·  {ex.Message}", "Error");
-                        if (debug) LogDebug($"  {cName}  →  ERROR: {ex.Message}");
+                        _log.Error($"Collection \"{cName}\" could not be updated: {ex.Message}");
+                        WriteExceptionDebug(ex);
+                        foreach (var _gsC in statsList.Where(g => string.Equals(g.CollectionName, cName, StringComparison.OrdinalIgnoreCase)))
+                            _gsC.Warnings.Add($"Collection could not be updated: {ex.Message}");
                     }
                 }
                 foreach (var gs in statsList)
@@ -1238,7 +1309,7 @@ namespace HomeScreenCompanion
                 {
                     if (failedFetches.Contains(oldName))
                     {
-                        LogSummary($"  ! Skipping cleanup of '{oldName}' — fetch failed (safety check)", "Warn");
+                        _log.Warn($"Collection \"{oldName}\" was kept because its source failed to load (safety check)");
                         activeCollections.Add(oldName);
                         continue;
                     }
@@ -1250,30 +1321,42 @@ namespace HomeScreenCompanion
                         {
                             _libraryManager.DeleteItem(coll, new DeleteOptions { DeleteFileLocation = false });
                             collDeleted++;
-                            if (debug) LogDebug($"  {oldName}  →  deleted (inactive)");
+                            _log.Skip($"Collection \"{oldName}\" removed (its group is deleted, disabled or not in schedule)");
+                        }
+                        else if (coll != null)
+                        {
+                            _log.Skip($"Collection \"{oldName}\" would be removed (its group is deleted, disabled or not in schedule)");
                         }
                     }
                     catch (Exception ex)
                     {
-                        LogSummary($"  ! Cleanup of '{oldName}' failed  ·  {ex.Message}", "Warn");
+                        _log.Warn($"Collection \"{oldName}\" could not be removed: {ex.Message}");
                     }
                 }
+                _log.Info(dryRun
+                    ? $"    Would create {collWouldCreate} and update {collWouldUpdate} collections"
+                    : $"    {collCreated} created, {collUpdated} updated, {collDeleted} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
                 if (!dryRun) SaveFileHistory("homescreencompanion_collections.txt", activeCollections.ToList());
                 if (!dryRun) Plugin.Instance.SaveConfiguration();
 
                 tagsRemoved += CleanupBoxSetTags(config, dryRun, cancellationToken);
+
+                _log.Blank();
+                _log.Info("» Home sections");
+                phaseTimer.Restart();
                 if (!dryRun) ManageHomeSections(config, cancellationToken, debug, statsList);
+                else _log.Skip("Dry run — home sections are not changed");
+                if (!dryRun)
+                    _log.Info($"    {statsList.Count(g => g.HomeSectionSynced)} synced, {statsList.Count(g => g.HomeSectionRemoved)} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
+
                 CleanupDisabledPlaylists(config, dryRun);
+                bool _hasTopLists = (config.TopLists ?? new List<TopListHomeSection>()).Any(t => !string.IsNullOrWhiteSpace(t.TagName));
+                if (_hasTopLists) { _log.Blank(); _log.Info("» Top-lists"); }
                 SyncTopListFolders(config, dryRun);
-                if (!dryRun) TopListSyncTask.SyncAll(_libraryManager, _userViewManager, _userManager, _jsonSerializer, _logger, cancellationToken);
+                if (!dryRun) TopListSyncTask.SyncAll(_libraryManager, _userViewManager, _userManager, _jsonSerializer, _logger, cancellationToken, _log);
 
                 progress.Report(100);
-                var elapsed = DateTime.Now - startTime;
-                string elapsedStr = elapsed.TotalMinutes >= 1
-                    ? $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s"
-                    : $"{(int)elapsed.TotalSeconds}s";
-                string finalStatus = dryRun ? "Dry Run" : "Success";
-                LastRunStatus = $"{finalStatus} ({DateTime.Now:HH:mm})";
+                string elapsedStr = RunLog.Elapsed(DateTime.Now - startTime);
 
                 // Merge BoxSet HSE entries with the same DisplayName + TagName into one display block
                 var displayStatsList = new List<GroupRunStats>();
@@ -1286,6 +1369,8 @@ namespace HomeScreenCompanion
                         if (boxSetMergeMap.TryGetValue(key, out var existing))
                         {
                             existing.BoxSetTaggedCount += gs.BoxSetTaggedCount;
+                            existing.Warnings.AddRange(gs.Warnings);
+                            existing.ElapsedMs += gs.ElapsedMs;
                             if (gs.HomeSectionSynced)
                             {
                                 existing.HomeSectionSynced = true;
@@ -1313,6 +1398,16 @@ namespace HomeScreenCompanion
                                 BoxSetTaggedCount = gs.BoxSetTaggedCount,
                                 TagName          = gs.TagName,
                                 CollectionName   = gs.CollectionName,
+                                SourceLabel      = gs.SourceLabel,
+                                EnablePlaylist   = gs.EnablePlaylist,
+                                PlaylistName     = gs.PlaylistName,
+                                PlaylistUsersTotal = gs.PlaylistUsersTotal,
+                                PlaylistUsersCreated = gs.PlaylistUsersCreated,
+                                PlaylistUsersUpdated = gs.PlaylistUsersUpdated,
+                                PlaylistUsersFailed = gs.PlaylistUsersFailed,
+                                Warnings         = new List<string>(gs.Warnings),
+                                MissingItems     = new List<string>(gs.MissingItems),
+                                ElapsedMs        = gs.ElapsedMs,
                             };
                             boxSetMergeMap[key] = merged;
                             displayStatsList.Add(merged);
@@ -1331,42 +1426,10 @@ namespace HomeScreenCompanion
                 }
 
                 // Emit per-group blocks
-                LogSummary("");
+                _log.Blank();
+                _log.Info("Results");
                 foreach (var gs in displayStatsList)
-                {
-                    LogSummary($"[{gs.GroupIndex}/{gs.GroupTotal}] {gs.DisplayName}  ({gs.SourceType})");
-                    if (gs.Skipped)
-                    {
-                        LogSummary($"  ~ {gs.SkipReason}");
-                    }
-                    else if (gs.ErrorMessage != null)
-                    {
-                        LogSummary($"  ! Error: {gs.ErrorMessage}");
-                    }
-                    else
-                    {
-                        if (gs.SourceType == "MediaInfo")
-                            LogSummary($"  Scanned: {gs.ListCount} items · {gs.MatchCount} matched");
-                        else if (gs.BoxSetHse)
-                            LogSummary($"  Collections tagged: {gs.BoxSetTaggedCount}");
-                        else if (gs.SourceType == "LocalCollection" || gs.SourceType == "LocalPlaylist")
-                            LogSummary($"  Source: {gs.ListCount} items · {gs.MatchCount} matched");
-                        else
-                            LogSummary($"  List: {gs.ListCount} objects · {gs.MatchCount} matched in library");
-
-                        if (!gs.BoxSetHse && gs.EnableTag)
-                            LogSummary($"  Tag: +{gs.TagsAdded} added, -{gs.TagsRemoved} removed");
-                        if (gs.EnableCollection)
-                            LogSummary(gs.CollectionCreated
-                                ? $"  Collection: created ({gs.CollectionItemsAdded} items)"
-                                : $"  Collection: updated (+{gs.CollectionItemsAdded}, -{gs.CollectionItemsRemoved})");
-                        if (gs.EnableHomeSection)
-                            LogSummary(gs.HomeSectionSynced
-                                ? $"  Home section: synced for {gs.HomeSectionUserCount} user(s)"
-                                : "  Home section: not synced");
-                    }
-                    LogSummary("");
-                }
+                    WriteGroupBlock(gs, dryRun, logMissing);
 
                 // Log cleanup of tags from deleted/disabled groups (tags that had removals but
                 // no matching entry in displayStatsList to attribute them to).
@@ -1375,8 +1438,9 @@ namespace HomeScreenCompanion
                     StringComparer.OrdinalIgnoreCase);
                 foreach (var kvp in tagRemovedByTag.Where(kvp => kvp.Value > 0 && !displayedTagNames.Contains(kvp.Key)))
                 {
-                    LogSummary($"[Cleanup] Removed tag '{kvp.Key}' from {kvp.Value} item(s)  (group deleted or disabled)");
-                    LogSummary("");
+                    _log.Info("[Cleanup]");
+                    _log.Skip($"Tag \"{kvp.Key}\" {(dryRun ? "would be removed" : "removed")} from {RunLog.Plural(kvp.Value, "item")} (its group is deleted or disabled)");
+                    _log.Blank();
                 }
 
                 // Final summary
@@ -1393,19 +1457,35 @@ namespace HomeScreenCompanion
                 if (aiConfigChanged)
                     Plugin.Instance.SaveConfiguration();
 
-                LogSummary("══════════════════════════════════════════════════");
-                LogSummary("Summary");
-                if (summaryTagsAdded > 0 || tagsRemoved > 0)
-                    LogSummary($"  Tags:          +{summaryTagsAdded} added,  -{tagsRemoved} removed");
-                LogSummary($"  Collections:   {totalCollCreated} created,   {totalCollUpdated} updated,   {collDeleted} removed");
-                LogSummary($"  Home sections: {totalHsSynced} synced,    {totalHsRemoved} removed");
-                LogSummary($"  Done in {elapsedStr}  ·  {finalStatus}");
-                LogSummary("══════════════════════════════════════════════════");
+                int groupsFailed  = displayStatsList.Count(g => g.ErrorMessage != null);
+                int groupsSkipped = displayStatsList.Count(g => g.Skipped);
+                int groupsWarned  = displayStatsList.Count(g => !g.Skipped && g.ErrorMessage == null && g.Warnings.Count > 0);
+                int groupsOk      = displayStatsList.Count - groupsFailed - groupsSkipped - groupsWarned;
+                string finalStatus = BuildFinalStatus(dryRun, groupsFailed, groupsWarned);
+                LastRunStatus = $"{finalStatus} ({DateTime.Now:HH:mm})";
+
+                _log.Rule();
+                _log.Info("Summary");
+                var _groupParts = new List<string> { $"{groupsOk} OK" };
+                if (groupsWarned > 0) _groupParts.Add($"{groupsWarned} with warnings");
+                if (groupsSkipped > 0) _groupParts.Add($"{groupsSkipped} skipped");
+                if (groupsFailed > 0) _groupParts.Add($"{groupsFailed} failed");
+                _log.Info($"  Groups:        {string.Join(", ", _groupParts)}");
+                _log.Info($"  Tags:          +{summaryTagsAdded} added, -{tagsRemoved} removed");
+                _log.Info(dryRun
+                    ? $"  Collections:   {collWouldCreate} would be created, {collWouldUpdate} updated"
+                    : $"  Collections:   {totalCollCreated} created, {totalCollUpdated} updated, {collDeleted} removed");
+                if (statsList.Any(g => g.EnablePlaylist))
+                    _log.Info($"  Playlists:     {statsList.Sum(g => g.PlaylistUsersCreated)} created, {statsList.Sum(g => g.PlaylistUsersUpdated)} updated{(statsList.Sum(g => g.PlaylistUsersFailed) > 0 ? $", {statsList.Sum(g => g.PlaylistUsersFailed)} failed" : "")}");
+                _log.Info($"  Home sections: {totalHsSynced} synced, {totalHsRemoved} removed");
+                _log.Info($"  Done in {elapsedStr}  ·  {StatusSymbol(groupsFailed, groupsWarned)} {finalStatus}");
+                _log.Rule();
             }
             catch (Exception ex)
             {
                 LastRunStatus = $"Failed: {ex.Message}";
-                LogSummary($"CRITICAL ERROR: {ex.Message}", "Error");
+                _log.Error($"Sync aborted: {ex.Message}");
+                WriteExceptionDebug(ex);
             }
             finally { IsRunning = false; }
         }
@@ -1414,6 +1494,7 @@ namespace HomeScreenCompanion
         {
             IsRunning = true;
             lock (ExecutionLog) ExecutionLog.Clear();
+            LastStartedUtc = DateTime.UtcNow;
             LastRunStatus = "Running...";
             try
             {
@@ -1433,8 +1514,8 @@ namespace HomeScreenCompanion
             var tagConfig = config.Tags.FirstOrDefault(t =>
                 string.Equals(t.Name, entryName, StringComparison.OrdinalIgnoreCase) ||
                 (!string.IsNullOrWhiteSpace(t.Name) == false && string.Equals(t.Tag, entryName, StringComparison.OrdinalIgnoreCase)));
-            if (tagConfig == null) { LastRunStatus = $"Failed: entry not found"; return (false, $"Entry '{entryName}' not found in saved config"); }
-            if (string.IsNullOrWhiteSpace(tagConfig.Tag)) { LastRunStatus = "Failed: no tag name"; return (false, "Entry has no tag name"); }
+            if (tagConfig == null) { LastRunStatus = $"Failed: entry not found"; _log.Error($"Group '{entryName}' was not found in the saved settings — save your settings and try again"); return (false, $"Entry '{entryName}' not found in saved config"); }
+            if (string.IsNullOrWhiteSpace(tagConfig.Tag)) { LastRunStatus = "Failed: no tag name"; _log.Error($"Group '{entryName}' has no tag name"); return (false, "Entry has no tag name"); }
 
             // A group with several URLs / local sources is stored as one flat TagConfig per source
             // (same Name + Tag). tagConfig owns the shared settings; groupEntries supplies the sources.
@@ -1443,20 +1524,27 @@ namespace HomeScreenCompanion
                 .Where(t => string.Equals(GroupKey(t), groupEntryKey, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            if (tagConfig.SourceType == "AI" && tagConfig.AiRefreshIntervalDays > 0 &&
-                tagConfig.AiLastRunDate > DateTime.MinValue &&
-                (DateTime.UtcNow - tagConfig.AiLastRunDate).TotalDays < tagConfig.AiRefreshIntervalDays)
-            {
-                var _nextAiRun = tagConfig.AiLastRunDate.AddDays(tagConfig.AiRefreshIntervalDays);
-                return (true, $"Skipped — AI refresh not due until {_nextAiRun:yyyy-MM-dd}");
-            }
-
             string _displayName = !string.IsNullOrWhiteSpace(tagConfig.Name) ? $"{tagConfig.Name} [{tagConfig.Tag.Trim()}]" : tagConfig.Tag.Trim();
             string _srcLabel = string.IsNullOrEmpty(tagConfig.SourceType) ? "External" : tagConfig.SourceType;
 
             bool debug = config.ExtendedConsoleOutput;
             bool dryRun = config.DryRunMode;
+            bool logMissing = config.LogMissingItems;
             var startTime = DateTime.Now;
+            _log = new RunLog(ExecutionLog, _logger, "", debug);
+
+            if (tagConfig.SourceType == "AI" && tagConfig.AiRefreshIntervalDays > 0 &&
+                tagConfig.AiLastRunDate > DateTime.MinValue &&
+                (DateTime.UtcNow - tagConfig.AiLastRunDate).TotalDays < tagConfig.AiRefreshIntervalDays)
+            {
+                var _nextAiRun = tagConfig.AiLastRunDate.AddDays(tagConfig.AiRefreshIntervalDays);
+                _log.Rule();
+                _log.Info($"Home Screen Companion v{Plugin.Instance?.Version}  ·  {startTime:yyyy-MM-dd HH:mm}  ·  Single group: {_displayName}");
+                _log.Skip($"Skipped: AI refresh not due until {_nextAiRun:yyyy-MM-dd}");
+                _log.Rule();
+                LastRunStatus = $"Skipped ({DateTime.Now:HH:mm})";
+                return (true, $"Skipped — AI refresh not due until {_nextAiRun:yyyy-MM-dd}");
+            }
 
             var allItems = _libraryManager.GetItemList(new InternalItemsQuery
             {
@@ -1467,11 +1555,30 @@ namespace HomeScreenCompanion
 
             int _movieCount = allItems.Count(i => i.GetType().Name.Contains("Movie"));
             int _seriesCount = allItems.Count(i => i.GetType().Name.Contains("Series"));
-            LogSummary("══════════════════════════════════════════════════");
-            LogSummary($"Home Screen Companion v{Plugin.Instance?.Version}  ·  {startTime:yyyy-MM-dd HH:mm}  (single-entry run)");
-            if (dryRun) LogSummary("  ! DRY RUN — no changes will be written");
-            LogSummary($"  Library: {_movieCount} movies, {_seriesCount} series");
-            LogSummary("══════════════════════════════════════════════════");
+            _log.Rule();
+            _log.Info($"Home Screen Companion v{Plugin.Instance?.Version}  ·  {startTime:yyyy-MM-dd HH:mm}  ·  Single group: {_displayName}");
+            if (dryRun) _log.Warn("DRY RUN — nothing will be changed, the log shows what would happen");
+            _log.Info($"  Library: {_movieCount:N0} movies, {_seriesCount:N0} series");
+            _log.Rule();
+
+            var gs = new GroupRunStats
+            {
+                DisplayName = _displayName,
+                SourceType = _srcLabel,
+                SourceLabel = DescribeSource(tagConfig),
+                EnableTag = tagConfig.EnableTag && !tagConfig.OnlyCollection,
+                EnableCollection = tagConfig.EnableCollection,
+                EnableHomeSection = tagConfig.EnableHomeSection,
+                EnablePlaylist = tagConfig.EnablePlaylist,
+                PlaylistName = string.IsNullOrWhiteSpace(tagConfig.PlaylistName) ? tagConfig.Name : tagConfig.PlaylistName,
+                PlaylistUsersTotal = tagConfig.PlaylistUserIds?.Count ?? 0,
+                BoxSetHse = IsBoxSetHomeSectionEntry(tagConfig),
+                TagName = tagConfig.Tag.Trim(),
+                CollectionName = string.IsNullOrWhiteSpace(tagConfig.CollectionName) ? tagConfig.Tag.Trim() : tagConfig.CollectionName.Trim(),
+                GroupIndex = 1,
+                GroupTotal = 1
+            };
+            var groupTimer = System.Diagnostics.Stopwatch.StartNew();
 
             var _topListsFolder = Path.Combine(Plugin.Instance.DataFolderPath, "toplists") + Path.DirectorySeparatorChar;
             var imdbLookup = new Dictionary<string, List<BaseItem>>(StringComparer.OrdinalIgnoreCase);
@@ -1725,6 +1832,11 @@ namespace HomeScreenCompanion
             List<BaseItem> collectionOutputItems = matchedLocalItems;
             int _listCount = 0;
 
+            _log.Blank();
+            _log.Info("» Fetching sources");
+            _log.Section($"[1/1] {_displayName}");
+            _log.Debug("  " + DescribeSourceDetail(tagConfig, effectiveLimit) + (groupEntries.Count > 1 ? $"  ·  {groupEntries.Count} sources in group" : ""));
+
             try
             {
                 var fetcher = new ListFetcher(_httpClient, _jsonSerializer);
@@ -1736,19 +1848,30 @@ namespace HomeScreenCompanion
                     {
                         if (string.IsNullOrWhiteSpace(src.Url)) continue;
                         int srcLimit = src.Limit <= 0 ? 10000 : src.Limit;
+                        var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
                         var items = await fetcher.FetchItems(src.Url, srcLimit, config.TraktClientId, config.MdblistApiKey, config.TmdbApiKey, cancellationToken);
+                        fetchTimer.Stop();
                         _listCount += items.Count;
                         if (items.Count > srcLimit) items = items.Take(srcLimit).ToList();
+                        int _srcMatched = 0, _srcBlacklisted = 0, _srcMissingBefore = gs.MissingItems.Count;
                         foreach (var extItem in items)
                         {
                             if (string.IsNullOrEmpty(extItem.Imdb)) continue;
-                            if (blacklist.Contains(extItem.Imdb)) continue;
+                            if (blacklist.Contains(extItem.Imdb)) { _srcBlacklisted++; _log.Debug($"    Blacklisted: {extItem.Name} ({extItem.Imdb})"); continue; }
                             if (tagConfig.EnableTag && !tagConfig.OnlyCollection)
                                 TagCacheManager.Instance.AddToCache($"imdb_{extItem.Imdb}", tagName);
                             if (imdbLookup.TryGetValue(extItem.Imdb, out var localItems))
+                            {
+                                _srcMatched++;
                                 foreach (var localItem in localItems)
                                     if (!matchedLocalItems.Contains(localItem)) matchedLocalItems.Add(localItem);
+                            }
+                            else
+                            {
+                                gs.MissingItems.Add($"{extItem.Name}  {extItem.Imdb}");
+                            }
                         }
+                        _log.Debug($"  {src.Url}  →  {items.Count} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {_srcMatched} matched by IMDb id  ·  {gs.MissingItems.Count - _srcMissingBefore} not in library  ·  {_srcBlacklisted} blacklisted");
                     }
                 }
                 else if (tagConfig.SourceType == "LocalCollection" || tagConfig.SourceType == "LocalPlaylist")
@@ -1766,9 +1889,10 @@ namespace HomeScreenCompanion
                         if (localSourceFolder == null)
                         {
                             missingSources.Add(src.LocalSourceId);
-                            LogSummary($"  ! {_displayName}  ·  {tagConfig.SourceType} '{src.LocalSourceId}' not found", "Warn");
+                            gs.Warnings.Add($"{DescribeSource(tagConfig)} '{src.LocalSourceId}' was not found in the library");
                             continue;
                         }
+                        _log.Debug($"  Found source '{localSourceFolder.Name}'  ({localSourceFolder.GetType().Name})");
 
                         var children = tagConfig.SourceType == "LocalCollection"
                             ? _libraryManager.GetItemList(new InternalItemsQuery { CollectionIds = new[] { localSourceFolder.InternalId }, IsVirtualItem = false }).ToList()
@@ -1790,11 +1914,19 @@ namespace HomeScreenCompanion
                             srcMatched = srcMatched.Take(srcLimit).ToList();
                         foreach (var m in srcMatched)
                             if (!matchedLocalItems.Contains(m)) matchedLocalItems.Add(m);
+                        _log.Debug($"  '{src.LocalSourceId}'  →  {children.Count} items, {srcMatched.Count} usable movies/series");
                     }
 
                     // Only fail outright if no source in the group could be resolved
                     if (missingSources.Count > 0 && matchedLocalItems.Count == 0 && _listCount == 0)
+                    {
+                        gs.ErrorMessage = $"Source '{string.Join("', '", missingSources)}' not found";
+                        gs.Warnings.Clear();
+                        gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
+                        WriteFetchLine(gs);
+                        WriteSingleRunFooter(gs, startTime, dryRun, logMissing);
                         return (false, $"Source '{string.Join("', '", missingSources)}' not found");
+                    }
                 }
                 else if (tagConfig.SourceType == "MediaInfo")
                 {
@@ -1822,6 +1954,11 @@ namespace HomeScreenCompanion
                             matchedLocalItems.Add(item);
                             if (effectiveLimit < 10000 && matchedLocalItems.Count >= effectiveLimit) break;
                         }
+                    }
+                    if (debug)
+                    {
+                        _log.Debug($"  Scanned {_itemsToScan.Count:N0} items in {groupTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched");
+                        WriteMatchedItemsDebug(matchedLocalItems);
                     }
                     // Redirect matched items to the selected output level (tag and collection independently)
                     tagOutputItems = matchedLocalItems;
@@ -1859,6 +1996,7 @@ namespace HomeScreenCompanion
                 else if (tagConfig.SourceType == "AI")
                 {
                     var recentlyWatchedContext = BuildRecentlyWatchedContext(tagConfig);
+                    var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
                     var aiItems = await fetcher.FetchAiList(
                         tagConfig.AiProvider,
                         tagConfig.AiPrompt,
@@ -1874,17 +2012,20 @@ namespace HomeScreenCompanion
                         recentlyWatchedContext,
                         effectiveLimit,
                         cancellationToken);
+                    fetchTimer.Stop();
 
                     _listCount = aiItems.Count;
+                    int _aiTitleMatched = 0, _aiBlacklisted = 0;
 
                     foreach (var aiItem in aiItems)
                     {
                         if (string.IsNullOrWhiteSpace(aiItem.title)) continue;
+                        string _aiLabel = aiItem.year.HasValue ? $"{aiItem.title} ({aiItem.year})" : aiItem.title;
 
                         if (!string.IsNullOrEmpty(aiItem.imdb_id))
                         {
                             var imdbId = aiItem.imdb_id.Trim();
-                            if (blacklist.Contains(imdbId)) continue;
+                            if (blacklist.Contains(imdbId)) { _aiBlacklisted++; _log.Debug($"    Blacklisted: {_aiLabel} ({imdbId})"); continue; }
                             if (tagConfig.EnableTag && !tagConfig.OnlyCollection)
                                 TagCacheManager.Instance.AddToCache($"imdb_{imdbId}", tagName);
                             if (imdbLookup.TryGetValue(imdbId, out var localItems))
@@ -1896,6 +2037,8 @@ namespace HomeScreenCompanion
                             {
                                 // IMDB ID not found in library — fall back to title+year match
                                 var titleMatches = FindByTitleAndYear(allItems, aiItem.title, aiItem.year);
+                                if (titleMatches.Count > 0) { _aiTitleMatched++; _log.Debug($"    {imdbId} not in library — matched '{_aiLabel}' by title"); }
+                                else gs.MissingItems.Add($"{_aiLabel}  {imdbId}");
                                 foreach (var localItem in titleMatches)
                                 {
                                     var imdb = localItem.GetProviderId("Imdb");
@@ -1907,14 +2050,17 @@ namespace HomeScreenCompanion
                         else
                         {
                             var titleMatches = FindByTitleAndYear(allItems, aiItem.title, aiItem.year);
+                            if (titleMatches.Count > 0) _aiTitleMatched++;
+                            else gs.MissingItems.Add($"{_aiLabel}  (no IMDb id from AI)");
                             foreach (var localItem in titleMatches)
                             {
                                 var imdb = localItem.GetProviderId("Imdb");
-                                if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb)) continue;
+                                if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb)) { _aiBlacklisted++; continue; }
                                 if (!matchedLocalItems.Contains(localItem)) matchedLocalItems.Add(localItem);
                             }
                         }
                     }
+                    _log.Debug($"  AI ({tagConfig.AiProvider}) returned {_listCount} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched ({_aiTitleMatched} by title only)  ·  {gs.MissingItems.Count} not in library  ·  {_aiBlacklisted} blacklisted");
 
                     if (tagConfig.AiRefreshIntervalDays > 0)
                     {
@@ -1925,7 +2071,11 @@ namespace HomeScreenCompanion
             }
             catch (Exception ex)
             {
-                LogSummary($"Error: {ex.Message}", "Error");
+                gs.ErrorMessage = ex.Message;
+                gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
+                WriteExceptionDebug(ex);
+                WriteFetchLine(gs);
+                WriteSingleRunFooter(gs, startTime, dryRun, logMissing);
                 LastRunStatus = $"Failed: {ex.Message}";
                 return (false, $"Error: {ex.Message}");
             }
@@ -1940,7 +2090,7 @@ namespace HomeScreenCompanion
                     CachedMediaInfo? ci = mediaInfoCache.TryGetValue(item.InternalId, out var ciVal) ? ciVal : (CachedMediaInfo?)null;
                     return ItemMatchesMediaInfo(item, tagConfig, debug, seriesEpisodeCache, personCache, userDataCache, ci, preloadedUsers, seriesLastPlayedCache, collectionMembershipCache, seriesEpisodeNamesCache);
                 }).ToList();
-                if (debug) LogDebug($"  MediaInfo post-filter: {beforeCount} → {matchedLocalItems.Count} items");
+                _log.Debug($"  Filter conditions: {beforeCount} → {matchedLocalItems.Count} items");
             }
 
             // For non-MediaInfo sources, apply output level selection (expand down from Series/Movie)
@@ -1965,6 +2115,25 @@ namespace HomeScreenCompanion
                 collectionOutputItems = BuildNonMiOutput(cEp, cSea, cSer, cEp || cSea || cSer);
             }
 
+            gs.ListCount = _listCount;
+            if ((string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External" || tagConfig.SourceType == "AI") && _listCount == 0)
+                gs.Warnings.Add(tagConfig.SourceType == "AI"
+                    ? "The AI returned 0 items — the group's tags, collection and playlist are being cleared. Check the prompt and the API key in Settings."
+                    : "The list returned 0 items — the group's tags, collection and playlist are being cleared. Check the list URL and the API key in Settings.");
+            {
+                var _outIds = new HashSet<Guid>(tagOutputItems.Select(i => i.Id));
+                foreach (var _id in collectionOutputItems.Select(i => i.Id)) _outIds.Add(_id);
+                gs.MatchCount = _outIds.Count;
+            }
+            if (gs.MissingItems.Count > 0 && debug)
+            {
+                _log.Debug($"  Not in library ({gs.MissingItems.Count}):");
+                foreach (var _missing in gs.MissingItems) _log.Debug("    " + _missing);
+            }
+            gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
+            _log.Debug($"  Group done in {gs.ElapsedMs} ms");
+            WriteFetchLine(gs);
+
             // Save rank file so top-list .strm files can be numbered in list order
             if (!dryRun)
             {
@@ -1975,6 +2144,9 @@ namespace HomeScreenCompanion
             }
 
             // Apply tags (scoped to this entry's tag only)
+            _log.Blank();
+            _log.Info("» Applying tags");
+            var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
             int tagsAdded = 0, tagsRemoved = 0;
             var _dbgTagAdded = debug ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase) : null;
             var _dbgTagRemoved = debug ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase) : null;
@@ -1999,7 +2171,7 @@ namespace HomeScreenCompanion
                 {
                     if (shouldHave) item.AddTag(tagName); else item.RemoveTag(tagName);
                     try { _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null); }
-                    catch { }
+                    catch (Exception ex) { _log.Warn($"Could not save tags for '{item.Name}': {ex.Message}"); }
                     if (++updateCount % 25 == 0) await Task.Yield();
                 }
                 if (shouldHave) tagsAdded++; else tagsRemoved++;
@@ -2054,7 +2226,7 @@ namespace HomeScreenCompanion
                     {
                         if (shouldHaveEp) ep.AddTag(tagName); else ep.RemoveTag(tagName);
                         try { _libraryManager.UpdateItem(ep, ep.Parent, ItemUpdateType.MetadataEdit, null); }
-                        catch { }
+                        catch (Exception ex) { _log.Warn($"Could not save tags for episode '{ep.Name}': {ex.Message}"); }
                         if (++updateCount % 25 == 0) await Task.Yield();
                     }
                     if (shouldHaveEp) tagsAdded++; else tagsRemoved++;
@@ -2111,41 +2283,37 @@ namespace HomeScreenCompanion
                     {
                         if (shouldHaveSeason) season.AddTag(tagName); else season.RemoveTag(tagName);
                         try { _libraryManager.UpdateItem(season, season.Parent, ItemUpdateType.MetadataEdit, null); }
-                        catch { }
+                        catch (Exception ex) { _log.Warn($"Could not save tags for season '{season.Name}': {ex.Message}"); }
                         if (++updateCount % 25 == 0) await Task.Yield();
                     }
                     if (shouldHaveSeason) tagsAdded++; else tagsRemoved++;
                 }
             }
 
-            if (debug && (_dbgTagAdded!.Count > 0 || _dbgTagRemoved!.Count > 0))
-            {
-                LogDebug("── Tags ──────────────────────────────────────────");
-                var _allTagNames = _dbgTagAdded!.Keys.Concat(_dbgTagRemoved!.Keys).Distinct(StringComparer.OrdinalIgnoreCase);
-                foreach (var _tName in _allTagNames)
-                {
-                    LogDebug($"  {_tName}");
-                    var _added = _dbgTagAdded.GetValueOrDefault(_tName) ?? new List<string>();
-                    var _removed = _dbgTagRemoved.GetValueOrDefault(_tName) ?? new List<string>();
-                    int _shown = 0;
-                    foreach (var _lbl in _added)
-                    {
-                        if (_shown >= 30) { LogDebug($"    ... and {_added.Count - _shown} more added"); break; }
-                        LogDebug($"    + {_lbl}"); _shown++;
-                    }
-                    _shown = 0;
-                    foreach (var _lbl in _removed)
-                    {
-                        if (_shown >= 30) { LogDebug($"    ... and {_removed.Count - _shown} more removed"); break; }
-                        LogDebug($"    - {_lbl}"); _shown++;
-                    }
-                }
-            }
+            WriteTagDiffDebug(_dbgTagAdded, _dbgTagRemoved);
+            if (gs.EnableTag && !gs.BoxSetHse)
+                _log.Info(tagsAdded == 0 && tagsRemoved == 0
+                    ? $"    No tag changes needed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}"
+                    : dryRun
+                        ? $"    Would add {tagsAdded} and remove {tagsRemoved} tags"
+                        : $"    +{tagsAdded} added, -{tagsRemoved} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
+            else if (gs.BoxSetHse)
+                _log.Skip("The tag is applied to the collection itself, not to its items (see results)");
+            else
+                _log.Skip("Tagging is not enabled for this group");
 
             // Apply collection (scoped to this entry's collection only)
             int collResult = 0;
             bool _collCreated = false;
             int _collItemsAdded = 0, _collItemsRemoved = 0;
+            if (tagConfig.EnableCollection)
+            {
+                _log.Blank();
+                _log.Info("» Collections");
+                phaseTimer.Restart();
+                if (dryRun) _log.Skip("Dry run — collections are not changed");
+                else if (collectionOutputItems.Count == 0) _log.Skip($"Collection \"{cName}\" left unchanged — no items matched");
+            }
             if (tagConfig.EnableCollection && collectionOutputItems.Count > 0 && !dryRun)
             {
                 try
@@ -2158,6 +2326,7 @@ namespace HomeScreenCompanion
                         collResult = 1;
                         _collCreated = true;
                         _collItemsAdded = desiredIds.Count;
+                        _log.Debug($"  {cName}  →  created ({desiredIds.Count} items)");
                     }
                     else
                     {
@@ -2169,17 +2338,44 @@ namespace HomeScreenCompanion
                         collResult = toAdd.Count + toRemove.Count;
                         _collItemsAdded = toAdd.Count;
                         _collItemsRemoved = toRemove.Count;
+                        if (debug)
+                        {
+                            _log.Debug(collResult == 0
+                                ? $"  {cName}  →  up to date ({currentMembers.Count} items)"
+                                : $"  {cName}  →  updated (+{toAdd.Count}, -{toRemove.Count})");
+                            var _collMap = allItems.ToDictionary(i => i.InternalId, i => i.Name + (i.ProductionYear.HasValue ? $" ({i.ProductionYear})" : ""));
+                            string CollLabel(long id) => _collMap.TryGetValue(id, out var _cn) ? _cn : id.ToString();
+                            foreach (var id in toAdd) _log.Debug($"    + {CollLabel(id)}");
+                            foreach (var id in toRemove) _log.Debug($"    - {CollLabel(id)}");
+                        }
                     }
+                    gs.CollectionCreated = _collCreated;
+                    gs.CollectionItemsAdded = _collItemsAdded;
+                    gs.CollectionItemsRemoved = _collItemsRemoved;
+                    _log.Info(_collCreated
+                        ? $"    Collection \"{cName}\" created with {RunLog.Plural(_collItemsAdded, "item")}  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}"
+                        : collResult == 0
+                            ? $"    Collection \"{cName}\" is up to date  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}"
+                            : $"    Collection \"{cName}\" updated (+{_collItemsAdded}, -{_collItemsRemoved})  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
                 }
                 catch (Exception ex)
                 {
-                    LogSummary($"  ! Collection error: {ex.Message}", "Warn");
-                    LastRunStatus = $"Success ({DateTime.Now:HH:mm})";
+                    _log.Error($"Collection \"{cName}\" could not be updated: {ex.Message}");
+                    WriteExceptionDebug(ex);
+                    gs.Warnings.Add($"Collection could not be updated: {ex.Message}");
+                    gs.TagsAdded = tagsAdded; gs.TagsRemoved = tagsRemoved;
+                    WriteSingleRunFooter(gs, startTime, dryRun, logMissing);
                     return (true, $"{matchedLocalItems.Count} matched, {tagsAdded}↑ {tagsRemoved}↓ tags — collection error: {ex.Message}");
                 }
             }
 
-            await SyncPlaylistsForEntryAsync(tagConfig, collectionOutputItems, dryRun);
+            if (tagConfig.EnablePlaylist)
+            {
+                _log.Blank();
+                _log.Info("» Playlists");
+                if (dryRun) _log.Skip("Dry run — playlists are not changed");
+            }
+            await SyncPlaylistsForEntryAsync(tagConfig, collectionOutputItems, dryRun, gs);
 
             if (!dryRun)
             {
@@ -2212,58 +2408,26 @@ namespace HomeScreenCompanion
             }
 
             tagsRemoved += CleanupBoxSetTags(config, dryRun, cancellationToken);
+            gs.BoxSetFound = _boxSetFound;
+            gs.BoxSetTaggedCount = _boxSetTaggedCount;
+            gs.TagsAdded = tagsAdded;
+            gs.TagsRemoved = tagsRemoved;
+            if (_isBoxSetHse && !_boxSetFound)
+                gs.Warnings.Add($"Collection '{tagConfig.LocalSourceId}' was not found in the library");
 
             // Manage home sections for this entry
-            var _singleGs = new GroupRunStats
+            if (tagConfig.EnableHomeSection)
             {
-                TagName = tagName,
-                EnableHomeSection = tagConfig.EnableHomeSection
-            };
+                _log.Blank();
+                _log.Info("» Home sections");
+                if (dryRun) _log.Skip("Dry run — home sections are not changed");
+            }
             if (!dryRun && tagConfig.EnableHomeSection)
-                ManageHomeSections(config, cancellationToken, debug, new List<GroupRunStats> { _singleGs }, tagName);
+                ManageHomeSections(config, cancellationToken, debug, new List<GroupRunStats> { gs }, tagName);
             CleanupDisabledPlaylists(config, dryRun);
             SyncTopListFolders(config, dryRun);
 
-            var elapsed = DateTime.Now - startTime;
-            string elapsedStr = elapsed.TotalMinutes >= 1
-                ? $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s"
-                : $"{(int)elapsed.TotalSeconds}s";
-            string finalStatus = dryRun ? "Dry Run" : "Success";
-
-            LogSummary("");
-            LogSummary($"[1/1] {_displayName}  ({_srcLabel})");
-            if (_srcLabel == "MediaInfo")
-                LogSummary($"  Scanned: {_listCount} items · {matchedLocalItems.Count} matched");
-            else if (_isBoxSetHse)
-                LogSummary($"  Collections tagged: {_boxSetTaggedCount}");
-            else if (_srcLabel == "LocalCollection" || _srcLabel == "LocalPlaylist")
-                LogSummary($"  Source: {_listCount} items · {matchedLocalItems.Count} matched");
-            else
-                LogSummary($"  List: {_listCount} objects · {matchedLocalItems.Count} matched in library");
-            if (!_isBoxSetHse && tagConfig.EnableTag && !tagConfig.OnlyCollection)
-                LogSummary($"  Tag: +{tagsAdded} added, -{tagsRemoved} removed");
-            if (tagConfig.EnableCollection)
-                LogSummary(_collCreated
-                    ? $"  Collection: created ({_collItemsAdded} items)"
-                    : $"  Collection: updated (+{_collItemsAdded}, -{_collItemsRemoved})");
-            if (tagConfig.EnableHomeSection)
-                LogSummary(_singleGs.HomeSectionSynced
-                    ? $"  Home section: synced for {_singleGs.HomeSectionUserCount} user(s)"
-                    : "  Home section: not synced");
-            LogSummary("");
-
-            LogSummary("══════════════════════════════════════════════════");
-            LogSummary("Summary");
-            if (tagConfig.EnableTag && !tagConfig.OnlyCollection && !_isBoxSetHse)
-                LogSummary($"  Tags:          +{tagsAdded} added,  -{tagsRemoved} removed");
-            if (_isBoxSetHse)
-                LogSummary($"  Collections tagged: {_boxSetTaggedCount}");
-            if (tagConfig.EnableCollection)
-                LogSummary($"  Collections:   {(_collCreated ? 1 : 0)} created,   {(!_collCreated && collResult > 0 ? 1 : 0)} updated");
-            if (tagConfig.EnableHomeSection)
-                LogSummary($"  Home sections: {(_singleGs.HomeSectionSynced ? 1 : 0)} synced");
-            LogSummary($"  Done in {elapsedStr}  ·  {finalStatus}");
-            LogSummary("══════════════════════════════════════════════════");
+            WriteSingleRunFooter(gs, startTime, dryRun, logMissing);
 
             List<string> parts;
             if (_isBoxSetHse)
@@ -2278,7 +2442,6 @@ namespace HomeScreenCompanion
             if (collResult > 0) parts.Add("collection updated");
             if (dryRun) parts.Add("(dry run)");
             var summary = string.Join(", ", parts);
-            LastRunStatus = $"Success ({DateTime.Now:HH:mm})";
             return (true, summary);
         }
 
@@ -2308,11 +2471,13 @@ namespace HomeScreenCompanion
         // Shared by both the full sync (Execute) and the single-group run (RunSingleEntryInternalAsync)
         // so both paths create/update playlists identically. collectionOutputItems must be the union
         // of all sources in the group, since the sync removes anything not in the list.
-        private async Task SyncPlaylistsForEntryAsync(TagConfig tagConfig, List<BaseItem> collectionOutputItems, bool dryRun)
+        private async Task SyncPlaylistsForEntryAsync(TagConfig tagConfig, List<BaseItem> collectionOutputItems, bool dryRun, GroupRunStats? gs = null)
         {
             // Playlist sync — one individual playlist per user in PlaylistUserIds
             if (tagConfig.EnablePlaylist && !dryRun)
             {
+                string _plLogName = string.IsNullOrWhiteSpace(tagConfig.PlaylistName) ? tagConfig.Name : tagConfig.PlaylistName;
+                _log.Section($"Playlist \"{_plLogName}\"");
                 try
                 {
                     // Deduplicate — pick one physical version per logical movie (IMDb > TMDb > InternalId).
@@ -2331,12 +2496,13 @@ namespace HomeScreenCompanion
                             desiredPlIdSet.Add(item.InternalId);
                         }
                     }
+                    _log.Debug($"  {desiredPlIdList.Count} unique items for {tagConfig.PlaylistUserIds.Count} users");
                     bool plMappingChanged = false;
                     foreach (var userId in tagConfig.PlaylistUserIds)
                     {
                         if (!Guid.TryParse(userId, out var userGuid)) continue;
                         var plUser = _userManager.GetUserById(userGuid);
-                        if (plUser == null) continue;
+                        if (plUser == null) { _log.Debug($"  User {userId} no longer exists — skipped"); continue; }
 
                         var plName = string.IsNullOrWhiteSpace(tagConfig.PlaylistName) ? tagConfig.Name : tagConfig.PlaylistName;
 
@@ -2377,6 +2543,7 @@ namespace HomeScreenCompanion
                             {
                                 mapping.PlaylistId = existingPlaylist.Id.ToString();
                                 plMappingChanged = true;
+                                _log.Debug($"  {plUser.Name}: stored playlist id was stale — re-linked by name to {existingPlaylist.Id}");
                             }
                         }
 
@@ -2432,16 +2599,20 @@ namespace HomeScreenCompanion
                                     if (!ownerSet) try { dynPl.UserId = plUser.Id; ownerSet = true; } catch { }
                                     if (ownerSet)
                                         _libraryManager.UpdateItem(newPl, newPl.Parent, ItemUpdateType.MetadataEdit, null);
-                                    LogSummary($"  ! Created playlist '{plName}' for {plUser.Name} id={newPl.Id} (owner {(ownerSet ? "set" : "not set")})", "Info");
+                                    if (gs != null) gs.PlaylistUsersCreated++;
+                                    _log.Ok($"Playlist \"{plName}\": created for {plUser.Name} ({RunLog.Plural(desiredPlIdList.Count, "item")})");
+                                    _log.Debug($"  {plUser.Name}: playlist id {newPl.Id}, owner {(ownerSet ? "set" : "not set")}");
                                 }
                                 catch (Exception ex)
                                 {
-                                    LogSummary($"  ! Created playlist '{plName}' for {plUser.Name} but could not set owner: {ex.Message}", "Warn");
+                                    if (gs != null) gs.PlaylistUsersCreated++;
+                                    _log.Warn($"Playlist \"{plName}\": created for {plUser.Name} but the owner could not be set: {ex.Message}");
                                 }
                             }
                             else
                             {
-                                LogSummary($"  ! Created playlist '{plName}' for {plUser.Name} but could not confirm ID — will retry on next sync", "Warn");
+                                if (gs != null) gs.PlaylistUsersFailed++;
+                                _log.Warn($"Playlist \"{plName}\": created for {plUser.Name} but its id could not be confirmed — will retry on next sync");
                             }
                         }
                         else
@@ -2481,16 +2652,14 @@ namespace HomeScreenCompanion
                             {
                                 try {
                                     await _playlistManager.RemoveFromPlaylist(existingPlaylist.InternalId, entryIdsToRemove.ToArray());
-                                    LogSummary($"  ! Removed {entryIdsToRemove.Count} item(s) from playlist '{plName}'", "Info");
                                 } catch (Exception ex) {
-                                    LogSummary($"  ! Error removing items from playlist: {ex.Message}", "Warn");
+                                    _log.Warn($"Playlist \"{plName}\": could not remove {entryIdsToRemove.Count} items for {plUser.Name}: {ex.Message}");
                                 }
                             }
 
                             if (toAdd.Length > 0)
                             {
                                 _playlistManager.AddToPlaylist(existingPlaylist.InternalId, toAdd, plUser);
-                                LogSummary($"  ! Added {toAdd.Length} item(s) to playlist '{plName}'", "Info");
                             }
 
                             // Reorder the playlist so it mirrors the source order. AddToPlaylist appends new
@@ -2539,16 +2708,25 @@ namespace HomeScreenCompanion
                                 }
                                 catch (Exception ex)
                                 {
-                                    LogSummary($"  ! Error reordering playlist '{plName}': {ex.Message}", "Warn");
+                                    _log.Warn($"Playlist \"{plName}\": could not reorder for {plUser.Name}: {ex.Message}");
                                     break;
                                 }
                             }
 
-                            if (reordered)
-                                LogSummary($"  ! Reordered playlist '{plName}' to match source order", "Info");
-
                             if (entryIdsToRemove.Count > 0 || toAdd.Length > 0 || reordered)
+                            {
                                 plMappingChanged = true;
+                                if (gs != null) gs.PlaylistUsersUpdated++;
+                                var _plParts = new List<string>();
+                                if (toAdd.Length > 0) _plParts.Add($"+{toAdd.Length}");
+                                if (entryIdsToRemove.Count > 0) _plParts.Add($"-{entryIdsToRemove.Count}");
+                                if (reordered) _plParts.Add("reordered");
+                                _log.Ok($"Playlist \"{plName}\": updated for {plUser.Name} ({string.Join(", ", _plParts)})");
+                            }
+                            else
+                            {
+                                _log.Debug($"  {plUser.Name}: up to date ({currentOrder.Count} items)");
+                            }
                         }
                     }
                     if (plMappingChanged)
@@ -2556,7 +2734,9 @@ namespace HomeScreenCompanion
                 }
                 catch (Exception ex)
                 {
-                    LogSummary($"  ! Playlist error: {ex.Message}", "Warn");
+                    if (gs != null) { gs.PlaylistUsersFailed++; gs.Warnings.Add($"Playlist sync failed: {ex.Message}"); }
+                    _log.Error($"Playlist \"{_plLogName}\" could not be synced: {ex.Message}");
+                    WriteExceptionDebug(ex);
                 }
             }
         }
@@ -2608,14 +2788,14 @@ namespace HomeScreenCompanion
                                 }
                                 catch (Exception ex)
                                 {
-                                    LogSummary($"  ! {_hsDisplayName}  ·  failed to remove home section: {ex.Message}", "Warn");
+                                    _log.Warn($"{_hsDisplayName}: home section could not be removed: {ex.Message}");
                                 }
                             }
                             if (_removedHs > 0)
                             {
                                 var _gsR = statsList?.FirstOrDefault(s => s.TagName != null && string.Equals(s.TagName, _hsTagName, StringComparison.OrdinalIgnoreCase));
                                 if (_gsR != null) _gsR.HomeSectionRemoved = true;
-                                LogSummary($"  ~ {_hsDisplayName}  ·  home section removed  ({_removedHs} user{(_removedHs == 1 ? "" : "s")})");
+                                _log.Skip($"{_hsDisplayName}: home section removed for {RunLog.Plural(_removedHs, "user")} (group is {(tc.EnableHomeSection ? "inactive or not in schedule" : "no longer set to show a home section")})");
                             }
                         }
                         // Always clear tracking (including duplicate flat entries) so this
@@ -2695,7 +2875,7 @@ namespace HomeScreenCompanion
                             if (coll != null)
                                 resolvedLibraryId = coll.InternalId.ToString();
                             else
-                                LogSummary($"  ! {_hsDisplayName}  ·  collection '{tc.CollectionName}' not found", "Warn");
+                                HsWarn(statsList, _hsTagName, _hsDisplayName, $"collection '{tc.CollectionName}' was not found, so the home section could not be created");
                         }
                     }
                     else if (!string.IsNullOrEmpty(tc.HomeSectionLibraryId))
@@ -2705,7 +2885,7 @@ namespace HomeScreenCompanion
 
                     if (string.IsNullOrEmpty(resolvedLibraryId))
                     {
-                        LogSummary($"  ! {_hsDisplayName}  ·  no collection found — home section skipped", "Warn");
+                        HsWarn(statsList, _hsTagName, _hsDisplayName, "home section skipped — no collection to show");
                         continue;
                     }
                 }
@@ -2721,7 +2901,7 @@ namespace HomeScreenCompanion
                     if (tagItem != null)
                         settingsDict["_queryTagId"] = tagItem.InternalId.ToString();
                     else
-                        LogSummary($"  ! {_hsDisplayName}  ·  tag not found in library, section may be empty", "Warn");
+                        HsWarn(statsList, _hsTagName, _hsDisplayName, $"tag '{tc.Tag}' does not exist in the library yet, so the home section may be empty");
                 }
 
                 var removedUsers = tc.HomeSectionTracked.Where(t => !tc.HomeSectionUserIds.Contains(t.UserId)).ToList();
@@ -2738,10 +2918,11 @@ namespace HomeScreenCompanion
                 }
 
                 int _hsSynced = 0;
-                if (debug && tc.HomeSectionUserIds.Count > 0)
-                    LogDebug($"── [{_hsDisplayName}]  Home sections ───────────────");
+                if (tc.HomeSectionUserIds.Count > 0)
+                    _log.Section($"Home section: {_hsDisplayName}");
                 foreach (var userId in tc.HomeSectionUserIds)
                 {
+                    string _hsAction = "created";
                     try
                     {
                         var userInternalId = _userManager.GetInternalId(userId);
@@ -2770,6 +2951,7 @@ namespace HomeScreenCompanion
                                 typeof(ContentSection).GetProperty("Id")?.SetValue(updateSection, ownedSection.Id);
                                 _userManager.UpdateHomeSection(userInternalId, updateSection, cancellationToken);
                                 trackId = ownedSection.Id ?? sectionMarker;
+                                _hsAction = "updated";
                                 goto _hsSectionDone;
                             }
                             catch
@@ -2804,7 +2986,7 @@ namespace HomeScreenCompanion
                             string _hsUserName = Guid.TryParse(userId, out var _hsGuid)
                                 ? (_userManager.GetUserById(_hsGuid)?.Name ?? userId)
                                 : userId;
-                            LogDebug($"  → {_hsUserName}");
+                            _log.Debug($"  {_hsUserName}: {_hsAction} (section id {trackId})");
                         }
                     }
                     catch (Exception ex)
@@ -2812,14 +2994,18 @@ namespace HomeScreenCompanion
                         string _hsUserName2 = Guid.TryParse(userId, out var _hsGuid2)
                             ? (_userManager.GetUserById(_hsGuid2)?.Name ?? userId)
                             : userId;
-                        LogSummary($"  ! {_hsDisplayName}  ·  home section failed for {_hsUserName2}: {ex.Message}", "Warn");
+                        HsWarn(statsList, _hsTagName, _hsDisplayName, $"home section failed for {_hsUserName2}: {ex.Message}");
                     }
                 }
                 if (_hsSynced > 0)
                 {
                     var _gsS = statsList?.FirstOrDefault(s => s.TagName != null && string.Equals(s.TagName, _hsTagName, StringComparison.OrdinalIgnoreCase));
                     if (_gsS != null) { _gsS.HomeSectionSynced = true; _gsS.HomeSectionUserCount = _hsSynced; }
-                    LogSummary($"  ~ {_hsDisplayName}  ·  home section synced  ({_hsSynced} user{(_hsSynced == 1 ? "" : "s")})");
+                    _log.Ok($"{_hsDisplayName}: home section synced for {RunLog.Plural(_hsSynced, "user")}");
+                }
+                else if (tc.HomeSectionUserIds.Count == 0)
+                {
+                    HsWarn(statsList, _hsTagName, _hsDisplayName, "home section enabled but no users are selected");
                 }
             }
 
@@ -2890,7 +3076,7 @@ namespace HomeScreenCompanion
 
             var allBoxSets = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = new[] { "BoxSet" }, Recursive = true });
             var target = allBoxSets.FirstOrDefault(b => string.Equals(b.Name, tc.LocalSourceId, StringComparison.OrdinalIgnoreCase));
-            if (target == null) { LogSummary($"  ! BoxSet '{tc.LocalSourceId}' not found in library", "Warn"); return false; }
+            if (target == null) { _log.Debug($"  Collection '{tc.LocalSourceId}' not found in library — cannot tag it"); return false; }
 
             var hasTag = (target.Tags ?? Array.Empty<string>()).Any(t => string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase));
             if (!hasTag)
@@ -2899,8 +3085,13 @@ namespace HomeScreenCompanion
                 if (!dryRun)
                 {
                     try { _libraryManager.UpdateItem(target, target.Parent, ItemUpdateType.MetadataEdit, null); }
-                    catch (Exception ex) { LogSummary($"  ! Failed to update BoxSet '{target.Name}': {ex.Message}", "Warn"); }
+                    catch (Exception ex) { _log.Warn($"Could not save tag on collection '{target.Name}': {ex.Message}"); }
                 }
+                _log.Debug($"  Collection '{target.Name}' {(dryRun ? "would be tagged" : "tagged")} with '{tagName}'");
+            }
+            else
+            {
+                _log.Debug($"  Collection '{target.Name}' already has tag '{tagName}'");
             }
             return true;
         }
@@ -2925,13 +3116,13 @@ namespace HomeScreenCompanion
                             if (pl != null && !dryRun)
                             {
                                 try { _libraryManager.DeleteItem(pl, new DeleteOptions { DeleteFileLocation = false }); }
-                                catch (Exception ex) { LogSummary($"  ! Could not delete playlist: {ex.Message}", "Warn"); }
+                                catch (Exception ex) { _log.Warn($"Playlist '{pl.Name}' could not be removed: {ex.Message}"); }
                             }
                         }
                     }
                     if (!dryRun) tc.PlaylistMappings.Clear();
                     configChanged = true;
-                    LogSummary($"  ! Removed playlists for {(tc.EnablePlaylist ? "inactive" : "disabled")} group '{tc.Name ?? tc.Tag}'", "Info");
+                    _log.Skip($"Playlists for '{tc.Name ?? tc.Tag}' {(dryRun ? "would be removed" : "removed")} (group is {(tc.EnablePlaylist ? "inactive or not in schedule" : "no longer set to create playlists")})");
                 }
                 else
                 {
@@ -2946,12 +3137,13 @@ namespace HomeScreenCompanion
                             if (pl != null && !dryRun)
                             {
                                 try { _libraryManager.DeleteItem(pl, new DeleteOptions { DeleteFileLocation = false }); }
-                                catch (Exception ex) { LogSummary($"  ! Could not delete orphaned playlist: {ex.Message}", "Warn"); }
+                                catch (Exception ex) { _log.Warn($"Playlist '{pl.Name}' could not be removed: {ex.Message}"); }
                             }
                         }
                         if (!dryRun) tc.PlaylistMappings.Remove(orphan);
                         configChanged = true;
-                        LogSummary($"  ! Removed playlist for deselected user {orphan.UserId}", "Info");
+                        string _orphanUser = Guid.TryParse(orphan.UserId, out var _orphanGuid) ? (_userManager.GetUserById(_orphanGuid)?.Name ?? orphan.UserId) : orphan.UserId;
+                        _log.Skip($"Playlist for '{tc.Name ?? tc.Tag}' {(dryRun ? "would be removed" : "removed")} for {_orphanUser} (user no longer selected)");
                     }
                 }
             }
@@ -2999,7 +3191,7 @@ namespace HomeScreenCompanion
                 if (updated && !dryRun)
                 {
                     try { _libraryManager.UpdateItem(boxSet, boxSet.Parent, ItemUpdateType.MetadataEdit, null); }
-                    catch (Exception ex) { LogSummary($"  ! Failed to update BoxSet '{boxSet.Name}': {ex.Message}", "Warn"); }
+                    catch (Exception ex) { _log.Warn($"Could not update tags on collection '{boxSet.Name}': {ex.Message}"); }
                 }
             }
             return removed;
@@ -4148,17 +4340,283 @@ namespace HomeScreenCompanion
             catch { return null; }
         }
 
-        private void LogSummary(string message, string level = "Info")
+        // ───────────────────────── Execution log helpers ─────────────────────────
+        // Everything below only formats log output; none of it affects what the run does.
+
+        /// <summary>Short, user-facing label for a group's source: "Trakt", "AI · OpenAI", "Smart playlist"...</summary>
+        private static string DescribeSource(TagConfig tc)
         {
-            var msg = $"[{DateTime.Now:HH:mm:ss}] {message}";
-            lock (ExecutionLog) { ExecutionLog.Add(msg); }
-            if (level == "Error") _logger.Error(message); else if (level == "Warn") _logger.Warn(message); else _logger.Info(message);
+            switch (tc.SourceType)
+            {
+                case "MediaInfo":       return "Smart playlist";
+                case "LocalCollection": return "Local collection";
+                case "LocalPlaylist":   return "Local playlist";
+                case "AI":              return "AI · " + (string.IsNullOrWhiteSpace(tc.AiProvider) ? "unknown provider" : tc.AiProvider);
+                default:
+                    var url = tc.Url ?? "";
+                    if (url.IndexOf("mdblist.com", StringComparison.OrdinalIgnoreCase) >= 0) return "MDBList";
+                    if (url.IndexOf("themoviedb.org", StringComparison.OrdinalIgnoreCase) >= 0) return "TMDb";
+                    if (url.IndexOf("trakt", StringComparison.OrdinalIgnoreCase) >= 0) return "Trakt";
+                    return "External list";
+            }
         }
 
-        private void LogDebug(string message)
+        /// <summary>One debug line describing where a group's items come from and which features it drives.</summary>
+        private string DescribeSourceDetail(TagConfig tc, int effectiveLimit)
         {
-            var msg = $"[{DateTime.Now:HH:mm:ss}] [DEBUG] {message}";
-            lock (ExecutionLog) { ExecutionLog.Add(msg); }
+            var parts = new List<string> { "Source: " + DescribeSource(tc) };
+            switch (tc.SourceType)
+            {
+                case "MediaInfo":
+                    parts.Add($"{tc.MediaInfoFilters?.Count ?? 0} filter groups, {GetAllCriteria(tc).Count()} conditions");
+                    break;
+                case "LocalCollection":
+                case "LocalPlaylist":
+                    parts.Add($"'{tc.LocalSourceId}'");
+                    break;
+                case "AI":
+                    parts.Add($"prompt {tc.AiPrompt?.Length ?? 0} chars" + (tc.AiIncludeRecentlyWatched ? ", includes watch history" : ""));
+                    break;
+                default:
+                    parts.Add(tc.Url ?? "");
+                    break;
+            }
+            if (tc.SourceType != "MediaInfo" && (tc.MediaInfoFilters?.Count > 0 || tc.MediaInfoConditions?.Count > 0))
+                parts.Add($"{GetAllCriteria(tc).Count()} extra filter conditions");
+            parts.Add(effectiveLimit >= 10000 ? "no limit" : $"limit {effectiveLimit}");
+            if ((tc.Blacklist?.Count ?? 0) > 0) parts.Add($"{tc.Blacklist!.Count} blacklisted");
+            var features = new List<string>();
+            if (tc.EnableTag && !tc.OnlyCollection) features.Add("tag");
+            if (tc.EnableCollection) features.Add("collection");
+            if (tc.EnablePlaylist) features.Add("playlist");
+            if (tc.EnableHomeSection) features.Add("home section");
+            if (features.Count > 0) parts.Add("creates: " + string.Join(", ", features));
+            return string.Join("  ·  ", parts);
+        }
+
+        /// <summary>
+        /// The one-line live progress entry written under "» Fetching sources" as soon as a group
+        /// has been fetched (or skipped / failed).
+        /// </summary>
+        private void WriteFetchLine(GroupRunStats gs)
+        {
+            string head = $"[{gs.GroupIndex}/{gs.GroupTotal}] {gs.DisplayName}  ({gs.SourceLabel})";
+            if (gs.Skipped)
+            {
+                _log.Skip($"{head}  ·  skipped: {gs.SkipReason}");
+                return;
+            }
+            if (gs.ErrorMessage != null)
+            {
+                _log.Error($"{head}  ·  {gs.ErrorMessage}");
+                return;
+            }
+            if (gs.Warnings.Count > 0)
+            {
+                _log.Warn($"{head}  ·  {gs.Warnings[0]}{(gs.Warnings.Count > 1 ? $"  (+{gs.Warnings.Count - 1} more, see results)" : "")}");
+                return;
+            }
+            _log.Info("    " + head + "  ·  " + DescribeSourceCounts(gs));
+        }
+
+        private static string DescribeSourceCounts(GroupRunStats gs)
+        {
+            if (gs.BoxSetHse) return gs.BoxSetTaggedCount > 0 ? $"{RunLog.Plural(gs.BoxSetTaggedCount, "collection")} tagged" : "collection not found";
+            if (gs.SourceType == "MediaInfo") return $"scanned {gs.ListCount:N0} items, {gs.MatchCount} matched";
+            if (gs.SourceType == "LocalCollection" || gs.SourceType == "LocalPlaylist") return $"{gs.ListCount} in source, {gs.MatchCount} matched";
+            return $"{gs.ListCount} in list, {gs.MatchCount} in your library";
+        }
+
+        /// <summary>The per-group block under "Results" — identical for full and single runs.</summary>
+        private void WriteGroupBlock(GroupRunStats gs, bool dryRun, bool logMissing)
+        {
+            _log.Info($"[{gs.GroupIndex}/{gs.GroupTotal}] {gs.DisplayName}  ({gs.SourceLabel})");
+            if (gs.Skipped)
+            {
+                _log.Skip($"Skipped: {gs.SkipReason}");
+                _log.Blank();
+                return;
+            }
+            if (gs.ErrorMessage != null)
+            {
+                _log.Error($"Failed: {gs.ErrorMessage}");
+                _log.Detail("Tags, collection and playlist were left unchanged (safety)");
+                _log.Blank();
+                return;
+            }
+
+            bool isRemote = gs.SourceType == "External" || gs.SourceType == "AI" || string.IsNullOrEmpty(gs.SourceType);
+            if (gs.BoxSetHse)
+            {
+                if (gs.BoxSetTaggedCount > 0)
+                    _log.Ok($"{RunLog.Plural(gs.BoxSetTaggedCount, "collection")} tagged with \"{gs.TagName}\"");
+            }
+            else if (gs.SourceType == "MediaInfo")
+                _log.Ok($"Scanned {gs.ListCount:N0} items  ·  {gs.MatchCount} matched your conditions");
+            else if (gs.SourceType == "LocalCollection" || gs.SourceType == "LocalPlaylist")
+            {
+                if (gs.ListCount > 0) _log.Ok($"Source: {gs.ListCount} items  ·  {gs.MatchCount} matched");
+            }
+            else if (gs.ListCount > 0)
+                _log.Ok($"List: {gs.ListCount} items  ·  {gs.MatchCount} in your library");
+
+            if (gs.EnableTag && !gs.BoxSetHse)
+            {
+                if (dryRun) _log.Skip($"Tag \"{gs.TagName}\": would add {gs.TagsAdded}, remove {gs.TagsRemoved} (dry run)");
+                else if (gs.TagsAdded == 0 && gs.TagsRemoved == 0) _log.Ok($"Tag \"{gs.TagName}\": up to date");
+                else _log.Ok($"Tag \"{gs.TagName}\": +{gs.TagsAdded} added, -{gs.TagsRemoved} removed");
+            }
+
+            if (gs.EnableCollection)
+            {
+                if (dryRun) _log.Skip($"Collection \"{gs.CollectionName}\": not changed (dry run)");
+                else if (gs.CollectionCreated) _log.Ok($"Collection \"{gs.CollectionName}\": created with {RunLog.Plural(gs.CollectionItemsAdded, "item")}");
+                else if (gs.CollectionItemsAdded > 0 || gs.CollectionItemsRemoved > 0) _log.Ok($"Collection \"{gs.CollectionName}\": updated (+{gs.CollectionItemsAdded}, -{gs.CollectionItemsRemoved})");
+                else if (gs.MatchCount == 0) _log.Skip($"Collection \"{gs.CollectionName}\": left unchanged — no items matched");
+                else _log.Ok($"Collection \"{gs.CollectionName}\": up to date");
+            }
+
+            if (gs.EnablePlaylist)
+            {
+                if (dryRun) _log.Skip($"Playlist \"{gs.PlaylistName}\": not changed (dry run)");
+                else if (gs.PlaylistUsersFailed > 0) _log.Warn($"Playlist \"{gs.PlaylistName}\": failed for {RunLog.Plural(gs.PlaylistUsersFailed, "user")}");
+                else if (gs.PlaylistUsersCreated > 0 || gs.PlaylistUsersUpdated > 0)
+                {
+                    var p = new List<string>();
+                    if (gs.PlaylistUsersCreated > 0) p.Add($"created for {RunLog.Plural(gs.PlaylistUsersCreated, "user")}");
+                    if (gs.PlaylistUsersUpdated > 0) p.Add($"updated for {RunLog.Plural(gs.PlaylistUsersUpdated, "user")}");
+                    _log.Ok($"Playlist \"{gs.PlaylistName}\": {string.Join(", ", p)}");
+                }
+                else if (gs.PlaylistUsersTotal == 0) _log.Skip($"Playlist \"{gs.PlaylistName}\": no users selected");
+                else if (!gs.Warnings.Any(w => w.StartsWith("Playlist", StringComparison.OrdinalIgnoreCase)))
+                    _log.Ok($"Playlist \"{gs.PlaylistName}\": up to date for {RunLog.Plural(gs.PlaylistUsersTotal, "user")}");
+            }
+
+            if (gs.EnableHomeSection)
+            {
+                if (dryRun) _log.Skip("Home section: not changed (dry run)");
+                else if (gs.HomeSectionSynced) _log.Ok($"Home section: synced for {RunLog.Plural(gs.HomeSectionUserCount, "user")}");
+                else if (gs.HomeSectionRemoved) _log.Skip("Home section: removed");
+                else _log.Skip("Home section: not synced");
+            }
+
+            foreach (var w in gs.Warnings) _log.Warn(w);
+
+            if (isRemote && gs.MissingItems.Count > 0)
+            {
+                if (logMissing)
+                {
+                    _log.Skip($"Missing from your library ({gs.MissingItems.Count}):");
+                    foreach (var m in gs.MissingItems) _log.Detail(m);
+                }
+                else
+                {
+                    _log.Skip($"{RunLog.Plural(gs.MissingItems.Count, "title is", "titles are")} not in your library (enable \"Log missing movies and shows\" in Settings to list them)");
+                }
+            }
+            _log.Blank();
+        }
+
+        /// <summary>Results block + Summary for a single-group run.</summary>
+        private void WriteSingleRunFooter(GroupRunStats gs, DateTime startTime, bool dryRun, bool logMissing)
+        {
+            _log.Blank();
+            _log.Info("Results");
+            WriteGroupBlock(gs, dryRun, logMissing);
+
+            int failed = gs.ErrorMessage != null ? 1 : 0;
+            int warned = failed == 0 && gs.Warnings.Count > 0 ? 1 : 0;
+            string finalStatus = BuildFinalStatus(dryRun, failed, warned);
+            LastRunStatus = $"{finalStatus} ({DateTime.Now:HH:mm})";
+
+            _log.Rule();
+            _log.Info("Summary");
+            if (gs.EnableTag && !gs.BoxSetHse)
+                _log.Info($"  Tags:          +{gs.TagsAdded} added, -{gs.TagsRemoved} removed");
+            if (gs.BoxSetHse)
+                _log.Info($"  Collections tagged: {gs.BoxSetTaggedCount}");
+            if (gs.EnableCollection)
+                _log.Info($"  Collections:   {(gs.CollectionCreated ? 1 : 0)} created, {(!gs.CollectionCreated && (gs.CollectionItemsAdded > 0 || gs.CollectionItemsRemoved > 0) ? 1 : 0)} updated");
+            if (gs.EnablePlaylist)
+                _log.Info($"  Playlists:     {gs.PlaylistUsersCreated} created, {gs.PlaylistUsersUpdated} updated{(gs.PlaylistUsersFailed > 0 ? $", {gs.PlaylistUsersFailed} failed" : "")}");
+            if (gs.EnableHomeSection)
+                _log.Info($"  Home sections: {(gs.HomeSectionSynced ? 1 : 0)} synced");
+            _log.Info($"  Done in {RunLog.Elapsed(DateTime.Now - startTime)}  ·  {StatusSymbol(failed, warned)} {finalStatus}");
+            _log.Rule();
+        }
+
+        private static string BuildFinalStatus(bool dryRun, int failed, int warned)
+        {
+            string s = failed > 0 ? $"Completed with {RunLog.Plural(failed, "error")}"
+                     : warned > 0 ? $"Completed with {RunLog.Plural(warned, "warning")}"
+                     : "Completed";
+            return dryRun ? "Dry run — " + s.Replace("Completed", "completed") : s;
+        }
+
+        private static string StatusSymbol(int failed, int warned) => failed > 0 ? "✖" : warned > 0 ? "⚠" : "✔";
+
+        /// <summary>Records a home-section warning both in the live log and on the group's stats.</summary>
+        private void HsWarn(List<GroupRunStats>? statsList, string tagName, string displayName, string message)
+        {
+            _log.Warn($"{displayName}: {message}");
+            var gs = statsList?.FirstOrDefault(s => s.TagName != null && string.Equals(s.TagName, tagName, StringComparison.OrdinalIgnoreCase));
+            gs?.Warnings.Add("Home section: " + message);
+        }
+
+        private void WriteMatchedItemsDebug(List<BaseItem> matchedLocalItems)
+        {
+            if (!_log.Extended || matchedLocalItems.Count == 0) return;
+            _log.Debug($"  Matched items ({matchedLocalItems.Count}):");
+            int shown = 0;
+            foreach (var mi in matchedLocalItems)
+            {
+                if (shown >= 50) { _log.Debug($"    … and {matchedLocalItems.Count - shown} more"); break; }
+                var yr = mi.ProductionYear.HasValue ? $" ({mi.ProductionYear})" : "";
+                var tp = mi.GetType().Name.Contains("Series") ? "Series"
+                       : mi.GetType().Name.Contains("Episode") ? "Episode"
+                       : mi.GetType().Name.Contains("Season") ? "Season"
+                       : "Movie";
+                _log.Debug($"    {mi.Name}{yr}  [{tp}]");
+                shown++;
+            }
+        }
+
+        private void WriteTagDiffDebug(Dictionary<string, List<string>>? added, Dictionary<string, List<string>>? removed)
+        {
+            if (!_log.Extended || added == null || removed == null) return;
+            if (added.Count == 0 && removed.Count == 0) { _log.Debug("  No tag changes"); return; }
+            _log.Section("Tags");
+            foreach (var tName in added.Keys.Concat(removed.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var a = added.GetValueOrDefault(tName) ?? new List<string>();
+                var r = removed.GetValueOrDefault(tName) ?? new List<string>();
+                _log.Debug($"  {tName}  (+{a.Count} / -{r.Count})");
+                int shown = 0;
+                foreach (var lbl in a)
+                {
+                    if (shown >= 30) { _log.Debug($"    … and {a.Count - shown} more added"); break; }
+                    _log.Debug($"    + {lbl}"); shown++;
+                }
+                shown = 0;
+                foreach (var lbl in r)
+                {
+                    if (shown >= 30) { _log.Debug($"    … and {r.Count - shown} more removed"); break; }
+                    _log.Debug($"    - {lbl}"); shown++;
+                }
+            }
+        }
+
+        private void WriteExceptionDebug(Exception ex)
+        {
+            if (!_log.Extended) return;
+            var lines = ex.ToString().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            int shown = 0;
+            foreach (var line in lines)
+            {
+                if (shown >= 8) { _log.Debug($"    … {lines.Length - shown} more stack lines"); break; }
+                _log.Debug("    " + line.Trim());
+                shown++;
+            }
         }
 
         private string BuildRecentlyWatchedContext(TagConfig tagConfig)
@@ -4254,7 +4712,7 @@ namespace HomeScreenCompanion
                 otherImages.Add(imageInfo);
                 item.ImageInfos = otherImages.ToArray();
                 _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.ImageUpdate, null);
-                if (debug) LogDebug($"Applied poster to '{cName}'");
+                _log.Debug($"  {cName}  →  poster applied");
             }
 
             if (metaChanged)
@@ -4282,9 +4740,9 @@ namespace HomeScreenCompanion
                         if (!dryRun)
                         {
                             try { Directory.Delete(dir, true); }
-                            catch (Exception ex) { LogSummary($"Top-list cleanup: could not delete '{folderName}' — {ex.Message}", "Warn"); }
+                            catch (Exception ex) { _log.Warn($"Top-list '{folderName}': folder could not be removed: {ex.Message}"); }
                         }
-                        LogSummary($"Top-list folder removed (tag no longer configured): {folderName}");
+                        _log.Skip($"Top-list '{folderName}': folder {(dryRun ? "would be removed" : "removed")} (no longer configured)");
                     }
                 }
             }
@@ -4413,7 +4871,7 @@ namespace HomeScreenCompanion
                             HomeScreenCompanionService.BuildTopListNfo(entry.Item, sortPrefix));
                         HomeScreenCompanionService.WriteRankedImages(
                             entry.Item, count, Path.Combine(folderPath, entry.BaseName), badgeStyle, tempDir,
-                            _httpClient, _providerManager, _libraryManager, _fileSystem, m => LogSummary(m));
+                            _httpClient, _providerManager, _libraryManager, _fileSystem, m => _log.Warn(m));
                         // .strm last: the folder is a watched library, and Emby creates the item the
                         // moment it sees the .strm — the nfo and badged images must already be there.
                         File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".strm"), entry.FilePath);
@@ -4487,7 +4945,7 @@ namespace HomeScreenCompanion
                 }
                 catch { }
 
-                LogSummary($"Top-list '{tl.TagName}': {count} .strm files synced");
+                _log.Ok($"Top-list '{tl.TagName}': {RunLog.Plural(count, "movie")} synced to its library folder");
             }
         }
 

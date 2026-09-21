@@ -147,6 +147,10 @@
                 background-color: #cc3333;
             }
 
+            .status-dot.warn {
+                background-color: #e0a800;
+            }
+
         @keyframes pulse {
             0% {
                 transform: scale(0.95);
@@ -272,6 +276,37 @@
             max-height: 70vh;
             overflow-y: auto;
         }
+
+        /* Live execution log */
+        #logContent { line-height: 1.5; }
+        .log-line { white-space: pre-wrap; word-break: break-word; color: #d0d0d0; }
+        .log-line .log-ts { color: #6a6a6a; margin-right: 8px; }
+        .log-line .log-src {
+            display: inline-block; min-width: 4.2em; margin-right: 8px; padding: 0 5px;
+            border-radius: 3px; font-size: 0.8em; text-align: center; vertical-align: 1px;
+            background: rgba(255,255,255,0.08); color: #9a9a9a;
+        }
+        .log-line.log-head { color: #ffffff; font-weight: bold; }
+        .log-line.log-rule { color: #4a4a4a; }
+        .log-line.log-ok { color: #7ec97e; }
+        .log-line.log-warn { color: #e6c15a; }
+        .log-line.log-err { color: #ef6e6e; }
+        .log-line.log-skip { color: #9aa4b0; }
+        .log-line.log-debug { color: #6f7f8f; font-style: italic; }
+        .log-line.log-blank { height: 0.6em; }
+        .log-legend { font-size: 0.8em; opacity: 0.65; margin-left: auto; white-space: nowrap; }
+        .log-legend span { margin-left: 10px; }
+        .log-tabs { display: flex; gap: 6px; padding: 10px 20px; background: #141414; border-top: 1px solid #333; }
+        .log-tab {
+            display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 14px;
+            font-size: 0.85em; cursor: pointer; border: 1px solid rgba(255,255,255,0.15);
+            background: transparent; color: #bbb; font-family: inherit;
+        }
+        .log-tab:hover { border-color: #00a4dc; }
+        .log-tab.active { background: #00a4dc; border-color: #00a4dc; color: #fff; }
+        .log-tab.empty { opacity: 0.45; }
+        .log-tab .status-dot { height: 8px; width: 8px; margin-right: 0; }
+        .log-tab .log-tab-time { font-size: 0.85em; opacity: 0.7; }
 
         .help-step {
             margin-bottom: 25px;
@@ -1186,9 +1221,17 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="chkExtendedConsoleOutput" />
-                                <span>Extended Log Output</span>
+                                <span>Extended log (troubleshooting)</span>
                             </label>
-                            <div class="fieldDescription">Enable verbose logging for debugging purposes.</div>
+                            <div class="fieldDescription">Adds source details, per-item changes, timings and error details to the log. Useful when something goes wrong or when reporting a bug.</div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 15px;">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="chkLogMissingItems" />
+                                <span>Log missing movies and shows</span>
+                            </label>
+                            <div class="fieldDescription">Lists, per group, the titles from your External and AI lists that are not in your library — handy for finding what to add next.</div>
                         </div>
 
                         <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top: 15px;">
@@ -1212,7 +1255,7 @@
                 <hr style="border-color: var(--line-color); margin: 25px 0;" />
 
                 <h3 style="margin-top: 0; margin-bottom: 10px; font-size: 1.05em; color: #52B54B; text-transform: uppercase; letter-spacing: 1px;">Backup & Restore</h3>
-                <p class="textMuted" style="font-size:0.9em; margin-bottom:15px;">Export your configuration to a JSON file or restore from a backup. This will save your settings from "Tag & Collections" and "Settings" tab.</p>
+                <p class="textMuted" style="font-size:0.9em; margin-bottom:15px;">Export selected parts of your configuration (settings, API keys, tag &amp; collection groups, saved filters, top lists, home screen sync) to a JSON file, or restore them from a backup. Generated data such as tags, collections, playlists, top-list files and images is not included &ndash; the plugin recreates it on the next sync run.</p>
                 <div style="display:flex; gap:10px;">
                     <button is="emby-button" type="button" id="btnBackupConfig" class="raised btn-neutral">
                         <i class="md-icon" style="margin-right:5px;">download</i>Download Backup
@@ -1349,7 +1392,7 @@
                     <strong style="color:var(--theme-text);">Tips for a useful bug report:</strong><br>
                     • What did you expect to happen, and what happened instead?<br>
                     • Which source type and settings were you using?<br>
-                    • Copy the relevant lines from the <strong>Logs</strong> (enable <em>Detailed Logs</em> in Settings first if needed).
+                    • Copy the relevant lines from the <strong>Logs</strong> (enable <em>Extended log</em> in Settings first if needed).
                 </div>
 
                 <div style="text-align:right;margin-top:20px;">
@@ -1365,10 +1408,21 @@
                 <i class="md-icon modal-header-icon" style="color: #00a4dc;">terminal</i>
                 <div>
                     <h2 class="modal-header-title">Live Execution Log</h2>
-                    <span style="opacity:0.7; font-size:0.85em;">Showing latest activity from the server</span>
+                    <span style="opacity:0.7; font-size:0.85em;">Showing the latest run of the selected task — updates every few seconds</span>
+                </div>
+                <div class="log-legend">
+                    <span style="color:#7ec97e;">✔ ok</span>
+                    <span style="color:#e6c15a;">⚠ warning</span>
+                    <span style="color:#ef6e6e;">✖ error</span>
+                    <span style="color:#9aa4b0;">– skipped</span>
                 </div>
             </div>
-            <div class="modal-body-scroll" style="background: #0a0a0a; color: #ececec; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85em; white-space: pre-wrap; padding: 20px; border-top: 1px solid #333;" id="logContent">
+            <div class="log-tabs" id="logTabs">
+                <button type="button" class="log-tab" data-log="sync"><span class="status-dot"></span>Sync<span class="log-tab-time"></span></button>
+                <button type="button" class="log-tab" data-log="hsc"><span class="status-dot"></span>Home Screen<span class="log-tab-time"></span></button>
+                <button type="button" class="log-tab" data-log="tl"><span class="status-dot"></span>Top-list<span class="log-tab-time"></span></button>
+            </div>
+            <div class="modal-body-scroll" style="background: #0a0a0a; color: #ececec; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85em; padding: 20px; border-top: 1px solid #333;" id="logContent">
             </div>
             <div style="text-align:right; padding: 15px; background: #1a1a1a; border-top: 1px solid #333;">
                 <button is="emby-button" type="button" id="btnCloseLogs" class="raised" style="background: #444;">Close</button>
@@ -1731,7 +1785,7 @@
                 </div>
                 <div class="help-feature-row" style="margin-bottom:0;">
                     <i class="md-icon help-feat-icon">save</i>
-                    <div><strong>Backup &amp; Restore</strong> — Export your entire plugin configuration to a file, or restore it from a previous backup. Found at the bottom of the <strong>Settings</strong> tab. Recommended before making large changes.</div>
+                    <div><strong>Backup &amp; Restore</strong> — Export your plugin configuration (settings, API keys, tag &amp; collection groups, saved filters, top lists and home screen sync) to a file, or restore any selection of those sections from a previous backup. Found at the bottom of the <strong>Settings</strong> tab. Recommended before making large changes.</div>
                 </div>
 
                 <div style="text-align:right; margin-top:24px; padding-top:16px; border-top:1px solid #333;">
