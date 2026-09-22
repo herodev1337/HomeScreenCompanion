@@ -1,0 +1,47 @@
+name: Build plugin
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PROJECT: HomeScreenCompanion/HomeScreenCompanion.csproj
+
+jobs:
+  build:
+    name: Build HomeScreenCompanion
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Restore
+        run: dotnet restore "$PROJECT"
+
+      - name: Build (Release)
+        run: dotnet build "$PROJECT" -c Release --no-restore
+
+      - name: Upload plugin DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeScreenCompanion
+          path: HomeScreenCompanion/bin/Release/netstandard2.0/HomeScreenCompanion.dll
+          if-no-files-found: error

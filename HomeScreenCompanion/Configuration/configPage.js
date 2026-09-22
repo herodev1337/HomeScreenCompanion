@@ -792,6 +792,13 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                 if (v === '' && el.placeholder) v = el.placeholder;
                 hseSettings[f] = v;
             });
+            // Virtual playstate field → native per-viewer query fields (IsPlayed / IsResumable)
+            var _hsePlaystate = hseSettings['_hsePlaystate'] || '';
+            delete hseSettings['_hsePlaystate'];
+            if (_hsePlaystate === 'played') { hseSettings['_queryIsPlayed'] = 'true'; hseSettings['_queryIsResumable'] = ''; }
+            else if (_hsePlaystate === 'unplayed') { hseSettings['_queryIsPlayed'] = 'false'; hseSettings['_queryIsResumable'] = ''; }
+            else if (_hsePlaystate === 'inprogress') { hseSettings['_queryIsPlayed'] = ''; hseSettings['_queryIsResumable'] = 'true'; }
+            else { hseSettings['_queryIsPlayed'] = ''; hseSettings['_queryIsResumable'] = ''; }
             var itemTypesVal = (hseTab.querySelector('.selHseItemTypes') || {}).value || 'Movie,Series';
             hseSettings['ItemTypes'] = JSON.stringify(itemTypesVal.split(','));
             // Compute excluded library IDs from unchecked boxes → stored in _queryExcludeViewIds → Query.ExcludeUserViewIds
@@ -872,7 +879,8 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         'DtsHdMa': { prop: 'AudioFormat', val: 'DtsHdMa' }, 'DTS': { prop: 'AudioFormat', val: 'DTS' },
         'AC3': { prop: 'AudioFormat', val: 'AC3' }, 'AAC': { prop: 'AudioFormat', val: 'AAC' },
         '7.1': { prop: 'AudioChannels', val: '7.1' }, '5.1': { prop: 'AudioChannels', val: '5.1' },
-        'Stereo': { prop: 'AudioChannels', val: 'Stereo' }, 'Mono': { prop: 'AudioChannels', val: 'Mono' }
+        'Stereo': { prop: 'AudioChannels', val: 'Stereo' }, 'Mono': { prop: 'AudioChannels', val: 'Mono' },
+        'InProgress': { prop: 'InProgress', val: 'InProgress' }
     };
     var MI_REVERSE_MAP = {};
     Object.keys(MI_CRITERION_MAP).forEach(function (k) {
@@ -924,7 +932,8 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         AudioFormat: [['Atmos', 'Dolby Atmos'], ['TrueHD', 'Dolby TrueHD'], ['DtsHdMa', 'DTS-HD MA'], ['DTS', 'DTS'], ['AC3', 'Dolby Digital / AC3'], ['AAC', 'AAC']],
         AudioChannels: [['7.1', '7.1+ Surround'], ['5.1', '5.1 Surround'], ['Stereo', 'Stereo'], ['Mono', 'Mono']],
         MediaType: [['Movie', 'Movie'], ['Series', 'Show / Series'], ['Episode', 'Episode'], ['Audio', 'Music Track (Audio)'], ['MusicVideo', 'Music Video'], ['MusicAlbum', 'Music Album'], ['MusicArtist', 'Music Artist']],
-        IsPlayed: [['Watched', 'Watched'], ['Unwatched', 'Unwatched']]
+        IsPlayed: [['Watched', 'Watched'], ['Unwatched', 'Unwatched']],
+        InProgress: [['InProgress', 'In progress (started, not finished)']]
     };
     var MI_NUMERIC_PROPS = ['CommunityRating', 'Year', 'Runtime', 'DateAdded', 'DateModified', 'FileSize', 'LastPlayed', 'PlayCount', 'BitRate', 'SampleRate', 'BitsPerSample', 'TrackNumber', 'DiscNumber', 'WatchedByCount'];
     var MI_UNIT_LABELS = { DateAdded: 'days ago', DateModified: 'days ago', LastPlayed: 'days ago', FileSize: 'MB', PlayCount: 'plays', BitRate: 'kbps', SampleRate: 'Hz', BitsPerSample: 'bits', WatchedByCount: 'users' };
@@ -972,7 +981,11 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             { name: 'Watched by at least 2 users',
               build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['WatchedByCount:>=:2'] }]; } },
             { name: 'Unseen by everyone',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['WatchedByCount:=:0'] }]; } }
+              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['WatchedByCount:=:0'] }]; } },
+            { name: 'In progress by current user (home section)',
+              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['InProgress'] }]; } },
+            { name: 'Watched by current user (home section)',
+              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['IsPlayed:__current__:=:Watched'] }]; } }
         ]},
         { label: 'Music', presets: [
             { name: 'All music tracks',
@@ -1005,7 +1018,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             { label: 'Content', props: [['MediaType','Media Type'], ['Tag','Tag'], ['Title','Title'], ['EpisodeTitle','Title (Episode)'], ['Overview','Overview'], ['Studio','Studio'], ['Genre','Genre'], ['Actor','Actor / Cast'], ['Director','Director'], ['Writer','Writer'], ['ContentRating','Content Rating'], ['ImdbId','IMDB ID'], ['TvdbId','TVDB ID'], ['Country','Country'], ['Collection','In Collection'], ['Playlist','In Playlist']] },
             { label: 'Music', props: [['Artist','Artist'], ['Album','Album'], ['BitRate','Bit Rate (kbps)'], ['SampleRate','Sample Rate (Hz)'], ['BitsPerSample','Bit Depth'], ['TrackNumber','Track Number'], ['DiscNumber','Disc Number']] },
             { label: 'Metrics', props: [['CommunityRating','Community Rating'], ['Year','Year'], ['Runtime','Runtime (minutes)'], ['DateAdded','Date Added'], ['DateModified','Date Modified'], ['FileSize','File Size (MB)'], ['FolderPath','Folder Path']] },
-            { label: 'Activity', props: [['IsPlayed','Watched / Unwatched'], ['LastPlayed','Last Played'], ['PlayCount','Play Count'], ['WatchedByCount','Watched by (user count)']] }
+            { label: 'Activity', props: [['IsPlayed','Watched / Unwatched'], ['LastPlayed','Last Played'], ['PlayCount','Play Count'], ['InProgress','In Progress (viewer)'], ['WatchedByCount','Watched by (user count)']] }
         ];
         return groups.map(function (g) {
             return '<optgroup label="' + g.label + '">' +
@@ -1022,6 +1035,11 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             var specialOpts =
                 '<option value="__any__"' + ('__any__' === savedUserId ? ' selected' : '') + '>Any user</option>' +
                 '<option value="__all__"' + ('__all__' === savedUserId ? ' selected' : '') + '>All users</option>';
+            // Current-user play state is resolved per viewer by the home section query (Emby),
+            // so it is only offered where that is supported (IsPlayed).
+            if (prop === 'IsPlayed') {
+                specialOpts += '<option value="__current__"' + ('__current__' === savedUserId ? ' selected' : '') + '>Current user (viewer)</option>';
+            }
             var uOpts = specialOpts + (_miUsers || []).map(function (u) {
                 return '<option value="' + u.Id + '"' + (u.Id === savedUserId ? ' selected' : '') + '>' + u.Name + '</option>';
             }).join('');
@@ -2900,6 +2918,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             ['Runtime,SortName',                    'Runtime'],
             ['ProductionYear,PremiereDate,SortName','Release Date'],
             ['ProductionYear,SortName',             'Year'],
+            ['DatePlayed,SortName',                 'Last Played (per user)'],
             ['Random',                              'Random']
         ].forEach(function(o) {
             html += '<option value="' + o[0] + '"' + (sortByVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
@@ -2919,11 +2938,14 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         [['Horizontal','Horizontal'],['Vertical','Vertical']].forEach(function(o) { html += '<option value="' + o[0] + '"' + (dispModeVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; });
         html += '</select></div>';
 
-        var playstateVal = s._queryIsPlayed || '';
-        html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">Playstate</label>';
-        html += '<select is="emby-select" class="hse-field-str" data-field="_queryIsPlayed" style="width:100%;">';
+        var playstateVal = '';
+        if (s._queryIsResumable === 'true') playstateVal = 'inprogress';
+        else if (s._queryIsPlayed === 'true') playstateVal = 'played';
+        else if (s._queryIsPlayed === 'false') playstateVal = 'unplayed';
+        html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">Playstate (per user)</label>';
+        html += '<select is="emby-select" class="hse-field-str" data-field="_hsePlaystate" style="width:100%;">';
         html += '<option value=""' + (playstateVal === '' ? ' selected' : '') + '>Any</option>';
-        [['true','Played'],['false','Unplayed']].forEach(function(o) { html += '<option value="' + o[0] + '"' + (playstateVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; });
+        [['played','Played'],['unplayed','Unplayed'],['inprogress','In progress (started, not finished)']].forEach(function(o) { html += '<option value="' + o[0] + '"' + (playstateVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; });
         html += '</select></div>';
 
         // Hidden library selector — used only for boxset type (preserves the collection library ID).
@@ -3035,9 +3057,10 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                         if (typeof sd === 'number') return sd === 0 ? 'Horizontal' : sd === 1 ? 'Vertical' : '';
                         return String(sd);
                     })(),
-                    '_queryIsPlayed': (section.Query != null && section.Query.IsPlayed === true) ? 'true'
-                                    : (section.Query != null && (section.Query.IsUnplayed === true || section.Query.IsPlayed === false)) ? 'false'
-                                    : ''
+                    '_hsePlaystate': (section.Query != null && section.Query.IsResumable === true) ? 'inprogress'
+                                   : (section.Query != null && section.Query.IsPlayed === true) ? 'played'
+                                   : (section.Query != null && (section.Query.IsUnplayed === true || section.Query.IsPlayed === false)) ? 'unplayed'
+                                   : ''
                 };
 
                 Object.keys(fieldMap).forEach(function(field) {

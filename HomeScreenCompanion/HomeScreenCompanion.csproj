@@ -34,28 +34,15 @@
 	  <PackageReference Include="SkiaSharp" Version="2.88.9" />
 	  <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
 	  <PackageReference Include="System.Memory" Version="4.6.0" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <Reference Include="MediaBrowser.Common">
-	    <HintPath>$(AppData)\Emby-Server\system\MediaBrowser.Common.dll</HintPath>
-	    <Private>False</Private>
-	  </Reference>
-	  <Reference Include="MediaBrowser.Controller">
-	    <HintPath>$(AppData)\Emby-Server\system\MediaBrowser.Controller.dll</HintPath>
-	    <Private>False</Private>
-	  </Reference>
-	  <Reference Include="MediaBrowser.Model">
-	    <HintPath>$(AppData)\Emby-Server\system\MediaBrowser.Model.dll</HintPath>
-	    <Private>False</Private>
-	  </Reference>
+	  <PackageReference Include="MediaBrowser.Common" Version="4.10.0.24-beta2" />
+	  <PackageReference Include="MediaBrowser.Server.Core" Version="4.10.0.24-beta2" />
 	</ItemGroup>
 
 	<ItemGroup>
 	  <Folder Include="Dependencies\" />
 	</ItemGroup>
 
-	<Target Name="InjectVersionIntoHtml" BeforeTargets="BeforeBuild">
+	<Target Name="InjectVersionIntoHtml" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
 		<Exec Command="powershell -Command &quot;$f='$(ProjectDir)Configuration\configPage.html'; (Get-Content $f -Raw) -replace 'Home Screen Companion v[\d.]+', 'Home Screen Companion v$(Version)' | Set-Content $f -NoNewline&quot;" />
 	</Target>
 

@@ -923,6 +923,22 @@ namespace HomeScreenCompanion
                             collectionOutputItems = BuildNonMiOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
                         }
 
+                        // A MediaInfo group whose filter only contains viewer-dependent criteria would tag the
+                        // entire library. Tags/collections/playlists can't be per-user, so skip them entirely —
+                        // the home section query (IsPlayed / IsResumable) resolves the filter per viewer.
+                        if (string.Equals(tagConfig.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var _allCrit = GetAllCriteria(tagConfig).ToList();
+                            if (_allCrit.Any(IsViewerDependentCriterion) && !_allCrit.Any(c => !IsViewerDependentCriterion(c)))
+                            {
+                                tagOutputItems = new List<BaseItem>();
+                                collectionOutputItems = new List<BaseItem>();
+                                gs.Warnings.Add("Filter contains only current-user criteria — tags, collections and playlists cannot be per-user, so only the home section is created. Add a non-user condition (e.g. Media Type) to also get a tag/collection.");
+                                _log.Warn($"  {displayName}: filter is viewer-dependent only — no tag/collection/playlist will be created");
+                                playlistGroupsToSkip.Add(GroupKey(tagConfig));
+                            }
+                        }
+
                         var allOutputIds = new HashSet<Guid>(tagOutputItems.Select(i => i.Id));
                         foreach (var id in collectionOutputItems.Select(i => i.Id)) allOutputIds.Add(id);
                         gs.MatchCount = allOutputIds.Count;
@@ -2115,6 +2131,22 @@ namespace HomeScreenCompanion
                 collectionOutputItems = BuildNonMiOutput(cEp, cSea, cSer, cEp || cSea || cSer);
             }
 
+            // Viewer-dependent only filter — tags/collections/playlists can't be per-user.
+            // The home section query resolves it per viewer instead.
+            bool viewerOnlyMediaInfo = false;
+            if (string.Equals(tagConfig.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase))
+            {
+                var _allCrit = GetAllCriteria(tagConfig).ToList();
+                if (_allCrit.Any(IsViewerDependentCriterion) && !_allCrit.Any(c => !IsViewerDependentCriterion(c)))
+                {
+                    viewerOnlyMediaInfo = true;
+                    tagOutputItems = new List<BaseItem>();
+                    collectionOutputItems = new List<BaseItem>();
+                    gs.Warnings.Add("Filter contains only current-user criteria — tags, collections and playlists cannot be per-user, so only the home section is created. Add a non-user condition (e.g. Media Type) to also get a tag/collection.");
+                    _log.Warn("  Filter is viewer-dependent only — no tag/collection/playlist will be created");
+                }
+            }
+
             gs.ListCount = _listCount;
             if ((string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External" || tagConfig.SourceType == "AI") && _listCount == 0)
                 gs.Warnings.Add(tagConfig.SourceType == "AI"
@@ -2374,8 +2406,10 @@ namespace HomeScreenCompanion
                 _log.Blank();
                 _log.Info("» Playlists");
                 if (dryRun) _log.Skip("Dry run — playlists are not changed");
+                else if (viewerOnlyMediaInfo) _log.Skip("Filter is viewer-dependent only — playlists cannot be per-user and were left unchanged");
             }
-            await SyncPlaylistsForEntryAsync(tagConfig, collectionOutputItems, dryRun, gs);
+            if (!viewerOnlyMediaInfo)
+                await SyncPlaylistsForEntryAsync(tagConfig, collectionOutputItems, dryRun, gs);
 
             if (!dryRun)
             {
@@ -2823,6 +2857,13 @@ namespace HomeScreenCompanion
                 if (!settingsDict.ContainsKey("SectionType"))
                     settingsDict["SectionType"] = (tc.EnableCollection && !string.IsNullOrEmpty(tc.CollectionName)) ? "boxset" : "items";
 
+                // Viewer-dependent criteria (IsPlayed:__current__ / InProgress) are applied as native
+                // per-viewer query filters (IsPlayed / IsResumable) on the section instead of the global tag scan.
+                ApplyViewerCriteriaToSectionSettings(tc, settingsDict);
+                if (settingsDict.TryGetValue("SectionType", out var _hsStCheck) && _hsStCheck == "boxset"
+                    && GetAllCriteria(tc).Any(IsViewerDependentCriterion))
+                    HsWarn(statsList, _hsTagName, _hsDisplayName, "current-user filters only work with the Dynamic Media (tag) section type — a collection section cannot be per-user");
+
                 // Back-fill CustomName from group name/tag when not explicitly configured
                 if (!settingsDict.TryGetValue("CustomName", out var _existingCn) || string.IsNullOrWhiteSpace(_existingCn))
                 {
@@ -2890,7 +2931,16 @@ namespace HomeScreenCompanion
                     }
                 }
 
-                if (sectionType == "items" && !string.IsNullOrEmpty(tc.Tag))
+                // A MediaInfo group whose filter only contains viewer-dependent criteria has no tag
+                // (nothing is tagged) — the section is driven purely by the per-viewer query below.
+                bool _viewerOnlyFilter = false;
+                {
+                    var _hsCrit = GetAllCriteria(tc).ToList();
+                    _viewerOnlyFilter = string.Equals(tc.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase)
+                        && _hsCrit.Count > 0 && _hsCrit.All(IsViewerDependentCriterion);
+                }
+
+                if (sectionType == "items" && !string.IsNullOrEmpty(tc.Tag) && !_viewerOnlyFilter)
                 {
                     var tagItem = _libraryManager.GetItemList(new InternalItemsQuery
                     {
@@ -3429,11 +3479,25 @@ namespace HomeScreenCompanion
                         extQuery.IsPlayed = existing.Query.IsPlayed;
                     }
 
+                    // Specialfall: _queryIsResumable → IsResumable (In progress / started, not finished).
+                    // Saknas nyckeln bevaras befintligt värde (t.ex. satt av ett viewer-beroende filter).
+                    if (settings.TryGetValue("_queryIsResumable", out var qIsResumable))
+                    {
+                        if (qIsResumable == "true") extQuery.IsResumable = true;
+                        else if (qIsResumable == "false") extQuery.IsResumable = false;
+                        else extQuery.IsResumable = null;
+                    }
+                    else if (existing?.Query != null)
+                    {
+                        extQuery.IsResumable = existing.Query.IsResumable;
+                    }
+
                     // Generisk _query* → övriga ItemsQuery-properties
                     foreach (var key in settings.Keys.Where(k =>
                         k.StartsWith("_query", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(k, "_queryTagId", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(k, "_queryIsPlayed", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(k, "_queryIsResumable", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(k, "_queryExcludeViewIds", StringComparison.OrdinalIgnoreCase)))
                     {
                         var val = settings[key];
@@ -3720,7 +3784,16 @@ namespace HomeScreenCompanion
                 {
                     if (f.Criteria == null || f.Criteria.Count == 0) return true;
                     bool isOr = string.Equals(f.Operator, "OR", StringComparison.OrdinalIgnoreCase);
-                    return isOr ? f.Criteria.Any(EvalCrit) : f.Criteria.All(EvalCrit);
+                    bool hasViewerCriteria = false;
+                    foreach (var c in f.Criteria)
+                        if (IsViewerDependentCriterion(c)) { hasViewerCriteria = true; break; }
+                    if (!hasViewerCriteria)
+                        return isOr ? f.Criteria.Any(EvalCrit) : f.Criteria.All(EvalCrit);
+                    // Viewer-dependent criteria are resolved per user by the home section query,
+                    // never during the global tag/collection scan.
+                    var evalCriteria = f.Criteria.Where(c => !IsViewerDependentCriterion(c)).ToList();
+                    if (evalCriteria.Count == 0) return true;
+                    return isOr ? evalCriteria.Any(EvalCrit) : evalCriteria.All(EvalCrit);
                 }
                 bool result = EvalGroup(filters![0]);
                 for (int gi = 1; gi < filters.Count; gi++)
@@ -3734,6 +3807,7 @@ namespace HomeScreenCompanion
 
             foreach (var cond in legacy!)
             {
+                if (IsViewerDependentCriterion(cond)) continue;
                 if (!EvaluateCriterion(cond, itemToCheck, is4k, is1080, is720, is8k, isSd, isHevc, isAv1, isH264,
                     isHdr, isHdr10, isDv, isAtmos, isTrueHd, isDtsHdMa, isDts, isAc3, isAac, is51, is71, isStereo, isMono,
                     personCache, audioLanguages, mediaType, itemTags, userDataCache, cachedDateModifiedDays, cachedFileSizeMb,
@@ -3981,6 +4055,8 @@ namespace HomeScreenCompanion
                 "Atmos" => isAtmos, "TrueHD" => isTrueHd, "DtsHdMa" => isDtsHdMa,
                 "DTS" => isDts, "AC3" => isAc3, "AAC" => isAac,
                 "7.1" => is71, "5.1" => is51, "Stereo" => isStereo, "Mono" => isMono,
+                // Viewer-dependent — never true during the global scan; resolved per user by the home section query.
+                "InProgress" => false,
                 _ => false
             };
             } // EvaluateCriterionCore
@@ -4036,6 +4112,43 @@ namespace HomeScreenCompanion
             var fromConditions = tagConfig.MediaInfoConditions?.AsEnumerable()
                 ?? Enumerable.Empty<string>();
             return fromFilters.Concat(fromConditions);
+        }
+
+        // Viewer-dependent ("current user") criteria can't be evaluated during a global sync run —
+        // there is no current user at that point. They are resolved by Emby per requesting user
+        // through the home section Query instead (see ApplyViewerCriteriaToSectionSettings).
+        private static bool IsViewerDependentCriterion(string cond)
+        {
+            if (string.IsNullOrWhiteSpace(cond)) return false;
+            var c = cond.TrimStart('!');
+            var parts = c.Split(':');
+            if (parts.Length == 4 && string.Equals(parts[1], "__current__", StringComparison.OrdinalIgnoreCase))
+                return true;
+            return parts.Length == 1 && string.Equals(parts[0], "InProgress", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Maps viewer-dependent criteria onto native Emby query filters (IsPlayed / IsResumable),
+        // which Emby evaluates for the user viewing the section.
+        internal static void ApplyViewerCriteriaToSectionSettings(TagConfig tagConfig, Dictionary<string, string> settingsDict)
+        {
+            foreach (var raw in GetAllCriteria(tagConfig))
+            {
+                bool negate = raw.Length > 0 && raw[0] == '!';
+                var c = negate ? raw.Substring(1) : raw;
+                var parts = c.Split(':');
+
+                if (parts.Length == 4 &&
+                    string.Equals(parts[0], "IsPlayed", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(parts[1], "__current__", StringComparison.OrdinalIgnoreCase))
+                {
+                    bool watched = string.Equals(parts[3], "Watched", StringComparison.OrdinalIgnoreCase);
+                    settingsDict["_queryIsPlayed"] = (watched != negate) ? "true" : "false";
+                }
+                else if (parts.Length == 1 && string.Equals(parts[0], "InProgress", StringComparison.OrdinalIgnoreCase))
+                {
+                    settingsDict["_queryIsResumable"] = negate ? "false" : "true";
+                }
+            }
         }
 
         // Returns the legacy single target type for backwards compat (MediaInfoTargetType or MediaInfoSeasonMode)

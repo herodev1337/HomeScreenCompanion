@@ -871,6 +871,10 @@ public class HomeScreenCompanionService : IService
                 if (!settingsDict.ContainsKey("SectionType"))
                     settingsDict["SectionType"] = (tc.EnableCollection && !string.IsNullOrEmpty(tc.CollectionName)) ? "boxset" : "items";
 
+                // Viewer-dependent criteria (IsPlayed:__current__ / InProgress) are applied as native
+                // per-viewer query filters (IsPlayed / IsResumable) on the section instead of the global tag scan.
+                HomeScreenCompanionTask.ApplyViewerCriteriaToSectionSettings(tc, settingsDict);
+
                 settingsDict.TryGetValue("SectionType", out var sectionType);
 
                 // Resolve library ID
