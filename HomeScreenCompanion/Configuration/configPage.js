@@ -1408,12 +1408,16 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         var _collTargetSer = tagConfig.CollectionTargetSeries  || tagConfig.MediaInfoTargetSeries  || _legacyTarget === 'Series' || !_collAnySet;
 
         var enableHomeSection = tagConfig.EnableHomeSection ? 'checked' : '';
-        var disableHomeSection = (tagConfig.EnableTag === false && !tagConfig.EnableCollection) ? 'disabled' : '';
+        // A MediaInfo group with a viewer-dependent filter can own a home section without a tag/collection
+        // (the section query is resolved per user by Emby).
+        var _hasViewerCriteria = tagConfigHasViewerCriteria(tagConfig);
+        var _hseAllowedWithoutOutput = sourceType === 'MediaInfo' && _hasViewerCriteria;
+        var disableHomeSection = (tagConfig.EnableTag === false && !tagConfig.EnableCollection && !_hseAllowedWithoutOutput) ? 'disabled' : '';
         var homeSectionLibraryId = encodeURIComponent(tagConfig.HomeSectionLibraryId || 'auto');
         var homeSectionUserIdsEnc = encodeURIComponent(JSON.stringify(tagConfig.HomeSectionUserIds || []));
         var homeSectionSettingsEnc = encodeURIComponent(tagConfig.HomeSectionSettings || '{}');
         var homeSectionTrackedEnc = encodeURIComponent(JSON.stringify(tagConfig.HomeSectionTracked || []));
-        var hsDefaultSectionType = tagConfig.EnableCollection ? 'boxset' : (tagConfig.EnableTag ? 'items' : 'boxset');
+        var hsDefaultSectionType = tagConfig.EnableCollection ? 'boxset' : ((tagConfig.EnableTag || _hseAllowedWithoutOutput) ? 'items' : 'boxset');
 
         var mediaFilters = (tagConfig.MediaInfoFilters && tagConfig.MediaInfoFilters.length > 0)
             ? tagConfig.MediaInfoFilters
@@ -1808,7 +1812,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                             <span>Add as home screen section</span>
                         </label>
                         <div class="fieldDescription">A home screen section will be managed for selected users each time sync runs.</div>
-                        <div class="hse-disabled-hint" style="font-size:0.9em; color:#e07070; margin-top:4px; display:${(tagConfig.EnableTag === false && !tagConfig.EnableCollection) ? 'block' : 'none'};">Requires <strong>Apply Tag</strong> or <strong>Create Collection</strong> to be enabled.</div>
+                        <div class="hse-disabled-hint" style="font-size:0.9em; color:#e07070; margin-top:4px; display:${(tagConfig.EnableTag === false && !tagConfig.EnableCollection && !_hseAllowedWithoutOutput) ? 'block' : 'none'};">Requires <strong>Apply Tag</strong>, <strong>Create Collection</strong>, or a current-user filter (Smart playlist) to be enabled.</div>
                     </div>
                     <div class="hse-details" style="display:${enableHomeSection ? 'block' : 'none'}; margin-top:15px;">
                         <div style="margin-bottom:15px;">
@@ -1985,6 +1989,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                     row.querySelector('.local-type-label').textContent = type === 'LocalPlaylist' ? "Select Playlists" : "Select Collections";
                 }
                 updateBadges(row);
+                updateHseSectionAvailability(row);
             }
             
             if (e.target.classList.contains('selMiProperty')) {
@@ -1992,6 +1997,10 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                 miRule.querySelector('.mi-value-wrapper').innerHTML = getMiValueHtml(e.target.value, '', '');
                 var existingHint = miRule.querySelector('.mi-rule-hint');
                 if (existingHint) existingHint.outerHTML = getMiHintHtml(e.target.value);
+                updateHseSectionAvailability(row);
+            }
+            if (e.target.classList.contains('selMiUser')) {
+                updateHseSectionAvailability(row);
             }
             if (e.target.classList.contains('selMiValue')) {
                 var _miRule = e.target.closest('.mi-rule');
@@ -2835,7 +2844,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
 
 
 
-    function buildHomeSectionFormHtml(savedSettings, defaultSectionType, defaultName, tagEnabled, collEnabled, libraryOptions, savedLibraryId, allLibraries) {
+    function buildHomeSectionFormHtml(savedSettings, defaultSectionType, defaultName, tagEnabled, collEnabled, libraryOptions, savedLibraryId, allLibraries, viewerOnly) {
         var s = savedSettings || {};
         var html = '';
 
@@ -2845,6 +2854,7 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
         var sectionTypeOptions = [];
         if (collEnabled) sectionTypeOptions.push(['boxset', 'Single Collection']);
         if (tagEnabled)  sectionTypeOptions.push(['items',  'Dynamic Media (tag)']);
+        else if (viewerOnly) sectionTypeOptions.push(['items', 'Dynamic Media (per user)']);
         sectionTypeOptions.forEach(function(o) {
             html += '<option value="' + o[0] + '"' + (st === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
         });
@@ -3164,13 +3174,14 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                 var defaultTagName = row.querySelector('.txtEntryLabel').value || row.querySelector('.txtTagName').value || '';
                 var tagEnabled  = !!(row.querySelector('.chkEnableTag') || {}).checked;
                 var collEnabled = !!(row.querySelector('.chkEnableCollection') || {}).checked;
+                var viewerOnly  = ((row.querySelector('.selSourceType') || {}).value || '') === 'MediaInfo' && rowHasViewerCriteria(row);
 
                 // Check dirty state BEFORE rendering — so we know if user had unsaved changes already
                 var _hseView = document.querySelector('#HomeScreenCompanionConfigPage');
                 var _wasAlreadyDirty = _hseView && originalConfigState &&
                     JSON.stringify(getUiConfig(_hseView, true)) !== originalConfigState;
 
-                tab.querySelector('.hse-fields-inner').innerHTML = buildHomeSectionFormHtml(savedSettings, defaultSectionType, defaultTagName, tagEnabled, collEnabled, libraryOptions, savedLibraryId, allLibraries);
+                tab.querySelector('.hse-fields-inner').innerHTML = buildHomeSectionFormHtml(savedSettings, defaultSectionType, defaultTagName, tagEnabled, collEnabled, libraryOptions, savedLibraryId, allLibraries, viewerOnly);
                 wireHomeSectionTypeChange(tab);
 
                 // Mark as fully loaded only after form is in DOM so getUiConfig reads form values
@@ -3190,14 +3201,47 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                 tab.dataset.hseLoaded = '0'; // allow retry
             });
     }
+    // A viewer-dependent ("current user") filter is resolved per viewer by the home section query,
+    // so a home section can exist without a tag/collection. DOM-based check for live edits.
+    function rowHasViewerCriteria(row) {
+        var found = false;
+        row.querySelectorAll('.mi-rule').forEach(function(rule) {
+            var prop = (rule.querySelector('.selMiProperty') || {}).value || '';
+            var selUser = rule.querySelector('.selMiUser');
+            if (prop === 'InProgress' || (selUser && selUser.value === '__current__')) found = true;
+        });
+        return found;
+    }
+
+    // Config-object based variant, used when rendering a row from saved configuration.
+    function tagConfigHasViewerCriteria(tagConfig) {
+        if (!tagConfig) return false;
+        var filters = (tagConfig.MediaInfoFilters && tagConfig.MediaInfoFilters.length > 0)
+            ? tagConfig.MediaInfoFilters
+            : ((tagConfig.MediaInfoConditions && tagConfig.MediaInfoConditions.length > 0)
+                ? [{ Criteria: tagConfig.MediaInfoConditions }]
+                : []);
+        var found = false;
+        filters.forEach(function(f) {
+            (f.Criteria || []).forEach(function(c) {
+                var s = c.charAt(0) === '!' ? c.slice(1) : c;
+                if (s === 'InProgress' || s.indexOf(':__current__:') >= 0) found = true;
+            });
+        });
+        return found;
+    }
+
     function updateHseSectionAvailability(row) {
         var tagEnabled  = !!(row.querySelector('.chkEnableTag') || {}).checked;
         var collEnabled = !!(row.querySelector('.chkEnableCollection') || {}).checked;
+        var isMediaInfo = ((row.querySelector('.selSourceType') || {}).value || '') === 'MediaInfo';
+        var viewerOnly  = isMediaInfo && rowHasViewerCriteria(row);
+        var allowed = tagEnabled || collEnabled || viewerOnly;
         var hseCbx = row.querySelector('.chkEnableHomeSection');
         if (!hseCbx) return;
 
         var hint = row.querySelector('.hse-disabled-hint');
-        if (!tagEnabled && !collEnabled) {
+        if (!allowed) {
             hseCbx.disabled = true;
             hseCbx.checked = false;
             if (hint) hint.style.display = 'block';
@@ -3211,17 +3255,21 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
 
         var tab = row.querySelector('.homescreen-tab');
         if (tab && tab.dataset.hseLoaded === '1') {
-            refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled);
+            refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled, viewerOnly);
         }
     }
 
-    function refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled) {
+    function refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled, viewerOnly) {
         var stSel = tab.querySelector('.selHseSectionType');
         if (!stSel) return;
         var currentVal = stSel.value;
         stSel.innerHTML = '';
         if (collEnabled) { var o1 = document.createElement('option'); o1.value = 'boxset'; o1.textContent = 'Single Collection'; stSel.appendChild(o1); }
-        if (tagEnabled)  { var o2 = document.createElement('option'); o2.value = 'items';  o2.textContent = 'Dynamic Media (tag)'; stSel.appendChild(o2); }
+        if (tagEnabled || viewerOnly) {
+            var o2 = document.createElement('option'); o2.value = 'items';
+            o2.textContent = (viewerOnly && !tagEnabled) ? 'Dynamic Media (per user)' : 'Dynamic Media (tag)';
+            stSel.appendChild(o2);
+        }
         var stillValid = Array.from(stSel.options).some(function(o) { return o.value === currentVal; });
         if (stillValid) stSel.value = currentVal;
         updateHseItemsOnlyVisibility(tab);

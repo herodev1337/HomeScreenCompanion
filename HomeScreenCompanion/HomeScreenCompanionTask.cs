@@ -103,6 +103,7 @@ namespace HomeScreenCompanion
             public int PlaylistUsersCreated;
             public int PlaylistUsersUpdated;
             public int PlaylistUsersFailed;
+            public bool ViewerOnly; // current-user-only filter — resolved per user by the home section
             public List<string> Warnings = new List<string>();
             public List<string> MissingItems = new List<string>(); // list titles not found in the library
             public long ElapsedMs;
@@ -727,7 +728,15 @@ namespace HomeScreenCompanion
                             _log.Debug($"  Filter conditions: {beforeCount} → {matchedLocalItems.Count} items");
                         }
 
-                        if (tagConfig.SourceType == "MediaInfo")
+                        bool _viewerOnlyGroup = IsViewerOnlyMediaInfoFilter(tagConfig);
+                        if (tagConfig.SourceType == "MediaInfo" && _viewerOnlyGroup)
+                        {
+                            // Nothing to tag/collect — the home section query (IsPlayed / IsResumable)
+                            // resolves the filter for each viewing user. Skip the expensive library scan.
+                            gs.ListCount = 0;
+                            _log.Debug("  Current-user filter — library scan skipped (the home section resolves it per user)");
+                        }
+                        else if (tagConfig.SourceType == "MediaInfo")
                         {
                             IList<BaseItem> itemsToScan;
                             if (TagConfigTargetsEpisodes(tagConfig))
@@ -923,19 +932,22 @@ namespace HomeScreenCompanion
                             collectionOutputItems = BuildNonMiOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
                         }
 
-                        // A MediaInfo group whose filter only contains viewer-dependent criteria would tag the
-                        // entire library. Tags/collections/playlists can't be per-user, so skip them entirely —
-                        // the home section query (IsPlayed / IsResumable) resolves the filter per viewer.
-                        if (string.Equals(tagConfig.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase))
+                        // A current-user-only Smart-playlist group cannot produce tags/collections/playlists
+                        // (those are server-wide). Only the per-viewer home section applies.
+                        if (_viewerOnlyGroup)
                         {
-                            var _allCrit = GetAllCriteria(tagConfig).ToList();
-                            if (_allCrit.Any(IsViewerDependentCriterion) && !_allCrit.Any(c => !IsViewerDependentCriterion(c)))
+                            tagOutputItems = new List<BaseItem>();
+                            collectionOutputItems = new List<BaseItem>();
+                            playlistGroupsToSkip.Add(GroupKey(tagConfig));
+                            gs.ViewerOnly = true;
+                            if (tagConfig.EnableTag || tagConfig.EnableCollection || tagConfig.EnablePlaylist)
                             {
-                                tagOutputItems = new List<BaseItem>();
-                                collectionOutputItems = new List<BaseItem>();
-                                gs.Warnings.Add("Filter contains only current-user criteria — tags, collections and playlists cannot be per-user, so only the home section is created. Add a non-user condition (e.g. Media Type) to also get a tag/collection.");
-                                _log.Warn($"  {displayName}: filter is viewer-dependent only — no tag/collection/playlist will be created");
-                                playlistGroupsToSkip.Add(GroupKey(tagConfig));
+                                gs.Warnings.Add("Current-user filter — tags, collections and playlists cannot be per-user, so only the home section is created. Disable those outputs or add a non-user condition (e.g. Media Type).");
+                                _log.Warn($"  {displayName}: current-user filter — no tag/collection/playlist will be created");
+                            }
+                            else
+                            {
+                                _log.Debug($"  {displayName}: current-user filter — home section only");
                             }
                         }
 
@@ -1944,6 +1956,13 @@ namespace HomeScreenCompanion
                         return (false, $"Source '{string.Join("', '", missingSources)}' not found");
                     }
                 }
+                else if (tagConfig.SourceType == "MediaInfo" && IsViewerOnlyMediaInfoFilter(tagConfig))
+                {
+                    // Nothing to tag/collect — the home section query (IsPlayed / IsResumable)
+                    // resolves the filter for each viewing user. Skip the expensive library scan.
+                    _listCount = 0;
+                    _log.Debug("  Current-user filter — library scan skipped (the home section resolves it per user)");
+                }
                 else if (tagConfig.SourceType == "MediaInfo")
                 {
                     IList<BaseItem> _itemsToScan;
@@ -2131,19 +2150,22 @@ namespace HomeScreenCompanion
                 collectionOutputItems = BuildNonMiOutput(cEp, cSea, cSer, cEp || cSea || cSer);
             }
 
-            // Viewer-dependent only filter — tags/collections/playlists can't be per-user.
+            // Current-user-only Smart-playlist group — tags/collections/playlists can't be per-user.
             // The home section query resolves it per viewer instead.
-            bool viewerOnlyMediaInfo = false;
-            if (string.Equals(tagConfig.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase))
+            bool viewerOnlyMediaInfo = IsViewerOnlyMediaInfoFilter(tagConfig);
+            if (viewerOnlyMediaInfo)
             {
-                var _allCrit = GetAllCriteria(tagConfig).ToList();
-                if (_allCrit.Any(IsViewerDependentCriterion) && !_allCrit.Any(c => !IsViewerDependentCriterion(c)))
+                tagOutputItems = new List<BaseItem>();
+                collectionOutputItems = new List<BaseItem>();
+                gs.ViewerOnly = true;
+                if (tagConfig.EnableTag || tagConfig.EnableCollection || tagConfig.EnablePlaylist)
                 {
-                    viewerOnlyMediaInfo = true;
-                    tagOutputItems = new List<BaseItem>();
-                    collectionOutputItems = new List<BaseItem>();
-                    gs.Warnings.Add("Filter contains only current-user criteria — tags, collections and playlists cannot be per-user, so only the home section is created. Add a non-user condition (e.g. Media Type) to also get a tag/collection.");
-                    _log.Warn("  Filter is viewer-dependent only — no tag/collection/playlist will be created");
+                    gs.Warnings.Add("Current-user filter — tags, collections and playlists cannot be per-user, so only the home section is created. Disable those outputs or add a non-user condition (e.g. Media Type).");
+                    _log.Warn("  Current-user filter — no tag/collection/playlist will be created");
+                }
+                else
+                {
+                    _log.Debug("  Current-user filter — home section only");
                 }
             }
 
@@ -4127,6 +4149,19 @@ namespace HomeScreenCompanion
             return parts.Length == 1 && string.Equals(parts[0], "InProgress", StringComparison.OrdinalIgnoreCase);
         }
 
+        // True when the group's filter contains at least one current-user criterion.
+        private static bool HasViewerCriteria(TagConfig tagConfig) =>
+            GetAllCriteria(tagConfig).Any(IsViewerDependentCriterion);
+
+        // True when a Smart-playlist group is defined purely by current-user criteria. There is
+        // nothing to tag/collect (those outputs are global) — only the home section applies.
+        private static bool IsViewerOnlyMediaInfoFilter(TagConfig tagConfig)
+        {
+            if (!string.Equals(tagConfig.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase)) return false;
+            var criteria = GetAllCriteria(tagConfig).ToList();
+            return criteria.Count > 0 && criteria.All(IsViewerDependentCriterion);
+        }
+
         // Maps viewer-dependent criteria onto native Emby query filters (IsPlayed / IsResumable),
         // which Emby evaluates for the user viewing the section.
         internal static void ApplyViewerCriteriaToSectionSettings(TagConfig tagConfig, Dictionary<string, string> settingsDict)
@@ -4535,7 +4570,7 @@ namespace HomeScreenCompanion
         private static string DescribeSourceCounts(GroupRunStats gs)
         {
             if (gs.BoxSetHse) return gs.BoxSetTaggedCount > 0 ? $"{RunLog.Plural(gs.BoxSetTaggedCount, "collection")} tagged" : "collection not found";
-            if (gs.SourceType == "MediaInfo") return $"scanned {gs.ListCount:N0} items, {gs.MatchCount} matched";
+            if (gs.SourceType == "MediaInfo") return gs.ViewerOnly ? "current-user filter, resolved per user by the home section" : $"scanned {gs.ListCount:N0} items, {gs.MatchCount} matched";
             if (gs.SourceType == "LocalCollection" || gs.SourceType == "LocalPlaylist") return $"{gs.ListCount} in source, {gs.MatchCount} matched";
             return $"{gs.ListCount} in list, {gs.MatchCount} in your library";
         }
@@ -4565,7 +4600,9 @@ namespace HomeScreenCompanion
                     _log.Ok($"{RunLog.Plural(gs.BoxSetTaggedCount, "collection")} tagged with \"{gs.TagName}\"");
             }
             else if (gs.SourceType == "MediaInfo")
-                _log.Ok($"Scanned {gs.ListCount:N0} items  ·  {gs.MatchCount} matched your conditions");
+                _log.Ok(gs.ViewerOnly
+                    ? "Current-user filter  ·  resolved per user by the home section"
+                    : $"Scanned {gs.ListCount:N0} items  ·  {gs.MatchCount} matched your conditions");
             else if (gs.SourceType == "LocalCollection" || gs.SourceType == "LocalPlaylist")
             {
                 if (gs.ListCount > 0) _log.Ok($"Source: {gs.ListCount} items  ·  {gs.MatchCount} matched");
