@@ -286,3 +286,12 @@ Calendar: ~2–3 weeks part-time, ~1.5–2.5 weeks full-time. Throughput assumpt
 - Phase 6 + `themes` extraction (customCss as `theme.css?raw`) + theme cookie/light-dark logic.
 - Once ~70% of legacy is migrated, switch `scripts/build-bridge.mjs` to delegate to Rollup AMD output that composes `index.ts` with the remaining legacy pieces.
 
+### 2026-09-23 — Phases 3 wave 2 + wave 3 complete
+
+| Track | Status | What landed |
+|---|---|---|
+| Phase 3 wave 2 | done | 4 strictly-typed TS modules: `theme/theme.ts` (187), `logs/logModal.ts` (274), `backup/backupRestore.ts` (215), `config/configState.ts` (188). 36 tests across 4 files. Deferred: `renderLogModal`, `refreshStatus`, `showBackupModal/RestoreModal`, `getUiConfig`, `checkFormState`, `applyFilters` (close-coupling to `_lastStatus`, `cachedCollections`, `cachedTags`, `lastHscConfig`, `Dashboard.alert`). |
+| Phase 3 wave 3 | done | 4 more strictly-typed TS modules: `tags/renderTagGroup.ts` (67), `homesections/form.ts` (506), `homesections/users.ts` (217), `toplists/badgePicker.ts` (147). 86 tests across 4 files (renderTagGroup 7, form 45, users 15, badgePicker 19). Deferred: `renderTagGroup` (~490 lines, closes over `_miUsers`/`_topListTagNames`/state helpers), `syncHomeSectionFromEmby` (ApiClient + fetch), `initPlaylistTab`/`initHomeSectionTab` (state + ApiClient chain), `updateHseSectionAvailability` (calls `updateBadges` closure), `getHseUsers`/`preFetchLibraryData` (ApiClient + module-scope caches). |
+| Module test totals | | 230 passing across 14 files (5 wave-1 + 4 wave-2 + 4 wave-3 + amd-bundle). Legacy fixture 97/97, AMD bundle 3/3. |
+| Bridge | | Unchanged at 444,519 bytes; `Configuration/configPage.js` and `src/legacy.js` byte-equal. AMD pipeline not wired (deferred to Phase 5). |
+
