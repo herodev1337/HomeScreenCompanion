@@ -40,7 +40,7 @@ exports[`date helpers > getWeekButtons > renders all 7 day buttons with no selec
 
 exports[`date helpers > parseDateYMD > falls back to Date parsing for non-ISO 1`] = `
 {
-  "day": 14,
+  "day": 15,
   "month": 1,
   "year": 2026,
 }

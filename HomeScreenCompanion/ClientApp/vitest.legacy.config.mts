@@ -13,6 +13,8 @@ export default defineConfig({
         environment: 'happy-dom',
         globals: true,
         root: path.resolve(__dirname, '.'),
-        setupFiles: ['src/__tests__/legacy/setup.ts']
+        setupFiles: ['src/__tests__/legacy/setup.ts'],
+        // TZ is pinned at the npm-script level (TZ=UTC). Setting it via
+        // vitest config (test.env) is a no-op in Node 22; see vitest.config.mts.
     }
 });
