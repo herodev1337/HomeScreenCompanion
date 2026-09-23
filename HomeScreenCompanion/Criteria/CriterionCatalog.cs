@@ -170,32 +170,52 @@ namespace HomeScreenCompanion.Criteria
 
         /// <summary>
         /// Translates criteria into the plugin's native section-query keys
-        /// (<c>_queryIsPlayed</c>, <c>_queryIsResumable</c>,
-        /// <c>_queryIncludeItemTypes</c>, <c>_queryEnsureItemTypes</c>) that
+        /// (<c>_queryIsPlayed</c>, <c>_queryIsResumable</c>, <c>ItemTypes</c>,
+        /// <c>_queryEnsureItemTypes</c>, <c>_querySeriesPivot</c>) that
         /// <c>BuildContentSection</c> materializes onto the saved home section.
+        ///
+        /// IMPORTANT (Emby model constraints): a home section's
+        /// <c>ItemsQuery</c> only supports <c>IsPlayed</c>, <c>IsResumable</c>,
+        /// <c>IsMovie</c>, <c>IsSeries</c>, <c>IsFavorite</c>, <c>IsRepeat</c>,
+        /// <c>IsNews</c>, <c>IsSports</c>, <c>CollectionTypes</c>,
+        /// <c>GenreIds</c>, <c>StudioIds</c>, <c>TagIds</c>. There is NO
+        /// <c>IncludeItemTypes</c> — the only item-type filter the server
+        /// honors is the section-level <c>ContentSection.ItemTypes</c>.
+        /// MediaType criteria are therefore translated by REPLACING the
+        /// section's ItemTypes with the mapped list (criteria are
+        /// authoritative for what the section shows).
         ///
         /// Viewer-scoped criteria are always translated. Static-queryable
         /// criteria (MediaType) are translated ONLY when the group as a whole
         /// is viewer-only (a pure section query) — in mixed groups the global
-        /// tag already carries the constraint and re-encoding it as
-        /// IncludeItemTypes would break scan patterns like
-        /// <c>MediaType:EpisodeIncludeSeries</c> (tag goes on the parent
-        /// Series; the section must keep showing Series, not Episodes).
+        /// tag already carries the constraint and re-encoding it would break
+        /// scan patterns like <c>MediaType:EpisodeIncludeSeries</c> (tag goes
+        /// on the parent Series; the section must keep showing Series, not
+        /// Episodes).
         ///
         /// Special rule: Emby tracks playback position on Episodes, never on
         /// Series items. A group combining <c>InProgress</c> (IsResumable)
         /// with <c>MediaType:Series</c> is therefore pivoted to Episodes —
         /// "series currently in progress" is expressed as in-progress
-        /// Episodes, exactly like the native Continue Watching row.
+        /// Episodes, exactly like the native Continue Watching row
+        /// (<c>_querySeriesPivot</c> flags the pivot for a user-facing
+        /// warning).
         /// </summary>
         public static void ApplySectionQuery(IEnumerable<string>? criteria, Dictionary<string, string> settings)
         {
             var list = (criteria ?? Enumerable.Empty<string>()).ToList();
             // Pre-computed once; decides whether static MediaType constraints
-            // are safe to re-encode as IncludeItemTypes.
+            // are safe to re-encode on the section.
             bool viewerOnly = IsViewerOnlyGroup(list);
 
-            bool resumable = false;
+            // First pass: the pivot decision (Series → Episode) depends on whether
+            // the group is resumable, independent of criterion order.
+            bool resumable = list
+                .Select(Parse)
+                .Any(c => c.Prop.Length > 0
+                    && string.Equals(c.Prop, "InProgress", StringComparison.OrdinalIgnoreCase)
+                    && !c.Negated);
+            bool hadSeries = false;
             var itemTypes = new List<string>();
 
             foreach (var raw in list)
@@ -207,7 +227,6 @@ namespace HomeScreenCompanion.Criteria
                 {
                     case CriterionClass.ViewerScoped when string.Equals(c.Prop, "InProgress", StringComparison.OrdinalIgnoreCase):
                         settings["_queryIsResumable"] = c.Negated ? "false" : "true";
-                        if (!c.Negated) resumable = true;
                         break;
 
                     case CriterionClass.ViewerScoped when string.Equals(c.Prop, "IsPlayed", StringComparison.OrdinalIgnoreCase):
@@ -216,45 +235,76 @@ namespace HomeScreenCompanion.Criteria
                         break;
 
                     case CriterionClass.StaticQueryable when viewerOnly && string.Equals(c.Prop, "MediaType", StringComparison.OrdinalIgnoreCase):
-                        // "EpisodeIncludeSeries" is a scan pseudo-type; its native
-                        // section-query equivalent is plain Episode.
-                        var v = string.Equals(c.Val, "EpisodeIncludeSeries", StringComparison.OrdinalIgnoreCase)
-                            ? "Episode"
-                            : c.Val;
-                        if (!string.IsNullOrWhiteSpace(v) && !itemTypes.Contains(v, StringComparer.OrdinalIgnoreCase))
-                            itemTypes.Add(v);
+                        // Map each MediaType to the item types the section can actually
+                        // filter on. Series items have no playback position, so in a
+                        // resumable group "Series" becomes "Episode" (pivot).
+                        foreach (var mapped in MapMediaTypeToItemTypes(c.Val, resumable))
+                            if (!itemTypes.Contains(mapped, StringComparer.OrdinalIgnoreCase))
+                                itemTypes.Add(mapped);
+                        if (string.Equals(c.Val, "Series", StringComparison.OrdinalIgnoreCase))
+                            hadSeries = true;
                         break;
                 }
             }
 
-            if (resumable && viewerOnly)
+            if (viewerOnly && itemTypes.Count > 0)
             {
-                // "Series in progress" ⇒ in-progress Episodes (Series items have no playback position).
-                // Only valid for pure section-query groups: in mixed groups the tag carries the
-                // static constraints and pivoting would fight it.
-                bool hasSeries = itemTypes.Any(t => string.Equals(t, "Series", StringComparison.OrdinalIgnoreCase));
-                bool hasEpisode = itemTypes.Any(t => string.Equals(t, "Episode", StringComparison.OrdinalIgnoreCase));
-                if (hasSeries && !hasEpisode)
-                {
-                    itemTypes.RemoveAll(t => string.Equals(t, "Series", StringComparison.OrdinalIgnoreCase));
-                    itemTypes.Add("Episode");
-                }
-                else if (itemTypes.Count == 0)
-                {
-                    // No explicit MediaType: pure "In Progress" — surface series-as-Episodes
-                    // by widening the section's item types, UNLESS the section explicitly
-                    // constrains its ItemTypes away from Series (the user's own choice wins).
-                    bool sectionWantsSeries =
-                        !settings.TryGetValue("ItemTypes", out var _savedItemTypes) ||
-                        string.IsNullOrWhiteSpace(_savedItemTypes) ||
-                        _savedItemTypes.IndexOf("Series", StringComparison.OrdinalIgnoreCase) >= 0;
-                    if (sectionWantsSeries)
-                        settings["_queryEnsureItemTypes"] = "Episode";
-                }
+                // Criteria are authoritative: replace the section's ItemTypes.
+                settings["ItemTypes"] = SerializeItemTypes(itemTypes);
+                if (resumable && hadSeries)
+                    settings["_querySeriesPivot"] = "true";
             }
+            else if (viewerOnly && resumable && itemTypes.Count == 0)
+            {
+                // No explicit MediaType: pure "In Progress" — surface series-as-Episodes
+                // by widening the section's item types, UNLESS the section explicitly
+                // constrains its ItemTypes away from Series (the user's own choice wins).
+                bool sectionWantsSeries =
+                    !settings.TryGetValue("ItemTypes", out var _savedItemTypes) ||
+                    string.IsNullOrWhiteSpace(_savedItemTypes) ||
+                    _savedItemTypes.IndexOf("Series", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (sectionWantsSeries)
+                    settings["_queryEnsureItemTypes"] = "Episode";
+            }
+        }
 
-            if (itemTypes.Count > 0)
-                settings["_queryIncludeItemTypes"] = string.Join(",", itemTypes);
+        /// <summary>
+        /// Maps a MediaType criterion value to the section item types that
+        /// express it natively on an Emby home section.
+        /// </summary>
+        private static IEnumerable<string> MapMediaTypeToItemTypes(string? mediaType, bool resumable)
+        {
+            switch (mediaType?.Trim().ToLowerInvariant())
+            {
+                case "series":
+                    // Series items never carry a playback position; "in progress
+                    // series" can only be expressed as in-progress Episodes.
+                    // In non-resumable groups (e.g. IsPlayed) Series works natively.
+                    return resumable ? new[] { "Episode" } : new[] { "Series" };
+
+                case "episodeincludeseries":
+                    // Scan pseudo-type "episodes incl. their series": the native
+                    // equivalent shows Episodes, plus the Series row when the
+                    // group is not resumable (a Series item can't be "resumable").
+                    return resumable ? new[] { "Episode" } : new[] { "Episode", "Series" };
+
+                case "movie":
+                    return new[] { "Movie" };
+
+                case "episode":
+                    return new[] { "Episode" };
+
+                default:
+                    // Literal pass-through for other item types (Audio, Trailer, ...).
+                    return string.IsNullOrWhiteSpace(mediaType)
+                        ? Enumerable.Empty<string>()
+                        : new[] { mediaType };
+            }
+        }
+
+        private static string SerializeItemTypes(IEnumerable<string> itemTypes)
+        {
+            return "[" + string.Join(",", itemTypes.Select(t => "\"" + t + "\"")) + "]";
         }
     }
 }

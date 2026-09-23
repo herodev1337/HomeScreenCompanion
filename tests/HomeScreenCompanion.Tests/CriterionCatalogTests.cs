@@ -240,11 +240,13 @@ public class CriterionCatalogTests
     public void ApplySectionQuery_InProgressPlusSeries_PivotsToEpisodes()
     {
         // Series items have no playback position — the section must query
-        // in-progress Episodes instead.
+        // in-progress Episodes instead. Emby's ItemsQuery has no
+        // IncludeItemTypes, so the pivot replaces the section ItemTypes.
         HscAssembly.EnsureAvailable();
         var s = ApplySectionQuery("InProgress", "MediaType:Series");
         Assert.Equal("true", s["_queryIsResumable"]);
-        Assert.Equal("Episode", s["_queryIncludeItemTypes"]);
+        Assert.Equal("[\"Episode\"]", s["ItemTypes"]);
+        Assert.Equal("true", s["_querySeriesPivot"]);
         Assert.False(s.ContainsKey("_queryEnsureItemTypes"));
     }
 
@@ -253,8 +255,28 @@ public class CriterionCatalogTests
     {
         HscAssembly.EnsureAvailable();
         var s = ApplySectionQuery("InProgress", "MediaType:Movie");
-        Assert.Equal("Movie", s["_queryIncludeItemTypes"]);
+        Assert.Equal("[\"Movie\"]", s["ItemTypes"]);
         Assert.False(s.ContainsKey("_queryEnsureItemTypes"));
+        Assert.False(s.ContainsKey("_querySeriesPivot"));
+    }
+
+    [Fact]
+    public void ApplySectionQuery_IsPlayedPlusSeries_KeepsSeriesNative()
+    {
+        // Non-resumable viewer groups can filter Series natively.
+        HscAssembly.EnsureAvailable();
+        var s = ApplySectionQuery("IsPlayed:__current__:=:Watched", "MediaType:Series");
+        Assert.Equal("true", s["_queryIsPlayed"]);
+        Assert.Equal("[\"Series\"]", s["ItemTypes"]);
+        Assert.False(s.ContainsKey("_querySeriesPivot"));
+    }
+
+    [Fact]
+    public void ApplySectionQuery_IsPlayedPlusEpisodeIncludeSeries_ShowsEpisodeAndSeries()
+    {
+        HscAssembly.EnsureAvailable();
+        var s = ApplySectionQuery("IsPlayed:__current__:=:Watched", "MediaType:EpisodeIncludeSeries");
+        Assert.Equal("[\"Episode\",\"Series\"]", s["ItemTypes"]);
     }
 
     [Fact]
@@ -264,7 +286,7 @@ public class CriterionCatalogTests
         HscAssembly.EnsureAvailable();
         var s = ApplySectionQuery("InProgress");
         Assert.Equal("Episode", s["_queryEnsureItemTypes"]);
-        Assert.False(s.ContainsKey("_queryIncludeItemTypes"));
+        Assert.False(s.ContainsKey("ItemTypes"));
     }
 
     [Fact]
@@ -284,18 +306,18 @@ public class CriterionCatalogTests
     {
         HscAssembly.EnsureAvailable();
         var s = ApplySectionQuery("InProgress", "MediaType:EpisodeIncludeSeries");
-        Assert.Equal("Episode", s["_queryIncludeItemTypes"]);
+        Assert.Equal("[\"Episode\"]", s["ItemTypes"]);
     }
 
     [Fact]
     public void ApplySectionQuery_MixedGlobalGroup_OnlyTranslatesViewerCriteria()
     {
         // InProgress + 4K: the tag carries the 4K constraint, so no
-        // IncludeItemTypes / EnsureItemTypes — only the resumable flag.
+        // ItemTypes / EnsureItemTypes — only the resumable flag.
         HscAssembly.EnsureAvailable();
         var s = ApplySectionQuery("InProgress", "4K");
         Assert.Equal("true", s["_queryIsResumable"]);
-        Assert.False(s.ContainsKey("_queryIncludeItemTypes"));
+        Assert.False(s.ContainsKey("ItemTypes"));
         Assert.False(s.ContainsKey("_queryEnsureItemTypes"));
     }
 
@@ -313,6 +335,17 @@ public class CriterionCatalogTests
         HscAssembly.EnsureAvailable();
         var s = ApplySectionQuery("InProgress", "MediaType:Series", "MediaType:Movie");
         // Series pivots to Episode; Movie stays.
-        Assert.Equal("Movie,Episode", s["_queryIncludeItemTypes"]);
+        Assert.Equal("[\"Episode\",\"Movie\"]", s["ItemTypes"]);
+        Assert.Equal("true", s["_querySeriesPivot"]);
+    }
+
+    [Fact]
+    public void ApplySectionQuery_MediaTypeBeforeInProgress_StillPivots()
+    {
+        // Pivot decision must not depend on criterion order.
+        HscAssembly.EnsureAvailable();
+        var s = ApplySectionQuery("MediaType:Series", "InProgress");
+        Assert.Equal("[\"Episode\"]", s["ItemTypes"]);
+        Assert.Equal("true", s["_querySeriesPivot"]);
     }
 }

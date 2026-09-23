@@ -2890,11 +2890,7 @@ namespace HomeScreenCompanion
                 // Series items never carry a playback position in Emby (only Episodes do). The
                 // catalog pivots "In Progress (viewer)" + MediaType:Series to in-progress Episodes
                 // — warn so the resulting section contents aren't a surprise.
-                if (settingsDict.TryGetValue("_queryIsResumable", out var _qResum) && _qResum == "true"
-                    && settingsDict.TryGetValue("_queryIncludeItemTypes", out var _qInc)
-                    && !string.IsNullOrWhiteSpace(_qInc)
-                    && _qInc.Split(',').Any(s => string.Equals(s.Trim(), "Episode", StringComparison.OrdinalIgnoreCase))
-                    && GetAllCriteria(tc).Any(c => c.TrimStart('!').StartsWith("MediaType:Series", StringComparison.OrdinalIgnoreCase)))
+                if (settingsDict.TryGetValue("_querySeriesPivot", out var _qPivot) && _qPivot == "true")
                     HsWarn(statsList, _hsTagName, _hsDisplayName, "'In Progress (viewer)' with MediaType:Series shows your in-progress Episodes — Series items themselves have no playback position in Emby.");
 
                 // Back-fill CustomName from group name/tag when not explicitly configured
@@ -3521,18 +3517,10 @@ namespace HomeScreenCompanion
                         extQuery.IsResumable = existing.Query.IsResumable;
                     }
 
-                    // Specialfall: _queryIncludeItemTypes → IncludeItemTypes[] (MediaType:* criteria)
-                    if (settings.TryGetValue("_queryIncludeItemTypes", out var qIncTypes) && !string.IsNullOrWhiteSpace(qIncTypes))
-                    {
-                        var incProp = queryProps.FirstOrDefault(p => p.Name == "IncludeItemTypes");
-                        if (incProp != null && incProp.CanWrite && incProp.PropertyType == typeof(string[]))
-                        {
-                            var inc = qIncTypes.Split(',')
-                                .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
-                            if (inc.Length > 0)
-                                incProp.SetValue(extQuery, inc);
-                        }
-                    }
+                    // Specialfall: _queryIncludeItemTypes fanns tidigare men Emby 4.10:s
+                    // ItemsQuery har ingen IncludeItemTypes-property — MediaType-kriterier
+                    // översätts nu istället till section.ItemTypes av CriterionCatalog.
+                    // (Nyckeln lämnas här medvetet orörd för bakåtkompatibilitet.)
 
                     // Specialfall: _queryEnsureItemTypes → lägg till i section.ItemTypes
                     // (ren "In Progress" behöver Episode för att visa serier som påbörjade episoder)
