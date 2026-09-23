@@ -10,7 +10,7 @@
 		<AssemblyName>HomeScreenCompanion</AssemblyName>
 		<RootNamespace>HomeScreenCompanion</RootNamespace>
 		
-		<Version>4.1.5.0</Version>
+		<Version>4.1.5.0-refactor</Version>
 
 		<Product>Home Screen Companion</Product>
 		
