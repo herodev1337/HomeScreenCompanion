@@ -1,0 +1,9 @@
+{
+  "exact": true,
+  "list_match": true,
+  "no_match": false,
+  "null_item": false,
+  "empty_item": false,
+  "case_insensitive": true,
+  "whitespace_in_list": true
+}

@@ -1,0 +1,29 @@
+{
+  "name": "home-screen-companion-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-bridge.mjs",
+    "build:experimental": "rollup -c",
+    "build:legacy": "node scripts/build-legacy-bundle.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pretest:legacy": "npm run build:legacy",
+    "test:legacy": "vitest run --config vitest.legacy.config.mts"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-replace": "^5.0.7",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@types/node": "^20.12.7",
+    "esbuild": "^0.21.5",
+    "happy-dom": "^14.10.0",
+    "rollup": "^4.18.0",
+    "rollup-plugin-esbuild": "^6.1.1",
+    "tslib": "^2.6.3",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

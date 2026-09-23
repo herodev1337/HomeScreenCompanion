@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IsPackable>false</IsPackable>
+		<RootNamespace>HomeScreenCompanion.Tests</RootNamespace>
+		<AssemblyName>HomeScreenCompanion.Tests</AssemblyName>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+		<PackageReference Include="xunit" Version="2.9.3" />
+		<PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+		<PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="MediaBrowser.Common" Version="4.10.0.24-beta2" PrivateAssets="all" />
+		<PackageReference Include="MediaBrowser.Server.Core" Version="4.10.0.24-beta2" PrivateAssets="all" />
+		<PackageReference Include="SkiaSharp" Version="2.88.9" PrivateAssets="all" />
+	</ItemGroup>
+
+</Project>

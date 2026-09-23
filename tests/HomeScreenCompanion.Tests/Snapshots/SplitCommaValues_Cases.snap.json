@@ -1,0 +1,20 @@
+{
+  "basic": [
+    "a,b,c"
+  ],
+  "newlines": [
+    "a",
+    "b",
+    "c"
+  ],
+  "trimmed": [
+    "a , b  ,c"
+  ],
+  "empty": [],
+  "whitespace_only": [],
+  "mixed": [
+    "a,",
+    "b,",
+    "c"
+  ]
+}

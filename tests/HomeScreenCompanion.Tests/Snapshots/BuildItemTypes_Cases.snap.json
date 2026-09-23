@@ -1,0 +1,14 @@
+{
+  "no_music": [
+    "Movie",
+    "Series"
+  ],
+  "music_tag": [
+    "Movie",
+    "Series",
+    "Audio",
+    "MusicVideo",
+    "MusicAlbum",
+    "MusicArtist"
+  ]
+}

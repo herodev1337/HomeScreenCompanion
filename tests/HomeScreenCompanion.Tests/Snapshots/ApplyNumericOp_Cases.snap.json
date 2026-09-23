@@ -1,0 +1,14 @@
+{
+  "gt_true": true,
+  "gt_false": false,
+  "gte_true": true,
+  "gte_false": false,
+  "lt_true": true,
+  "lt_false": false,
+  "lte_true": true,
+  "lte_false": false,
+  "eq_true": true,
+  "eq_within_tolerance": true,
+  "eq_outside_tolerance": false,
+  "unknown_op": false
+}

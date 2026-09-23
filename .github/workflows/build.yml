@@ -29,15 +29,45 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 9.0.x
           cache: true
           cache-dependency-path: '**/*.csproj'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: 'HomeScreenCompanion/ClientApp/package-lock.json'
 
       - name: Restore
         run: dotnet restore "$PROJECT"
 
       - name: Build (Release)
         run: dotnet build "$PROJECT" -c Release --no-restore
+
+      - name: Install JS deps
+        working-directory: HomeScreenCompanion/ClientApp
+        run: npm ci
+
+      - name: Build JS bundle
+        working-directory: HomeScreenCompanion/ClientApp
+        run: npm run build
+
+      - name: TS typecheck
+        working-directory: HomeScreenCompanion/ClientApp
+        run: npm run typecheck
+
+      - name: JS tests (AMD bundle shape)
+        working-directory: HomeScreenCompanion/ClientApp
+        run: npm test
+
+      - name: JS tests (legacy fixtures)
+        working-directory: HomeScreenCompanion/ClientApp
+        run: npm run test:legacy
+
+      - name: .NET tests (DLL snapshot)
+        run: dotnet test tests/HomeScreenCompanion.Tests/HomeScreenCompanion.Tests.csproj -c Release --verbosity normal
 
       - name: Upload plugin DLL
         uses: actions/upload-artifact@v4
