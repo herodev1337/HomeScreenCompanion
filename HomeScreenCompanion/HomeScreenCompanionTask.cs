@@ -18,6 +18,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using HomeScreenCompanion.Criteria;
 
 namespace HomeScreenCompanion
 {
@@ -2160,7 +2161,7 @@ namespace HomeScreenCompanion
                 gs.ViewerOnly = true;
                 if (tagConfig.EnableTag || tagConfig.EnableCollection || tagConfig.EnablePlaylist)
                 {
-                    gs.Warnings.Add("Current-user filter — tags, collections and playlists cannot be per-user, so only the home section is created. Disable those outputs or add a non-user condition (e.g. Media Type).");
+                    gs.Warnings.Add("Current-user filter — tags, collections and playlists cannot be per-user, so only the home section is created. Disable those outputs or add a non-user condition (e.g. Resolution: 4K or Year).");
                     _log.Warn("  Current-user filter — no tag/collection/playlist will be created");
                 }
                 else
@@ -2886,6 +2887,16 @@ namespace HomeScreenCompanion
                     && GetAllCriteria(tc).Any(IsViewerDependentCriterion))
                     HsWarn(statsList, _hsTagName, _hsDisplayName, "current-user filters only work with the Dynamic Media (tag) section type — a collection section cannot be per-user");
 
+                // Series items never carry a playback position in Emby (only Episodes do). The
+                // catalog pivots "In Progress (viewer)" + MediaType:Series to in-progress Episodes
+                // — warn so the resulting section contents aren't a surprise.
+                if (settingsDict.TryGetValue("_queryIsResumable", out var _qResum) && _qResum == "true"
+                    && settingsDict.TryGetValue("_queryIncludeItemTypes", out var _qInc)
+                    && !string.IsNullOrWhiteSpace(_qInc)
+                    && _qInc.Split(',').Any(s => string.Equals(s.Trim(), "Episode", StringComparison.OrdinalIgnoreCase))
+                    && GetAllCriteria(tc).Any(c => c.TrimStart('!').StartsWith("MediaType:Series", StringComparison.OrdinalIgnoreCase)))
+                    HsWarn(statsList, _hsTagName, _hsDisplayName, "'In Progress (viewer)' with MediaType:Series shows your in-progress Episodes — Series items themselves have no playback position in Emby.");
+
                 // Back-fill CustomName from group name/tag when not explicitly configured
                 if (!settingsDict.TryGetValue("CustomName", out var _existingCn) || string.IsNullOrWhiteSpace(_existingCn))
                 {
@@ -2953,14 +2964,10 @@ namespace HomeScreenCompanion
                     }
                 }
 
-                // A MediaInfo group whose filter only contains viewer-dependent criteria has no tag
-                // (nothing is tagged) — the section is driven purely by the per-viewer query below.
-                bool _viewerOnlyFilter = false;
-                {
-                    var _hsCrit = GetAllCriteria(tc).ToList();
-                    _viewerOnlyFilter = string.Equals(tc.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase)
-                        && _hsCrit.Count > 0 && _hsCrit.All(IsViewerDependentCriterion);
-                }
+                // A MediaInfo group whose criteria are all expressible as a native per-viewer /
+                // static section query has no tag output — the section is driven purely by the
+                // per-viewer query below (see CriterionCatalog.IsViewerOnlyGroup).
+                bool _viewerOnlyFilter = IsViewerOnlyMediaInfoFilter(tc);
 
                 if (sectionType == "items" && !string.IsNullOrEmpty(tc.Tag) && !_viewerOnlyFilter)
                 {
@@ -3514,12 +3521,48 @@ namespace HomeScreenCompanion
                         extQuery.IsResumable = existing.Query.IsResumable;
                     }
 
+                    // Specialfall: _queryIncludeItemTypes → IncludeItemTypes[] (MediaType:* criteria)
+                    if (settings.TryGetValue("_queryIncludeItemTypes", out var qIncTypes) && !string.IsNullOrWhiteSpace(qIncTypes))
+                    {
+                        var incProp = queryProps.FirstOrDefault(p => p.Name == "IncludeItemTypes");
+                        if (incProp != null && incProp.CanWrite && incProp.PropertyType == typeof(string[]))
+                        {
+                            var inc = qIncTypes.Split(',')
+                                .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+                            if (inc.Length > 0)
+                                incProp.SetValue(extQuery, inc);
+                        }
+                    }
+
+                    // Specialfall: _queryEnsureItemTypes → lägg till i section.ItemTypes
+                    // (ren "In Progress" behöver Episode för att visa serier som påbörjade episoder)
+                    if (settings.TryGetValue("_queryEnsureItemTypes", out var qEnsure) && !string.IsNullOrWhiteSpace(qEnsure))
+                    {
+                        var ensure = qEnsure.Split(',')
+                            .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+                        if (ensure.Length > 0)
+                        {
+                            var itProp = props.FirstOrDefault(p => p.Name == "ItemTypes");
+                            if (itProp != null && itProp.CanWrite && itProp.PropertyType == typeof(string[]))
+                            {
+                                var current = (itProp.GetValue(section) as string[]) ?? Array.Empty<string>();
+                                var merged = current.Concat(ensure)
+                                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                                    .ToArray();
+                                itProp.SetValue(section, merged);
+                            }
+                        }
+                    }
+
                     // Generisk _query* → övriga ItemsQuery-properties
                     foreach (var key in settings.Keys.Where(k =>
                         k.StartsWith("_query", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(k, "_queryTagId", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(k, "_queryIsPlayed", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(k, "_queryIsResumable", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(k, "_queryIncludeItemTypes", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(k, "_queryEnsureItemTypes", StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(k, "_queryExcludeViewIds", StringComparison.OrdinalIgnoreCase)))
                     {
                         var val = settings[key];
@@ -4139,51 +4182,30 @@ namespace HomeScreenCompanion
         // Viewer-dependent ("current user") criteria can't be evaluated during a global sync run —
         // there is no current user at that point. They are resolved by Emby per requesting user
         // through the home section Query instead (see ApplyViewerCriteriaToSectionSettings).
-        private static bool IsViewerDependentCriterion(string cond)
-        {
-            if (string.IsNullOrWhiteSpace(cond)) return false;
-            var c = cond.TrimStart('!');
-            var parts = c.Split(':');
-            if (parts.Length == 4 && string.Equals(parts[1], "__current__", StringComparison.OrdinalIgnoreCase))
-                return true;
-            return parts.Length == 1 && string.Equals(parts[0], "InProgress", StringComparison.OrdinalIgnoreCase);
-        }
+        // Classification lives in CriterionCatalog (Criteria/CriterionCatalog.cs).
+        private static bool IsViewerDependentCriterion(string cond) =>
+            CriterionCatalog.IsViewerScoped(cond);
 
         // True when the group's filter contains at least one current-user criterion.
         private static bool HasViewerCriteria(TagConfig tagConfig) =>
             GetAllCriteria(tagConfig).Any(IsViewerDependentCriterion);
 
-        // True when a Smart-playlist group is defined purely by current-user criteria. There is
-        // nothing to tag/collect (those outputs are global) — only the home section applies.
+        // True when a Smart-playlist group needs no global tag/collection output at all: every
+        // criterion is either viewer-scoped (resolved by the per-user section query) or a static
+        // constraint translatable to a native section query (e.g. MediaType:Series →
+        // IncludeItemTypes). Nothing to tag/collect — only the home section applies.
         private static bool IsViewerOnlyMediaInfoFilter(TagConfig tagConfig)
         {
             if (!string.Equals(tagConfig.SourceType, "MediaInfo", StringComparison.OrdinalIgnoreCase)) return false;
-            var criteria = GetAllCriteria(tagConfig).ToList();
-            return criteria.Count > 0 && criteria.All(IsViewerDependentCriterion);
+            return CriterionCatalog.IsViewerOnlyGroup(GetAllCriteria(tagConfig));
         }
 
-        // Maps viewer-dependent criteria onto native Emby query filters (IsPlayed / IsResumable),
-        // which Emby evaluates for the user viewing the section.
+        // Maps viewer-dependent AND static-queryable criteria onto native Emby query filters
+        // (IsPlayed / IsResumable / IncludeItemTypes), which Emby evaluates for the user viewing
+        // the section. Global-only criteria are ignored here — they ride on the tag.
         internal static void ApplyViewerCriteriaToSectionSettings(TagConfig tagConfig, Dictionary<string, string> settingsDict)
         {
-            foreach (var raw in GetAllCriteria(tagConfig))
-            {
-                bool negate = raw.Length > 0 && raw[0] == '!';
-                var c = negate ? raw.Substring(1) : raw;
-                var parts = c.Split(':');
-
-                if (parts.Length == 4 &&
-                    string.Equals(parts[0], "IsPlayed", StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(parts[1], "__current__", StringComparison.OrdinalIgnoreCase))
-                {
-                    bool watched = string.Equals(parts[3], "Watched", StringComparison.OrdinalIgnoreCase);
-                    settingsDict["_queryIsPlayed"] = (watched != negate) ? "true" : "false";
-                }
-                else if (parts.Length == 1 && string.Equals(parts[0], "InProgress", StringComparison.OrdinalIgnoreCase))
-                {
-                    settingsDict["_queryIsResumable"] = negate ? "false" : "true";
-                }
-            }
+            CriterionCatalog.ApplySectionQuery(GetAllCriteria(tagConfig), settingsDict);
         }
 
         // Returns the legacy single target type for backwards compat (MediaInfoTargetType or MediaInfoSeasonMode)

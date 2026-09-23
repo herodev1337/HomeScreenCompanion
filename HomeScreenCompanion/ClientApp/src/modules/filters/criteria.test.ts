@@ -24,6 +24,8 @@ import {
     parseCriterion,
     buildCriterion,
     migrateCommaSeparated,
+    classifyCriterion,
+    isViewerOnlyGroup,
     type Criterion,
 } from './criteria';
 
@@ -349,5 +351,64 @@ describe('mirror coverage', () => {
             }
         }
         expect(orphans).toEqual([]);
+    });
+});
+
+// ─── Criterion classification (mirror of CriterionCatalog) ─────────────────────
+
+describe('classifyCriterion (mirror of CriterionCatalog.Classify)', () => {
+    const CASES: ReadonlyArray<[string | null, string]> = [
+        ['InProgress', 'viewer-scoped'],
+        ['!InProgress', 'viewer-scoped'],
+        ['IsPlayed:__current__:=:Watched', 'viewer-scoped'],
+        ['IsPlayed:__current__:=:Unwatched', 'viewer-scoped'],
+        ['IsPlayed:__any__:=:Unwatched', 'global-only'],
+        ['IsPlayed:__all__:=:Unwatched', 'global-only'],
+        ['MediaType:Series', 'static-queryable'],
+        ['MediaType:Movie', 'static-queryable'],
+        ['MediaType:Episode', 'static-queryable'],
+        ['MediaType:EpisodeIncludeSeries', 'static-queryable'],
+        ['!MediaType:Series', 'global-only'],
+        ['Year:>=:1990', 'global-only'],
+        ['4K', 'global-only'],
+        ['Resolution:4K', 'global-only'],
+        ['Collection:Star Wars', 'global-only'],
+        ['', 'global-only'],
+        [null, 'global-only'],
+    ];
+
+    for (const [raw, expected] of CASES) {
+        it(`${JSON.stringify(raw)} → ${expected}`, () => {
+            expect(classifyCriterion(raw as string | null)).toBe(expected);
+        });
+    }
+});
+
+describe('isViewerOnlyGroup (mirror of CriterionCatalog.IsViewerOnlyGroup)', () => {
+    it('InProgress + MediaType:Series is a viewer-only group (regression)', () => {
+        // MediaType:Series must NOT break viewer-only detection — that was
+        // the production bug where the section fell back to the tag path.
+        expect(isViewerOnlyGroup(['InProgress', 'MediaType:Series'])).toBe(true);
+    });
+
+    it('InProgress alone is a viewer-only group', () => {
+        expect(isViewerOnlyGroup(['InProgress'])).toBe(true);
+    });
+
+    it('IsPlayed current-user + MediaType:Movie is a viewer-only group', () => {
+        expect(isViewerOnlyGroup(['IsPlayed:__current__:=:Watched', 'MediaType:Movie'])).toBe(true);
+    });
+
+    it('mixed with a global-only criterion is not viewer-only', () => {
+        expect(isViewerOnlyGroup(['InProgress', '4K'])).toBe(false);
+    });
+
+    it('static-only group is not viewer-only', () => {
+        expect(isViewerOnlyGroup(['MediaType:Series'])).toBe(false);
+    });
+
+    it('empty group is not viewer-only', () => {
+        expect(isViewerOnlyGroup([])).toBe(false);
+        expect(isViewerOnlyGroup(null)).toBe(false);
     });
 });

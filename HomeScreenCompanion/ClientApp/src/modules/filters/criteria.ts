@@ -157,3 +157,51 @@ export function migrateCommaSeparated(val: string | null): string | null {
         .filter((s) => s.length > 0)
         .join('\n');
 }
+
+/**
+ * Classification of a criterion, mirror of `CriterionCatalog.CriterionClass`
+ * in `Criteria/CriterionCatalog.cs` (server side). Keep the two in sync —
+ * the server is authoritative; this is the client-side twin used by the
+ * UI when it needs to reason about criteria without a round-trip.
+ *
+ * - `'global-only'`      — evaluated by the global library scan (tags, collections).
+ * - `'viewer-scoped'`    — depends on the viewing user; resolved per user by the
+ *                          home-section query (`IsPlayed` / `IsResumable`).
+ * - `'static-queryable'` — static, expressible as a native section query
+ *                          (e.g. `MediaType:Series` → `IncludeItemTypes`).
+ */
+export type CriterionClass = 'global-only' | 'viewer-scoped' | 'static-queryable';
+
+/**
+ * Classify a criterion string (see {@link CriterionClass}). Mirrors
+ * `CriterionCatalog.Classify` server-side, including the rule that a
+ * negated `MediaType` ("everything but X") has no native query equivalent
+ * and therefore falls back to `'global-only'`.
+ */
+export function classifyCriterion(raw: string | null | undefined): CriterionClass {
+    if (!raw) return 'global-only';
+    const c = parseCriterion(raw);
+    if (!c.prop) return 'global-only';
+
+    const prop = c.prop.toLowerCase();
+    if (prop === 'inprogress' && !c.userId && !c.op) return 'viewer-scoped';
+    if (prop === 'isplayed' && c.userId === '__current__') return 'viewer-scoped';
+    if (prop === 'mediatype' && !c.userId) return c.not ? 'global-only' : 'static-queryable';
+    return 'global-only';
+}
+
+/**
+ * True when the whole group can be expressed as a native per-viewer
+ * home-section query: at least one viewer-scoped criterion and every other
+ * criterion is either viewer-scoped or static-queryable. Mirrors
+ * `CriterionCatalog.IsViewerOnlyGroup`.
+ */
+export function isViewerOnlyGroup(
+    criteria: readonly (string | null | undefined)[] | null | undefined
+): boolean {
+    const list = (criteria ?? []).filter((c): c is string => !!c);
+    if (list.length === 0) return false;
+    const classes = list.map((c) => classifyCriterion(c));
+    if (!classes.includes('viewer-scoped')) return false;
+    return classes.every((k) => k !== 'global-only');
+}
