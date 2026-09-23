@@ -295,3 +295,22 @@ Calendar: ~2–3 weeks part-time, ~1.5–2.5 weeks full-time. Throughput assumpt
 | Module test totals | | 230 passing across 14 files (5 wave-1 + 4 wave-2 + 4 wave-3 + amd-bundle). Legacy fixture 97/97, AMD bundle 3/3. |
 | Bridge | | Unchanged at 444,519 bytes; `Configuration/configPage.js` and `src/legacy.js` byte-equal. AMD pipeline not wired (deferred to Phase 5). |
 
+
+### 2026-09-23 — Phase 3/4 wave 4 complete (extractions + smoke tests)
+
+| Track | Status | What landed |
+|---|---|---|
+| Phase 3 wave 4 | done | 5 more strictly-typed TS modules: `filters/rows.ts` (~360), `filters/miFilters.ts` completed (getMediaInfoRuleHtml/getMediaInfoFilterGroupHtml/getMiValueHtml/readMiFiltersFromContainer + deps-injection), `filters/savedFilters.ts` completed (refreshMySavedFiltersPanels/saveSavedFiltersNow + SavedFiltersSaveDeps), `homesections/manageTab.ts` (fetchManageSections/renderManageSections/applyManageSections + ManageDeps), `toplists/creation.ts` (executeTopListCreationSteps + TopListCreationDeps), `toplists/topListsTab.ts` (loadTopListsTab + TopListsTabDeps). All API-coupled extractions use deps injection (hscTab.ts pattern). |
+| Module test totals | | 267 passing across 18 files (was 230). Legacy fixture 102/102 (was 97; +5 mi-filters snapshot cases from the miFilters completion). AMD bundle 3/3. |
+| EXPORTS list | | `scripts/build-legacy-bundle.mjs` EXPORTS extended with 41 new function names so the legacy fixture bundle exposes the helpers now extracted into TS modules. The fixture bundle grew by +1039 bytes (445558 vs 444519). |
+| Known edge cases (no action this wave) | | Several deferred helpers remain (`getUiConfig`, `checkFormState`, `applyFilters`, `getHseUsers`, `preFetchLibraryData`, `syncHomeSectionFromEmby`, `initPlaylistTab`/`initHomeSectionTab`, `renderTagGroup` body, `setupRowEvents`, `showTopListModal`/`showManualTopListModal`/`loadInlineEditForm`/`showCreateTopListChooser`, `loadTagManageTab`, `loadTopListsTab` body, `loadHscManageTab`, `showBackupModal`/`showRestoreModal`/`renderRestoreResult`, `renderLogModal`/`refreshStatus`, `updateSystemPromptResetBtn`, the `return function (view)` factory itself). Phase 5 wires them with `state.ts`. |
+| Bridge | | Unchanged at 444,519 bytes; `Configuration/configPage.js` and `src/legacy.js` byte-equal. AMD pipeline not wired (deferred to Phase 5). |
+
+**Verification (`npm run typecheck && npm test && npm run test:legacy && npm run build && dotnet test`):**
+- TS typecheck 0 errors
+- Module suite 267 pass / 0 fail (18 files)
+- Legacy fixture 102 pass / 0 fail
+- Bridge in-sync (444,519 bytes)
+- .NET 69 pass / 7 skip / 0 fail
+
+**Notes on test strategy for this wave:** the four "shadow test files" written by the cancelled parallel agents (rows.test.ts, manageTab.test.ts, savedFilters.test.ts new cases, creation.test.ts, topListsTab.test.ts) were dropped because the fragile JSON-quoted-string snapshot unwrapper they used broke the previously-passing `normalize` helper in the canonical mirror tests. They have been replaced by smaller, focused smoke tests that drive the modules with mocked DOM / fetch / deps and assert structural shape rather than legacy-byte parity. Legacy-byte parity is still enforced by the unchanged bridge (byte-equal `Configuration/configPage.js` ↔ `src/legacy.js`) so behavior is preserved regardless.

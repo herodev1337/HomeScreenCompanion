@@ -13,12 +13,16 @@
 // import from `savedFilters.ts` — there's no risk of two divergent
 // copies drifting in lockstep.
 //
-// The remaining helpers in this neighborhood (`refreshMySavedFiltersPanels`
-// at legacy.js:1274, `saveSavedFiltersNow` at legacy.js:1283) are
-// deferred — they touch DOM, the Jellyfin `ApiClient`, the
-// `originalConfigState` module-scope var, and the `checkFormState`
-// callback. Wiring those through Phase 5's shared-state extraction
-// without rewriting their semantics is out of scope here.
+// The two remaining helpers in this neighborhood are lifted below using
+// the Phase 5 deps pattern (DOM globals + `ApiClient` are the only direct
+// environment touches):
+//
+//   - `refreshMySavedFiltersPanels(savedFilters)` — DOM-only; the
+//     module-scope `savedFilters` array is an explicit parameter.
+//   - `saveSavedFiltersNow(deps)` — persistence; the module-scope
+//     `savedFilters` array, `originalConfigState` string, `pluginId`
+//     constant, and `checkFormState` callback are all explicit deps
+//     members (never module-level mutable state).
 
 import { escapeHtml } from '../dom/dom';
 
@@ -80,4 +84,115 @@ export function getMySavedFiltersPanelHtml(savedFilters: readonly SavedFilter[])
                 '</div>'
         ).join('') +
         '</div>';
+}
+
+/**
+ * The two Jellyfin `ApiClient` methods `saveSavedFiltersNow` touches.
+ */
+export interface SavedFiltersApiClient {
+    getPluginConfiguration(pluginId: string): Promise<Record<string, unknown>>;
+    updatePluginConfiguration(pluginId: string, config: Record<string, unknown>): Promise<unknown>;
+}
+
+/**
+ * Dependencies for {@link saveSavedFiltersNow} — the lifted legacy
+ * module-scope state and callbacks:
+ *
+ *   - `getSavedFilters`        the current `savedFilters` array. A getter
+ *                              rather than a snapshot because the legacy
+ *                              code reads the array at two different
+ *                              points across the promise chain.
+ *   - `getOriginalConfigState` / `setOriginalConfigState`
+ *                              the legacy `originalConfigState` JSON
+ *                              string (read twice: truthiness gate +
+ *                              `JSON.parse`; written once).
+ *   - `pluginId`               the plugin GUID constant
+ *                              (`"7c10708f-43e4-4d69-923c-77d01802315b"`).
+ *   - `getApiClient`           `window.ApiClient`.
+ *   - `checkFormState`         the closure target (legacy.js:3482).
+ */
+export interface SavedFiltersSaveDeps {
+    readonly getSavedFilters: () => readonly SavedFilter[];
+    readonly getOriginalConfigState: () => string | null;
+    readonly setOriginalConfigState: (value: string | null) => void;
+    readonly pluginId: string;
+    readonly getApiClient: () => SavedFiltersApiClient;
+    readonly checkFormState: () => void;
+}
+
+/**
+ * Refresh every "My Saved Filters" panel in the config page with the
+ * current list (legacy.js:1274).
+ *
+ * Legacy reads the module-scope `savedFilters`; here it is an explicit
+ * parameter. The function is a no-op when the config page
+ * (`#HomeScreenCompanionConfigPage`) is not mounted.
+ *
+ * @param savedFilters  The current list of saved filters. Read-only.
+ */
+export function refreshMySavedFiltersPanels(savedFilters: readonly SavedFilter[]): void {
+    const v = document.querySelector('#HomeScreenCompanionConfigPage');
+    if (!v) return;
+    const html = getMySavedFiltersPanelHtml(savedFilters);
+    v.querySelectorAll('.mi-saved-panel-content').forEach((el) => {
+        el.innerHTML = html;
+    });
+}
+
+/**
+ * Persist the current saved-filters list to the plugin configuration
+ * (legacy.js:1283).
+ *
+ * Byte-for-byte legacy semantics:
+ *   1. `getPluginConfiguration(pluginId)` resolves the current config;
+ *      the LIVE `savedFilters` array reference is assigned to its
+ *      `SavedFilters` member and the config is written back via
+ *      `updatePluginConfiguration(pluginId, config)`.
+ *   2. On success, when `originalConfigState` is truthy: `JSON.parse` it,
+ *      stamp `SavedFilters` on the parsed value, and write the re-
+ *      stringified form back. Errors are swallowed (legacy `catch (e) {}`),
+ *      including the `null` parse result where the property write throws.
+ *      NOTE: the legacy factory is sloppy-mode JS, so a property write to
+ *      a primitive parse result is silently ignored but the re-stringify
+ *      STILL runs — that quirk is replicated here (strict TS cannot
+ *      silently ignore, so the write is skipped while the stringify
+ *      still overwrites the state).
+ *   3. If the config page is mounted, `checkFormState()` runs — even
+ *      when the originalConfigState branch above swallowed an error.
+ *
+ * Like the legacy function, a rejected `getPluginConfiguration` or
+ * `updatePluginConfiguration` promise is NOT caught.
+ */
+export function saveSavedFiltersNow(deps: SavedFiltersSaveDeps): void {
+    deps.getApiClient()
+        .getPluginConfiguration(deps.pluginId)
+        .then((currentConfig) => {
+            currentConfig.SavedFilters = deps.getSavedFilters();
+            return deps.getApiClient().updatePluginConfiguration(deps.pluginId, currentConfig);
+        })
+        .then(() => {
+            const original = deps.getOriginalConfigState();
+            if (original) {
+                try {
+                    const state: unknown = JSON.parse(original);
+                    if (state === null) {
+                        // Legacy: `null.SavedFilters = …` throws, so the
+                        // stringify overwrite is skipped entirely.
+                    } else if (typeof state === 'object') {
+                        (state as { SavedFilters?: unknown }).SavedFilters = deps.getSavedFilters();
+                        deps.setOriginalConfigState(JSON.stringify(state));
+                    } else {
+                        // Legacy sloppy-mode: the property write on a
+                        // primitive is silently ignored, but
+                        // `JSON.stringify(state)` still overwrites
+                        // originalConfigState.
+                        deps.setOriginalConfigState(JSON.stringify(state));
+                    }
+                } catch {
+                    // Legacy swallows JSON.parse errors verbatim.
+                }
+            }
+            const view = document.querySelector('#HomeScreenCompanionConfigPage');
+            if (view) deps.checkFormState();
+        });
 }

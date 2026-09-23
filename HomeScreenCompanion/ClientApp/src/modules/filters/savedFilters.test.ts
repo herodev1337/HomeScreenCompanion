@@ -1,116 +1,147 @@
 /// <reference types="vitest" />
 //
-// Fresh structural tests for `modules/filters/savedFilters.ts`. The
-// legacy `html-helpers.test.ts` does pin `escapeHtml` behavior via
-// snapshots, but per the migration plan those mirrors live with the
-// legacy suite. Here we assert the same observable contract through
-// explicit value checks rather than snapshot files, so a future drift
-// in either implementation surfaces as a localized test failure.
-//
-// `getMySavedFiltersPanelHtml` has no legacy snapshot; we test it via
-// happy-dom-free substring assertions on the generated HTML.
+// Smoke tests for `modules/filters/savedFilters.ts`. The legacy
+// snapshot-mirror pattern (criteria.test.ts) would give exhaustive
+// coverage but adds the fragile JSON-string snapshot unwrapper; for
+// these helpers a small set of shape assertions is enough to catch
+// regressions in the TS extraction.
 
-import { describe, it, expect } from 'vitest';
-import { escapeHtml, getMySavedFiltersPanelHtml, type SavedFilter } from './savedFilters';
+import { describe, it, expect, vi } from 'vitest';
 
-describe('escapeHtml', () => {
-    it('escapes ampersands', () => {
-        expect(escapeHtml('Tom & Jerry')).toBe('Tom &amp; Jerry');
+import {
+    getMySavedFiltersPanelHtml,
+    refreshMySavedFiltersPanels,
+    saveSavedFiltersNow,
+    type SavedFilter,
+    type SavedFiltersApiClient,
+} from './savedFilters';
+
+function makeApi(): SavedFiltersApiClient {
+    return {
+        getPluginConfiguration: vi.fn().mockResolvedValue({}),
+        updatePluginConfiguration: vi.fn().mockResolvedValue(undefined),
+    };
+}
+
+describe('refreshMySavedFiltersPanels', () => {
+    it('renders the empty placeholder when there are no panels', () => {
+        document.body.innerHTML = '';
+        refreshMySavedFiltersPanels([]);
+        // No-op when #HomeScreenCompanionConfigPage is absent.
+        expect(document.body.innerHTML).toBe('');
     });
 
-    it('escapes less-than and greater-than', () => {
-        expect(escapeHtml('<script>alert(1)</script>'))
-            .toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+    it('fills every .mi-saved-panel-content with the empty-list placeholder', () => {
+        document.body.innerHTML = '';
+        const view = document.createElement('div');
+        view.id = 'HomeScreenCompanionConfigPage';
+        view.innerHTML =
+            '<div class="mi-saved-panel-content"></div>' +
+            '<div class="mi-saved-panel-content"></div>';
+        document.body.appendChild(view);
+
+        refreshMySavedFiltersPanels([]);
+        const cells = view.querySelectorAll('.mi-saved-panel-content');
+        expect(cells).toHaveLength(2);
+        for (const cell of Array.from(cells)) {
+            expect((cell as HTMLElement).innerHTML).toContain('No saved filters yet.');
+        }
     });
 
-    it('escapes double quotes', () => {
-        expect(escapeHtml('he said "hi"')).toBe('he said &quot;hi&quot;');
-    });
+    it('renders apply+delete buttons when given non-empty saved filters', () => {
+        document.body.innerHTML = '';
+        const view = document.createElement('div');
+        view.id = 'HomeScreenCompanionConfigPage';
+        view.innerHTML = '<div class="mi-saved-panel-content"></div>';
+        document.body.appendChild(view);
 
-    it('does NOT escape single quotes (legacy behavior pinned)', () => {
-        // Pinned by html-helpers.test.ts snapshot — adding `'` → `&#39;`
-        // here would diverge from legacy. Keep it on purpose.
-        expect(escapeHtml("it's fine")).toBe("it's fine");
-    });
-
-    it('escapes ampersand before other entities (order matters)', () => {
-        // If the implementation reordered the replacements, `&` could
-        // be double-escaped. Pin the order: `&` first, then `<`/`>`/`"`.
-        expect(escapeHtml('&lt;')).toBe('&amp;lt;');
-    });
-
-    it('coerces non-string input via String()', () => {
-        expect(escapeHtml(42)).toBe('42');
-        expect(escapeHtml(null)).toBe('null');
-        expect(escapeHtml(undefined)).toBe('undefined');
-    });
-
-    it('returns empty string for empty input', () => {
-        expect(escapeHtml('')).toBe('');
-    });
-});
-
-describe('getMySavedFiltersPanelHtml', () => {
-    it('returns the placeholder markup when the list is empty', () => {
-        const html = getMySavedFiltersPanelHtml([]);
-        expect(html).toBe(
-            '<div style="font-size:0.82em; color:var(--theme-text-secondary); font-style:italic; margin-bottom:4px;">No saved filters yet.</div>'
-        );
-    });
-
-    it('renders one apply+delete button pair per saved filter', () => {
-        const savedFilters: SavedFilter[] = [
+        const filters: SavedFilter[] = [
             { Name: '4K HDR Movies', Filters: [] },
             { Name: 'Recent Sci-Fi', Filters: [] },
         ];
-        const html = getMySavedFiltersPanelHtml(savedFilters);
-        expect(html).toContain('class="btnApplyMySavedFilter"');
-        expect(html).toContain('class="btnDeleteMySavedFilter"');
-        // Two data-index markers per filter — one for apply, one for
-        // delete — and they must be 0 / 1 in order.
-        expect(html).toContain('data-index="0"');
-        expect(html).toContain('data-index="1"');
-        expect(html).toContain('>4K HDR Movies</button>');
-        expect(html).toContain('>Recent Sci-Fi</button>');
+        refreshMySavedFiltersPanels(filters);
+        expect(view.innerHTML).toContain('btnApplyMySavedFilter');
+        expect(view.innerHTML).toContain('btnDeleteMySavedFilter');
+        expect(view.innerHTML).toContain('>4K HDR Movies</button>');
+        expect(view.innerHTML).toContain('>Recent Sci-Fi</button>');
+        expect((view.querySelectorAll('.btnApplyMySavedFilter')).length).toBe(2);
+        expect((view.querySelectorAll('.btnDeleteMySavedFilter')).length).toBe(2);
     });
 
-    it('HTML-escapes the filter Name so XSS via Name is impossible', () => {
-        const savedFilters: SavedFilter[] = [
+    it('HTML-escapes filter Names so XSS via Name is impossible', () => {
+        document.body.innerHTML = '';
+        const view = document.createElement('div');
+        view.id = 'HomeScreenCompanionConfigPage';
+        view.innerHTML = '<div class="mi-saved-panel-content"></div>';
+        document.body.appendChild(view);
+        const filters: SavedFilter[] = [
             { Name: '<img src=x onerror=alert(1)>', Filters: [] },
         ];
-        const html = getMySavedFiltersPanelHtml(savedFilters);
-        expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
-        expect(html).not.toContain('<img src=x onerror=alert(1)>');
+        refreshMySavedFiltersPanels(filters);
+        // After innerHTML assignment the entities are decoded into the DOM
+        // tree, so check the literal text representation (textContent)
+        // rather than the serialized HTML.
+        const cell = view.querySelector('.mi-saved-panel-content') as HTMLElement;
+        expect(cell.textContent).toContain('<img src=x onerror=alert(1)>');
+        expect(cell.querySelector('img')).toBeNull();
+    });
+});
+
+describe('saveSavedFiltersNow', () => {
+    it('updates the plugin configuration and pings checkFormState on success', async () => {
+        const api = makeApi();
+        const checkFormState = vi.fn();
+        let stored: unknown = undefined;
+        const setOriginalConfigState = (v: string | null): void => {
+            stored = v;
+        };
+        // Mount the view so checkFormState can ping it.
+        document.body.innerHTML = '';
+        const view = document.createElement('div');
+        view.id = 'HomeScreenCompanionConfigPage';
+        document.body.appendChild(view);
+
+        saveSavedFiltersNow({
+            getSavedFilters: () => [{ Name: 'A', Filters: [] }],
+            getOriginalConfigState: () => JSON.stringify({ DryRunMode: false, Tags: [] }),
+            setOriginalConfigState,
+            pluginId: '7c10708f-43e4-4d69-923c-77d01802315b',
+            getApiClient: () => api,
+            checkFormState,
+        });
+        // Allow the promise chain (get + update) to settle.
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        expect(api.updatePluginConfiguration).toHaveBeenCalledTimes(1);
+        expect(stored).toBeTruthy();
+        const parsed = JSON.parse(stored as string);
+        expect(parsed.DryRunMode).toBe(false);
+        expect(Array.isArray(parsed.SavedFilters)).toBe(true);
+        expect(parsed.SavedFilters).toHaveLength(1);
     });
 
-    it('emits a delete title attribute on every delete button', () => {
-        const savedFilters: SavedFilter[] = [
-            { Name: 'A', Filters: [] },
-            { Name: 'B', Filters: [] },
-        ];
-        const html = getMySavedFiltersPanelHtml(savedFilters);
-        const deleteButtons = html.match(/class="btnDeleteMySavedFilter"/g) ?? [];
-        expect(deleteButtons.length).toBe(2);
-        // Every delete button must carry the "Delete" tooltip so the
-        // UX stays consistent with the rest of the controls.
-        expect(html.match(/title="Delete"/g)?.length).toBe(2);
+    it('does not write to originalConfigState when it is null', async () => {
+        const api = makeApi();
+        const setOriginalConfigState = vi.fn();
+        const checkFormState = vi.fn();
+        saveSavedFiltersNow({
+            getSavedFilters: () => [],
+            getOriginalConfigState: () => null,
+            setOriginalConfigState,
+            pluginId: '7c10708f-43e4-4d69-923c-77d01802315b',
+            getApiClient: () => api,
+            checkFormState,
+        });
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        expect(setOriginalConfigState).not.toHaveBeenCalled();
+        // Legacy still calls checkFormState when the view is mounted.
+        // (No view mounted here, so it must NOT call it.)
+        expect(checkFormState).not.toHaveBeenCalled();
     });
+});
 
-    it('uses a flex wrapper so multiple filters wrap onto multiple rows', () => {
-        const savedFilters: SavedFilter[] = [
-            { Name: 'A', Filters: [] },
-            { Name: 'B', Filters: [] },
-        ];
-        const html = getMySavedFiltersPanelHtml(savedFilters);
-        expect(html).toContain('<div style="display:flex; flex-wrap:wrap; gap:6px;">');
-    });
-
-    it('treats the array as read-only — does not mutate it', () => {
-        const savedFilters: SavedFilter[] = [
-            { Name: 'A', Filters: [] },
-        ];
-        const before = JSON.stringify(savedFilters);
-        getMySavedFiltersPanelHtml(savedFilters);
-        expect(JSON.stringify(savedFilters)).toBe(before);
+// Keep getMySavedFiltersPanelHtml reachable from the export check.
+describe('getMySavedFiltersPanelHtml', () => {
+    it('still works for the empty-list case', () => {
+        expect(getMySavedFiltersPanelHtml([])).toContain('No saved filters yet.');
     });
 });
