@@ -18,19 +18,15 @@
 //     fixture cannot reach, are covered structurally at the bottom.
 
 import { describe, it, expect } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
 
 import {
     propertyOptionsHtml,
     getMiHintHtml,
     getMiValueHtml,
-    getMediaInfoRuleHtml,
     getMediaInfoFilterGroupHtml,
     readMiFiltersFromContainer,
     type MiFilterDeps,
 } from './miFilters';
-import type { MediaInfoFilterGroup } from './savedFilters';
 
 const EMPTY_DEPS = { users: null, collections: [], playlists: [], tags: [] };
 

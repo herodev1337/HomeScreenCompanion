@@ -26,7 +26,7 @@ export interface TagConfig {
     Name?: string;
     Url?: string;
     LocalSourceId?: string;
-    SourceType?: 'External' | 'LocalCollection' | 'LocalPlaylist' | 'MediaInfo' | 'AI' | string;
+    SourceType?: string;
     Limit?: number;
     Active?: boolean;
     Blacklist?: unknown;

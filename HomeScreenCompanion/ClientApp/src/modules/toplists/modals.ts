@@ -61,11 +61,10 @@
  */
 
 import type { TopListsState, HseUserCacheState } from '../state/state';
-import { escapeHtml } from '../dom/dom';
 import type { HscUserLike } from '../homesections/hscTab';
 import type { FetchLike, PluginConfigLike, PrepareResultLike, TopListCreationDeps, TopListCreationUi } from './creation';
 import { executeTopListCreationSteps } from './creation';
-import { getHseUsers, buildUserMultiSelectHtml, wireUserMultiSelect } from '../homesections/users';
+import { buildUserMultiSelectHtml, wireUserMultiSelect } from '../homesections/users';
 import { buildBadgePickerHtml, initBadgePicker, readBadgeStyle } from './badgePicker';
 import { PLUGIN_ID } from '../state/state';
 
@@ -240,11 +239,11 @@ function sanitizeTlName(name: string | null | undefined): string {
 
 /** Shared inline `escAttr` / `escHtml` helpers — same shapes as in `users.ts` / `legacy.js`. */
 function escAttr(s: unknown): string {
-    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
 function escHtml(s: unknown): string {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** Read one of the `existingData` fields with a type-narrowing cast. */
@@ -333,7 +332,7 @@ export function showTopListModal(
     tagName: string | null,
     displayName: string | null,
     onSuccess: () => void,
-    existingData: unknown | undefined,
+    existingData: unknown,
     deps: TopListModalDeps,
 ): void {
     const inputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:6px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:100%;box-sizing:border-box;';
@@ -472,7 +471,7 @@ export function showTopListModal(
                     if (!prepareResult.Success) throw new Error(prepareResult.Message || 'Failed to create folder.');
                     const ui: TopListCreationUi = { saveBtn: saveBtn, errEl: errEl, modal: modal, badgeStyle: badgeStyle };
                     const tlDeps = buildTopListCreationDeps(api, deps, tok);
-                    deps.executeTopListCreationSteps(
+                    void deps.executeTopListCreationSteps(
                         tagName || '',
                         displayName || '',
                         selectedUserIds,
@@ -529,7 +528,7 @@ export function showTopListModal(
  */
 export function showManualTopListModal(
     onSuccess: () => void,
-    existingData: unknown | undefined,
+    existingData: unknown,
     deps: TopListModalDeps,
 ): void {
     const isEdit = !!existingData;
@@ -838,7 +837,7 @@ export function showManualTopListModal(
                         if (!prepareResult.Success) throw new Error(prepareResult.Message || 'Failed to create folder.');
                         const ui: TopListCreationUi = { saveBtn: createBtn, errEl: errEl, modal: modal, badgeStyle: badgeStyle };
                         const tlDeps = buildTopListCreationDeps(api, deps, tok2);
-                        deps.executeTopListCreationSteps(
+                        void deps.executeTopListCreationSteps(
                             listName,
                             customNameVal,
                             selectedUserIds,
@@ -1024,7 +1023,8 @@ export function loadInlineEditForm(
             const selectedMovies: SelectedMovie[] = presetMoviesRaw
                 .map((m) => asSelectedMovie(m))
                 .filter((m): m is SelectedMovie => m !== null);
-            let originalManualState: string | undefined;
+            // must be `let` because `updateManualDirty` (hoisted earlier via `renderSelectedList`) reads it before the assignment below completes.
+            let initialManualState: string | undefined;
 
             function renderSelectedList(): void {
                 const listEl = wrapper.querySelector<HTMLElement>('.mtlSelectedList');
@@ -1050,7 +1050,8 @@ export function loadInlineEditForm(
             }
 
             renderSelectedList();
-            originalManualState = getManualFormState();
+            // eslint-disable-next-line prefer-const -- see note on `let initialManualState` above; converting to const would put updateManualDirty in TDZ.
+            initialManualState = getManualFormState();
 
             const searchInput2 = wrapper.querySelector<HTMLInputElement>('.mtlMovieSearch');
             const resultsBox2 = wrapper.querySelector<HTMLElement>('.mtlSearchResults');
@@ -1136,8 +1137,8 @@ export function loadInlineEditForm(
                 });
             }
             function updateManualDirty(): void {
-                if (!originalManualState) return;
-                body.dataset.dirty = getManualFormState() !== originalManualState ? '1' : '0';
+                if (!initialManualState) return;
+                body.dataset.dirty = getManualFormState() !== initialManualState ? '1' : '0';
                 deps.closeModal();
             }
             wrapper.querySelectorAll('input, select').forEach((el) => {
@@ -1186,7 +1187,7 @@ export function loadInlineEditForm(
                                 silent: true,
                             };
                             const tlDeps = buildTopListCreationDeps(api, deps, tok2);
-                            deps.executeTopListCreationSteps(
+                            void deps.executeTopListCreationSteps(
                                 tagName,
                                 customNameVal,
                                 userIds,
@@ -1341,7 +1342,7 @@ export function loadInlineEditForm(
                                 silent: true,
                             };
                             const tlDeps = buildTopListCreationDeps(api, deps, tok2);
-                            deps.executeTopListCreationSteps(
+                            void deps.executeTopListCreationSteps(
                                 tagName,
                                 customNameVal,
                                 userIds,

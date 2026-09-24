@@ -207,10 +207,10 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
         });
 
         function escAttr(s: unknown): string {
-            return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+            return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
         }
         function escHtml(s: unknown): string {
-            return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
         const btnStyle = 'cursor:pointer;border:none;border-radius:3px;padding:4px 12px;font-size:0.82em;font-weight:500;';

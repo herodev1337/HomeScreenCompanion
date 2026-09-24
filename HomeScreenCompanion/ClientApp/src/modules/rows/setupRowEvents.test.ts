@@ -28,7 +28,7 @@
 // many DOM sub-trees, but every assertion is structural (`.toHaveLength`,
 // `.toHaveBeenCalled`, `.toContain`) rather than snapshot-diff.
 
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
 import {
     setupRowEvents,
@@ -432,7 +432,7 @@ describe('setupRowEvents', () => {
 
     describe('updateBadges', () => {
         it('populates .source-badge when txtEntryLabel input fires', () => {
-            const { row, view } = buildRow();
+            const { row } = buildRow();
             const deps = makeDeps();
             setupRowEvents(row, deps);
             const txtEntry = row.querySelector<HTMLInputElement>('.txtEntryLabel')!;
@@ -500,6 +500,7 @@ describe('setupRowEvents', () => {
     });
 
     describe('savedFilters write', () => {
+        // eslint-disable-next-line @typescript-eslint/require-await -- async signature kept for symmetry with sibling tests
         it('pushes onto savedFilters.filters when .btnConfirmSaveFilter is clicked', async () => {
             const { row } = buildRow((r) => {
                 // Seed a save-filter panel with a name input, one filter group
@@ -695,6 +696,7 @@ describe('setupRowEvents', () => {
             expect(checkFormState).toHaveBeenCalled();
         });
 
+        // eslint-disable-next-line @typescript-eslint/require-await -- async signature kept for symmetry with sibling tests
         it('is called via setTimeout when .btnRemoveDate is clicked', async () => {
             const { row } = buildRow((r) => {
                 const dateList = r.querySelector<HTMLElement>('.date-list-container')!;

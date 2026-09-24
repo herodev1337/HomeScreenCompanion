@@ -52,7 +52,8 @@ describe('AMD bundle (Rollup output)', () => {
     it('exports a callable factory via AMD `define`', () => {
         const src = fs.readFileSync(BUNDLE, 'utf8');
         const loader = makeLoader();
-        // eslint-disable-next-line no-new-func
+         
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval -- sandboxed AMD-loader execution is the cleanest path here (see plan §0.3 A)
         new Function('define', src)(loader.define);
         const factory = loader.modules.__last__ as unknown;
         expect(typeof factory).toBe('function');

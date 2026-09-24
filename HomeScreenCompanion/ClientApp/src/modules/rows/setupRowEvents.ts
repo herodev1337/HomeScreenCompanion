@@ -1122,7 +1122,7 @@ export function setupRowEvents(row: HTMLElement, deps: SetupRowEventsDeps): void
                     }).ApiClient
                     : undefined;
                 if (apiClient) {
-                    apiClient
+                    void apiClient
                         .getJSON(apiClient.getUrl('HomeScreenCompanion/TestUrl', { Url: url, Limit: limitVal }))
                         .then((result: { Message?: string }) => {
                             deps.alert(result.Message || '');

@@ -154,7 +154,7 @@ export interface UserOption {
  * legacy contract for missing fields.
  */
 function escAttr(s: unknown): string {
-    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
 /**
@@ -170,7 +170,7 @@ function escAttr(s: unknown): string {
  * the test suite.
  */
 function escHtml(s: unknown): string {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**

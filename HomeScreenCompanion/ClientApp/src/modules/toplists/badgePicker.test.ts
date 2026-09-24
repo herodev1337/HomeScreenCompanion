@@ -187,7 +187,7 @@ describe('initBadgePicker', () => {
         // initial active — emulating what the user sees after the
         // reset has actually applied (e.g. after the form is rebuilt
         // with `selectedVal` set to the just-clicked swatch).
-        let selectedVal = 'neutral';
+        const selectedVal = 'neutral';
         const container = document.createElement('div');
         container.innerHTML = buildBadgePickerHtml(selectedVal);
         document.body.appendChild(container);

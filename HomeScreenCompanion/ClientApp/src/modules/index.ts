@@ -66,7 +66,6 @@ import {
     MI_PRESETS,
     renderTagGroup,
     refreshTopListBadges,
-    type RenderTagGroupDeps,
 } from './tags/renderTagGroup';
 import {
     tagConfigHasViewerCriteria,
@@ -574,6 +573,7 @@ declare const define: (
     deps: readonly string[],
     factory: (...args: never[]) => unknown,
 ) => void;
+void define;
 
 // ─── Schedule helpers still in legacy.js — inlined verbatim ─────────────────
 
@@ -1229,7 +1229,7 @@ export default function (view: HTMLElement): void {
 
         const originalConfStr = appState.originalConfigState.getOriginalConfigState();
         if (!originalConfStr) return;
-        const originalConf = JSON.parse(originalConfStr);
+        const originalConf = JSON.parse(originalConfStr) as { Tags?: never[] };
         const originalTags = groupConfigTags((originalConf.Tags as never[]) || []);
 
         (configObj.Tags || []).forEach((tag: Record<string, unknown>) => {
@@ -1249,7 +1249,7 @@ export default function (view: HTMLElement): void {
 
         const api = getApi();
         if (!api) return;
-        api.getPluginConfiguration(PLUGIN_ID).catch(() => ({ Tags: [] })).then((currentConfig) => {
+        void api.getPluginConfiguration(PLUGIN_ID).catch(() => ({ Tags: [] })).then((currentConfig) => {
             const cc = currentConfig as { Tags?: unknown[]; TopLists?: unknown[] };
             const currentGrouped = groupConfigTags((cc.Tags as never[]) || []);
             (configObj.Tags || []).forEach((t: Record<string, unknown>) => {
@@ -1285,10 +1285,11 @@ export default function (view: HTMLElement): void {
                         const tagAny = tag as { EnableHomeSection?: boolean; HomeSectionSettings?: string };
                         if (!tagAny.EnableHomeSection) return;
                         let settings: Record<string, unknown> = {};
-                        try { settings = JSON.parse(tagAny.HomeSectionSettings || '{}'); } catch { /* ignore */ }
+                        try { settings = JSON.parse(tagAny.HomeSectionSettings || '{}') as Record<string, unknown>; } catch { /* ignore */ }
                         if ((settings['SectionType'] || 'items') !== 'items') return;
                         const excluded = new Set(
-                            String(settings['_queryExcludeViewIds'] || '').split(',').map((id: string) => id.trim()).filter(Boolean)
+                            (typeof settings['_queryExcludeViewIds'] === 'string' ? settings['_queryExcludeViewIds'] : '')
+                                .split(',').map((id: string) => id.trim()).filter(Boolean)
                         );
                         let changed = false;
                         topListIds.forEach((id) => {
@@ -1321,7 +1322,7 @@ export default function (view: HTMLElement): void {
                 const key = name ? name + '\x1F' + tagName : tagName;
                 const tc = newGrouped[key];
                 if (tc) {
-                    row.dataset.lastModified = String(tc.LastModified || '');
+                    row.dataset.lastModified = typeof tc.LastModified === 'string' ? tc.LastModified : '';
                     const hseTab = row.querySelector<HTMLElement>('.homescreen-tab');
                     if (hseTab) {
                         hseTab.dataset.hseTracked = encodeURIComponent(JSON.stringify(tc.HomeSectionTracked || []));
@@ -1505,7 +1506,7 @@ export default function (view: HTMLElement): void {
                 const btnCloseTagTargetHelp = view.querySelector<HTMLElement>('#btnCloseTagTargetHelp');
 
                 const api = getApi();
-                const db = getDashboard();
+                const _db = getDashboard();
                 const logApi = (): { getJSON: <T = unknown>(name: string, params?: Record<string, unknown>) => Promise<T> } => ({
                     getJSON: <T,>(n: string, p?: Record<string, unknown>) => api ? api.getJSON<T>(n, p) : Promise.resolve({} as T),
                 });
@@ -1699,7 +1700,7 @@ export default function (view: HTMLElement): void {
                                     const el = view.querySelector<HTMLElement>(sel);
                                     if (el) el.dataset.loaded = '';
                                 });
-                                loadConfigFn().then(() => {
+                                void loadConfigFn().then(() => {
                                     refreshMySavedFiltersPanels(appState.savedFilters.filters);
                                     const activeTab = view.querySelector<HTMLElement>('.page-tab-btn.active');
                                     const target2 = activeTab ? activeTab.getAttribute('data-page-tab') : '';
@@ -1732,11 +1733,11 @@ export default function (view: HTMLElement): void {
             const statusInterval = setInterval(() => refreshStatusFn(view), 5000);
             appState.viewShow.statusInterval = statusInterval;
 
-            getHseUsers({ getApiClient: () => api as never, cache: appState.hseUserCache }).then((users) => {
+            void getHseUsers({ getApiClient: () => api as never, cache: appState.hseUserCache }).then((users) => {
                 appState.miUsers.users = users as HscUserLike[];
             });
 
-            Promise.all([
+            void Promise.all([
                 api ? api.getJSON(api.getUrl('Users/' + api.getCurrentUserId() + '/Items', { IncludeItemTypes: 'BoxSet', Recursive: true })) : Promise.resolve({ Items: [] }),
                 api ? api.getJSON(api.getUrl('Items', { IncludeItemTypes: 'Playlist', Recursive: true })) : Promise.resolve({ Items: [] }),
                 api
@@ -1785,10 +1786,10 @@ export default function (view: HTMLElement): void {
             const api = getApi();
             const db = getDashboard();
             if (!api) return;
-            api.getScheduledTasks().then((tasks) => {
+            void api.getScheduledTasks().then((tasks) => {
                 const t = tasks.find((x) => x.Key === key);
                 if (t) {
-                    api.startScheduledTask(t.Id).then(() => {
+                    void api.startScheduledTask(t.Id).then(() => {
                         db?.alert(label + ' started!');
                     });
                 } else {
@@ -1813,13 +1814,13 @@ export default function (view: HTMLElement): void {
             const api = getApi();
             const db = getDashboard();
             if (!api) return;
-            api.getScheduledTasks().then((tasks) => {
+            void api.getScheduledTasks().then((tasks) => {
                 const tagTask = tasks.find((x) => x.Key === 'HomeScreenCompanionSyncTask');
                 const hscTask = tasks.find((x) => x.Key === 'HomeSectionSyncTask');
                 const promises: Promise<unknown>[] = [];
                 if (tagTask) promises.push(api.startScheduledTask(tagTask.Id));
                 if (hscTask) promises.push(api.startScheduledTask(hscTask.Id));
-                Promise.all(promises).then(() => {
+                void Promise.all(promises).then(() => {
                     db?.alert('Full sync started!');
                 });
             });

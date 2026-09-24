@@ -92,8 +92,8 @@ interface TopListRowItem {
 /** The `#tlContainer` element plus the legacy `_tlClickHandler` expando. */
 type TlContainer = HTMLElement & { _tlClickHandler?: (e: MouseEvent) => void };
 
-/** One dead-code group entry (see the note at legacy.js:6006-6015). */
-interface GroupEntry { displayName: string; groupIndex: number; groupActive: boolean }
+// Note: `GroupEntry` was previously declared here as a dead-code carryover
+// from the legacy port; it is no longer referenced and has been removed.
 
 /**
  * Dependencies for {@link loadTopListsTab}. Until the surrounding legacy
@@ -158,48 +158,7 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
             return safe.length === 0 ? 'unknown' : safe;
         }
 
-        // NOTE: everything down to `btnStyle` is dead code in the legacy
-        // source — computed but never read by the rest of the function.
-        // It is kept verbatim so this port stays a 1:1 transliteration of
-        // legacy.js:5985-6021; a future cleanup can drop it in both files.
-        const collectionsData = results[1];
-
-        const topListCustomNameMap: Record<string, string> = {};
-        const topListLibraryIdMap: Record<string, string> = {};
-        (pluginConfig.TopLists || []).forEach(function (tl) {
-            if (!tl.TagName) return;
-            const key = sanitizeTlName(tl.TagName).toLowerCase();
-            let settings: HomeSectionSettingsLike = {};
-            try { settings = JSON.parse(tl.HomeSectionSettings || '{}') as HomeSectionSettingsLike; } catch (e) {}
-            if (settings.CustomName) topListCustomNameMap[key] = settings.CustomName;
-            if (tl.HomeSectionLibraryId && tl.HomeSectionLibraryId !== 'auto')
-                topListLibraryIdMap[key] = tl.HomeSectionLibraryId;
-        });
-
-        const managedTagMap: Record<string, GroupEntry[]> = {};
-        const managedCollMap: Record<string, GroupEntry[]> = {};
-        const seenGroupByTag: Record<string, boolean> = {};
-        (pluginConfig.Tags || []).forEach(function (t, idx) {
-            if (!t.Tag) return;
-            const tName = t.Tag.trim();
-            const tKey = tName.toLowerCase();
-            if (seenGroupByTag[tKey]) return;
-            seenGroupByTag[tKey] = true;
-            const groupLabel = (t.Name && t.Name.trim() && t.Name.trim().toLowerCase() !== tKey) ? t.Name.trim() : tName;
-            const entry = { displayName: groupLabel, groupIndex: idx, groupActive: !!t.Active };
-            if (!managedTagMap[tKey]) managedTagMap[tKey] = [];
-            managedTagMap[tKey]!.push(entry);
-            if (t.EnableCollection) {
-                const cName = (t.CollectionName && t.CollectionName.trim()) ? t.CollectionName.trim() : tName;
-                const cKey = cName.toLowerCase();
-                if (!managedCollMap[cKey]) managedCollMap[cKey] = [];
-                managedCollMap[cKey]!.push(entry);
-            }
-        });
-
-        function escAttr(s: unknown) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-
-        const btnStyle = 'cursor:pointer;border:none;border-radius:3px;padding:4px 12px;font-size:0.82em;font-weight:500;';
+        function escAttr(s: unknown) { return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
 
         const searchInputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:5px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:400px;max-width:100%;';
 
@@ -210,7 +169,7 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
         }).map(function (tl) {
             const key = sanitizeTlName(tl.TagName || '').toLowerCase();
             let settings: HomeSectionSettingsLike = {};
-            try { settings = JSON.parse(tl.HomeSectionSettings || '{}') as HomeSectionSettingsLike; } catch (e) {}
+            try { settings = JSON.parse(tl.HomeSectionSettings || '{}') as HomeSectionSettingsLike; } catch { /* malformed JSON */ }
             return {
                 tagName: tl.TagName || '',
                 displayName: settings.CustomName || tl.TagName || '',
@@ -229,15 +188,11 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
             if (items.length === 0) {
                 return '<div id="tlRowsList"><p style="color:var(--theme-text-secondary);font-size:0.9em;font-style:italic;padding:20px 0;">No top-lists created yet. Click <strong>+ Create New</strong> to get started.</p></div>';
             }
-            const labelStyle = 'font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:2px;';
             const rows = items.map(function (item) {
                 const isManual = item.isManual;
                 const typeBadge = isManual
                     ? '<span class="tag-indicator toplist" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Manual</span>'
                     : '<span class="tag-indicator tag" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">label</i> ' + escapeHtml(item.tagName) + '</span>';
-                const displayModeLabel = ({ '': 'Always', 'tv': 'TV mode only', 'mobile,desktop': 'Non-TV only' } as Record<string, string>)[item.displayMode] || 'Always';
-                const imageTypeLabel = item.imageType || 'Auto';
-                const maxItemsLabel = item.maxItems ? String(item.maxItems) : '0 (all)';
                 const editJson = escAttr(JSON.stringify({
                     tagName: item.tagName,
                     displayName: item.displayName,
@@ -420,7 +375,7 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
                     .catch(function (err: unknown) {
                         deleteBtn.disabled = false;
                         deleteBtn.textContent = 'Delete top-list';
-                        deps.alert('Error deleting top-list: ' + ((err as { message?: string }).message || err));
+                        deps.alert('Error deleting top-list: ' + (typeof (err as { message?: string }).message === 'string' ? (err as { message?: string }).message : String(err)));
                     });
                 return;
             }

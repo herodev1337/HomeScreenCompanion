@@ -258,7 +258,7 @@ export const SORT_ROW_SELECTOR = '.tag-row';
  * no-op for ordering (preserves DOM order) but toggles the
  * `.sort-hidden` class off so the drag handles are visible.
  */
-export type SortCriteria = 'Name' | 'Active' | 'LatestEdited' | 'Manual' | string;
+export type SortCriteria = string;
 
 /**
  * Sort the `.tag-row` children of `container` according to `criteria`.

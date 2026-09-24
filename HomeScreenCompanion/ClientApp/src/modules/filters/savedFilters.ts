@@ -164,7 +164,7 @@ export function refreshMySavedFiltersPanels(savedFilters: readonly SavedFilter[]
  * `updatePluginConfiguration` promise is NOT caught.
  */
 export function saveSavedFiltersNow(deps: SavedFiltersSaveDeps): void {
-    deps.getApiClient()
+    void deps.getApiClient()
         .getPluginConfiguration(deps.pluginId)
         .then((currentConfig) => {
             currentConfig.SavedFilters = deps.getSavedFilters();

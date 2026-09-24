@@ -495,7 +495,7 @@ describe('refreshHseSectionTypeOptions', () => {
     });
 
     it('triggers an items-only visibility update on every call', () => {
-        const { tab, section, itemsOnly } = makeHseTab('items', '');
+        const { tab, itemsOnly } = makeHseTab('items', '');
         refreshHseSectionTypeOptions(tab, /* tagEnabled */ true, /* collEnabled */ false, /* viewerOnly */ false);
         itemsOnly.forEach((el) => expect(el.style.display).toBe(''));
         // Switch to collEnabled-only → no 'items' option, items-only hidden.
@@ -1014,7 +1014,7 @@ describe('initHomeSectionTab', () => {
         const origRef = createOriginalConfigStateRef();
         origRef.setOriginalConfigState('"ORIGINAL"');
 
-        const { row, tab } = makeHomeSectionRow({ tagEnabled: true });
+        const { row } = makeHomeSectionRow({ tagEnabled: true });
         document.body.appendChild(row);
 
         const getUiConfig = vi.fn().mockReturnValue({ Tags: [{ dirty: true }] });

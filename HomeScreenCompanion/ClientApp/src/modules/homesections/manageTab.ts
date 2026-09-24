@@ -363,7 +363,7 @@ export function applyManageSections(
             if (payload.Success) {
                 deps.alert('Home screen layout saved successfully!');
             } else {
-                deps.alert('Failed to save: ' + (payload.Message || 'Unknown error'));
+                deps.alert('Failed to save: ' + (typeof payload.Message === 'string' ? payload.Message : 'Unknown error'));
                 btnApply!.disabled = false;
             }
         })

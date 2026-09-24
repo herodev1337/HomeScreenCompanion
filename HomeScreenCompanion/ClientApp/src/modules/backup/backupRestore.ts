@@ -531,7 +531,7 @@ export function renderRestoreResult(
 
             const tlDeps = buildTopListCreationDeps(deps);
 
-            pending.reduce<Promise<void>>((p, tl, idx) => {
+            void pending.reduce<Promise<void>>((p, tl, idx) => {
                 return p.then(() => {
                     if (progressEl) progressEl.textContent = 'Creating ' + (idx + 1) + ' of ' + pending.length + ': ' + (tl.CustomName || tl.TagName || '') + '…';
                     return new Promise<void>((resolve, reject) => {

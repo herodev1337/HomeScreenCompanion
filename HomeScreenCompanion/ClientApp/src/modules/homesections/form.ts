@@ -31,7 +31,6 @@
 
 import type { OriginalConfigStateRef } from '../state/state';
 import type { HscUserLike } from './hscTab';
-import { buildUserMultiSelectHtml, wireUserMultiSelect } from './users';
 
 /**
  * One row in the home-section `<select class="selHseLibrary">` dropdown.
@@ -164,7 +163,7 @@ export function buildHomeSectionFormHtml(
     html += '</select></div>';
 
     let savedItemTypes: string[] = [];
-    try { savedItemTypes = JSON.parse(s.ItemTypes || '[]'); } catch { /* swallow malformed JSON */ }
+    try { savedItemTypes = JSON.parse(s.ItemTypes || '[]') as string[]; } catch { /* swallow malformed JSON */ }
     const savedItemTypesStr = savedItemTypes.length > 0 ? savedItemTypes.join(',') : 'Movie,Series';
     html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">Media Type</label>';
     html += '<select is="emby-select" class="selHseItemTypes" style="width:100%;">';
@@ -628,7 +627,8 @@ export function syncHomeSectionFromEmby(
 ): Promise<void> {
     const tracked: Array<{ SectionId?: string; UserId?: string }> = [];
     try {
-        tracked.push(...JSON.parse(decodeURIComponent(tab.dataset.hseTracked || '%5B%5D')));
+        const parsed = JSON.parse(decodeURIComponent(tab.dataset.hseTracked || '%5B%5D')) as Array<{ SectionId?: string; UserId?: string }>;
+        tracked.push(...parsed);
     } catch { /* swallow malformed JSON */ }
     const entry = tracked.find((t) => t.SectionId && !t.SectionId.startsWith('hsc__'));
     if (!entry || !entry.UserId) return Promise.resolve();
@@ -650,18 +650,20 @@ export function syncHomeSectionFromEmby(
                 ? section['Query'] as { IsResumable?: unknown; IsPlayed?: unknown; IsUnplayed?: unknown }
                 : null;
             const sd = section['ScrollDirection'];
+            const str = (v: unknown): string => typeof v === 'string' ? v : '';
+            const numToDir = (v: unknown): string => v === 0 ? 'Horizontal' : v === 1 ? 'Vertical' : '';
             const fieldMap: Record<string, string> = {
-                SectionType: String(section['SectionType'] || ''),
-                CustomName: String(section['CustomName'] || ''),
-                DisplayMode: String(section['DisplayMode'] || ''),
-                ViewType: String(section['ViewType'] || ''),
-                ImageType: String(section['ImageType'] || ''),
-                SortBy: String(section['SortBy'] || ''),
-                SortOrder: String(section['SortOrder'] || ''),
+                SectionType: str(section['SectionType']),
+                CustomName: str(section['CustomName']),
+                DisplayMode: str(section['DisplayMode']),
+                ViewType: str(section['ViewType']),
+                ImageType: str(section['ImageType']),
+                SortBy: str(section['SortBy']),
+                SortOrder: str(section['SortOrder']),
                 ScrollDirection:
                     sd === null || sd === undefined ? '' :
-                    typeof sd === 'number' ? (sd === 0 ? 'Horizontal' : sd === 1 ? 'Vertical' : '') :
-                    String(sd),
+                    typeof sd === 'number' ? numToDir(sd) :
+                    str(sd),
                 _hsePlaystate:
                     query?.IsResumable === true ? 'inprogress' :
                     query?.IsPlayed === true ? 'played' :
@@ -726,7 +728,7 @@ export function initPlaylistTab(row: HTMLElement, deps: InitPlaylistTabDeps): vo
     try {
         savedUserIds = JSON.parse(decodeURIComponent(tab.dataset.plUserids || '%5B%5D')) as string[];
     } catch { /* swallow malformed JSON */ }
-    deps.getHseUsers().then((users) => {
+    void deps.getHseUsers().then((users) => {
         const listEl = tab.querySelector<HTMLElement>('.playlist-user-list');
         if (!listEl) return;
         listEl.innerHTML = deps.buildUserMultiSelectHtml(users, savedUserIds, 'chkPlaylistUser');
@@ -863,7 +865,7 @@ export function initHomeSectionTab(row: HTMLElement, deps: InitHomeSectionTabDep
 
             tab.dataset.hseLoaded = '1';
 
-            deps.syncHomeSectionFromEmby(tab, {
+            void deps.syncHomeSectionFromEmby(tab, {
                 fetch: (typeof fetch !== 'undefined') ? fetch.bind(globalThis) : (() => Promise.reject(new Error('fetch unavailable'))) as typeof fetch,
                 getApiClient: () => {
                     const ac = (typeof window !== 'undefined') ? (window as unknown as { ApiClient?: HomeSectionApiClient }).ApiClient : undefined;

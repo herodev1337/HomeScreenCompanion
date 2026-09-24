@@ -35,7 +35,6 @@ import { migrateCommaSeparated } from '../filters/criteria';
 import type { MediaInfoFilterGroup, SavedFilter } from '../filters/savedFilters';
 import type { DateInterval, NamedItem } from '../filters/rows';
 import type { MiFilterDeps } from '../filters/miFilters';
-import { tagConfigHasViewerCriteria } from '../homesections/form';
 import type { MiUsersState, TopListsState } from '../state/state';
 
 // ─── MI_PRESETS (lifted verbatim from legacy.js:948-1002) ────────────────────
