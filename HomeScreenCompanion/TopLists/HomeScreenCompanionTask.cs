@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace HomeScreenCompanion
@@ -249,6 +250,15 @@ namespace HomeScreenCompanion
             var invalid = Path.GetInvalidFileNameChars();
             var safe = new string((name ?? "unknown").Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c).ToArray()).Trim('.');
             return string.IsNullOrWhiteSpace(safe) ? "unknown" : safe;
+        }
+
+        private void TopListsPhase(RunContext ctx, CancellationToken cancellationToken)
+        {
+            CleanupDisabledPlaylists(ctx.Config, ctx.DryRun);
+            bool _hasTopLists = (ctx.Config.TopLists ?? new List<TopListHomeSection>()).Any(t => !string.IsNullOrWhiteSpace(t.TagName));
+            if (_hasTopLists) { _log.Blank(); _log.Info("» Top-lists"); }
+            SyncTopListFolders(ctx.Config, ctx.DryRun);
+            if (!ctx.DryRun) TopListSyncTask.SyncAll(_libraryManager, _userViewManager, _userManager, _jsonSerializer, _logger, cancellationToken, _log);
         }
 
     }

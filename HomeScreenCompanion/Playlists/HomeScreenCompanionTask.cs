@@ -286,6 +286,35 @@ namespace HomeScreenCompanion
             }
         }
 
+        private async Task PlaylistsPhase(RunContext ctx)
+        {
+            // Playlist sync — once per group, with the union of all its sources.
+            // Skipped for groups where any source failed, so a bad fetch never empties the playlist.
+            if (_runGroupPlaylistItems!.Count > 0)
+            {
+                _log.Blank();
+                _log.Info("» Playlists");
+                var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
+                if (ctx.DryRun) _log.Skip("Dry run — playlists are not changed");
+                foreach (var kvp in _runGroupPlaylistItems!)
+                {
+                    ctx.StatsByGroupKey.TryGetValue(kvp.Key, out var plStats);
+                    if (_runPlaylistGroupsToSkip!.Contains(kvp.Key))
+                    {
+                        plStats?.Warnings.Add("Playlist left unchanged because the source failed or returned nothing");
+                        _log.Skip($"Playlist for '{plStats?.DisplayName ?? kvp.Value.Owner.Name}' left unchanged — source failed or returned nothing");
+                        continue;
+                    }
+                    await SyncPlaylistsForEntryAsync(kvp.Value.Owner, kvp.Value.Items, ctx.DryRun, plStats);
+                }
+                if (!ctx.DryRun)
+                {
+                    int _plCreated = ctx.StatsList.Sum(g => g.PlaylistUsersCreated), _plUpdated = ctx.StatsList.Sum(g => g.PlaylistUsersUpdated), _plFailed = ctx.StatsList.Sum(g => g.PlaylistUsersFailed);
+                    _log.Info($"    {_plCreated} created, {_plUpdated} updated{(_plFailed > 0 ? $", {_plFailed} failed" : "")}  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
+                }
+            }
+        }
+
         private void CleanupDisabledPlaylists(PluginConfiguration config, bool dryRun)
         {
             bool configChanged = false;

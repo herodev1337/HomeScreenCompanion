@@ -57,6 +57,8 @@ namespace HomeScreenCompanion
         private HashSet<string>? _runCollCreatedSet;
         private Dictionary<string, int>? _runCollItemsAdded;
         private Dictionary<string, int>? _runCollItemsRemoved;
+        private Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>? _runGroupPlaylistItems;
+        private HashSet<string>? _runPlaylistGroupsToSkip;
 
         public static HomeScreenCompanionTask? Instance { get; private set; }
         public static string LastRunStatus { get; private set; } = "Unknown (resets at server restart)";
@@ -251,10 +253,10 @@ namespace HomeScreenCompanion
                 // A group with several sources (URLs / local sources) is stored as one flat TagConfig per
                 // source. Playlists and rank files must be built from the union of all sources in the group,
                 // so they are accumulated here and written once after the loop.
-                var groupPlaylistItems = new Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>(StringComparer.OrdinalIgnoreCase);
+                _runGroupPlaylistItems = new Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>(StringComparer.OrdinalIgnoreCase);
                 var rankIdsByTag = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
                 // Groups where a source failed / returned nothing — their playlists are left untouched
-                var playlistGroupsToSkip = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _runPlaylistGroupsToSkip = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 var previouslyManagedTags = LoadFileHistory("homescreencompanion_history.txt");
                 foreach (var t in previouslyManagedTags) _runManagedTags!.Add(t);
@@ -984,7 +986,7 @@ namespace HomeScreenCompanion
                         {
                             tagOutputItems = new List<BaseItem>();
                             collectionOutputItems = new List<BaseItem>();
-                            playlistGroupsToSkip.Add(GroupKey(tagConfig));
+                            _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
                             gs.ViewerOnly = true;
                             if (tagConfig.EnableTag || tagConfig.EnableCollection || tagConfig.EnablePlaylist)
                             {
@@ -1031,7 +1033,7 @@ namespace HomeScreenCompanion
                                 : "The list returned 0 items — existing tags, collection and playlist were kept. Check the list URL and the API key in Settings.");
                             _runFailedFetches!.Add(tagName);
                             if (tagConfig.EnableCollection) _runFailedFetches!.Add(cName);
-                            playlistGroupsToSkip.Add(GroupKey(tagConfig));
+                            _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
                             gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
                             ctx.StatsList.Add(gs);
                             WriteFetchLine(gs);
@@ -1072,10 +1074,10 @@ namespace HomeScreenCompanion
                         if (tagConfig.EnablePlaylist)
                         {
                             var groupKey = GroupKey(tagConfig);
-                            if (!groupPlaylistItems.TryGetValue(groupKey, out var plGroup))
+                            if (!_runGroupPlaylistItems!.TryGetValue(groupKey, out var plGroup))
                             {
                                 plGroup = (tagConfig, new List<BaseItem>(), new HashSet<Guid>());
-                                groupPlaylistItems[groupKey] = plGroup;
+                                _runGroupPlaylistItems[groupKey] = plGroup;
                             }
                             foreach (var localItem in collectionOutputItems)
                                 if (plGroup.Seen.Add(localItem.Id)) plGroup.Items.Add(localItem);
@@ -1098,7 +1100,7 @@ namespace HomeScreenCompanion
                         WriteExceptionDebug(ex);
                         _runFailedFetches!.Add(tagName);
                         if (tagConfig.EnableCollection) _runFailedFetches!.Add(cName);
-                        playlistGroupsToSkip.Add(GroupKey(tagConfig));
+                        _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
                     }
 
                     gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
@@ -1111,29 +1113,7 @@ namespace HomeScreenCompanion
 
                 // Playlist sync — once per group, with the union of all its sources.
                 // Skipped for groups where any source failed, so a bad fetch never empties the playlist.
-                if (groupPlaylistItems.Count > 0)
-                {
-                    _log.Blank();
-                    _log.Info("» Playlists");
-                    phaseTimer.Restart();
-                    if (ctx.DryRun) _log.Skip("Dry run — playlists are not changed");
-                }
-                foreach (var kvp in groupPlaylistItems)
-                {
-                    ctx.StatsByGroupKey.TryGetValue(kvp.Key, out var plStats);
-                    if (playlistGroupsToSkip.Contains(kvp.Key))
-                    {
-                        plStats?.Warnings.Add("Playlist left unchanged because the source failed or returned nothing");
-                        _log.Skip($"Playlist for '{plStats?.DisplayName ?? kvp.Value.Owner.Name}' left unchanged — source failed or returned nothing");
-                        continue;
-                    }
-                    await SyncPlaylistsForEntryAsync(kvp.Value.Owner, kvp.Value.Items, ctx.DryRun, plStats);
-                }
-                if (groupPlaylistItems.Count > 0 && !ctx.DryRun)
-                {
-                    int _plCreated = ctx.StatsList.Sum(g => g.PlaylistUsersCreated), _plUpdated = ctx.StatsList.Sum(g => g.PlaylistUsersUpdated), _plFailed = ctx.StatsList.Sum(g => g.PlaylistUsersFailed);
-                    _log.Info($"    {_plCreated} created, {_plUpdated} updated{(_plFailed > 0 ? $", {_plFailed} failed" : "")}  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
-                }
+                await PlaylistsPhase(ctx);
 
                 if (!ctx.DryRun)
                 {
@@ -1187,11 +1167,7 @@ namespace HomeScreenCompanion
                 if (!ctx.DryRun)
                     _log.Info($"    {ctx.StatsList.Count(g => g.HomeSectionSynced)} synced, {ctx.StatsList.Count(g => g.HomeSectionRemoved)} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
 
-                CleanupDisabledPlaylists(ctx.Config, ctx.DryRun);
-                bool _hasTopLists = (ctx.Config.TopLists ?? new List<TopListHomeSection>()).Any(t => !string.IsNullOrWhiteSpace(t.TagName));
-                if (_hasTopLists) { _log.Blank(); _log.Info("» Top-lists"); }
-                SyncTopListFolders(ctx.Config, ctx.DryRun);
-                if (!ctx.DryRun) TopListSyncTask.SyncAll(_libraryManager, _userViewManager, _userManager, _jsonSerializer, _logger, cancellationToken, _log);
+                TopListsPhase(ctx, cancellationToken);
 
                 progress.Report(100);
                 string elapsedStr = RunLog.Elapsed(DateTime.Now - ctx.StartTime);
