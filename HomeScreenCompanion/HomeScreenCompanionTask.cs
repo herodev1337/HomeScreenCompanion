@@ -1159,13 +1159,7 @@ namespace HomeScreenCompanion
 
                 tagsRemoved += CleanupBoxSetTags(ctx.Config, ctx.DryRun, cancellationToken);
 
-                _log.Blank();
-                _log.Info("» Home sections");
-                phaseTimer.Restart();
-                if (!ctx.DryRun) ManageHomeSections(ctx.Config, cancellationToken, ctx.Debug, ctx.StatsList);
-                else _log.Skip("Dry run — home sections are not changed");
-                if (!ctx.DryRun)
-                    _log.Info($"    {ctx.StatsList.Count(g => g.HomeSectionSynced)} synced, {ctx.StatsList.Count(g => g.HomeSectionRemoved)} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
+                HomeSectionsPhase(ctx, cancellationToken);
 
                 TopListsPhase(ctx, cancellationToken);
 

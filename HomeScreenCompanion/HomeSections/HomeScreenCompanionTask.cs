@@ -570,5 +570,18 @@ namespace HomeScreenCompanion
             return section;
         }
 
+        // Thin wrapper around ManageHomeSections that owns the banner, dry-run skip, and
+        // post-phase summary line. Extracted from Execute per IMPLEMENTATION-PLAN.md §Commit 5.
+        private void HomeSectionsPhase(RunContext ctx, CancellationToken cancellationToken)
+        {
+            _log.Blank();
+            _log.Info("» Home sections");
+            var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
+            if (!ctx.DryRun) ManageHomeSections(ctx.Config, cancellationToken, ctx.Debug, ctx.StatsList);
+            else _log.Skip("Dry run — home sections are not changed");
+            if (!ctx.DryRun)
+                _log.Info($"    {ctx.StatsList.Count(g => g.HomeSectionSynced)} synced, {ctx.StatsList.Count(g => g.HomeSectionRemoved)} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
+        }
+
     }
 }
