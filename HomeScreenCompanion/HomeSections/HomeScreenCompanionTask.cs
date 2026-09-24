@@ -583,5 +583,20 @@ namespace HomeScreenCompanion
                 _log.Info($"    {ctx.StatsList.Count(g => g.HomeSectionSynced)} synced, {ctx.StatsList.Count(g => g.HomeSectionRemoved)} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
         }
 
+        // Single-entry equivalent of HomeSectionsPhase — owns the banner, dry-run skip,
+        // and (when active) delegates to ManageHomeSections with a filterTagName so only
+        // this group's tag is processed. Mirrors the inline single-entry behaviour.
+        private void HomeSectionsPhaseSingle(RunContext ctx, TagConfig tagConfig, GroupRunStats gs, CancellationToken cancellationToken)
+        {
+            if (tagConfig.EnableHomeSection)
+            {
+                _log.Blank();
+                _log.Info("» Home sections");
+                if (ctx.DryRun) _log.Skip("Dry run — home sections are not changed");
+            }
+            if (!ctx.DryRun && tagConfig.EnableHomeSection)
+                ManageHomeSections(ctx.Config, cancellationToken, ctx.Debug, new List<GroupRunStats> { gs }, gs.TagName);
+        }
+
     }
 }

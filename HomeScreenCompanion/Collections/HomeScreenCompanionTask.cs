@@ -184,5 +184,87 @@ namespace HomeScreenCompanion
             return (collCreated, collUpdated, collWouldCreate, collWouldUpdate, collDeleted);
         }
 
+        // Collection phase for single-entry mode. Mirrors the lines that used to be
+        // inlined at the end of RunSingleEntryInternalAsync — operates on a single
+        // `cName` + per-group `collectionOutputItems` rather than the multi-group
+        // `_runDesiredCollectionsMap`. Mutates `gs.Collection*`, writes the same
+        // section banner ("» Collections"), per-collection debug + summary lines,
+        // and returns the result count (0 = up-to-date, 1 = created, >1 = updated
+        // with `collResult` added/removed). `allItems` is only used for the debug
+        // diff map (IDs → labels).
+        private async Task<int> CollectionsPhaseSingle(
+            RunContext ctx,
+            TagConfig tagConfig,
+            string cName,
+            List<BaseItem> allItems,
+            List<BaseItem> collectionOutputItems,
+            GroupRunStats gs)
+        {
+            int collResult = 0;
+            bool collCreated = false;
+            int collItemsAdded = 0, collItemsRemoved = 0;
+            var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
+            if (tagConfig.EnableCollection)
+            {
+                _log.Blank();
+                _log.Info("» Collections");
+                if (ctx.DryRun) _log.Skip("Dry run — collections are not changed");
+                else if (collectionOutputItems.Count == 0) _log.Skip($"Collection \"{cName}\" left unchanged — no items matched");
+            }
+            if (tagConfig.EnableCollection && collectionOutputItems.Count > 0 && !ctx.DryRun)
+            {
+                try
+                {
+                    var desiredIds = collectionOutputItems.Select(i => i.InternalId).ToHashSet();
+                    var existingColl = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = new[] { "BoxSet" }, Name = cName, Recursive = true }).FirstOrDefault();
+                    if (existingColl == null)
+                    {
+                        await _collectionManager.CreateCollection(new CollectionCreationOptions { Name = cName, IsLocked = false, ItemIdList = desiredIds.ToArray() });
+                        collResult = 1;
+                        collCreated = true;
+                        collItemsAdded = desiredIds.Count;
+                        _log.Debug($"  {cName}  →  created ({desiredIds.Count} items)");
+                    }
+                    else
+                    {
+                        var currentMembers = _libraryManager.GetItemList(new InternalItemsQuery { CollectionIds = new[] { existingColl.InternalId }, Recursive = true, IsVirtualItem = false }).Select(i => i.InternalId).ToHashSet();
+                        var toAdd = desiredIds.Where(id => !currentMembers.Contains(id)).ToList();
+                        var toRemove = currentMembers.Where(id => !desiredIds.Contains(id)).ToList();
+                        if (toAdd.Count > 0) await _collectionManager.AddToCollection(existingColl.InternalId, toAdd.ToArray());
+                        if (toRemove.Count > 0 && existingColl is BoxSet boxSet) _collectionManager.RemoveFromCollection(boxSet, toRemove.ToArray());
+                        collResult = toAdd.Count + toRemove.Count;
+                        collItemsAdded = toAdd.Count;
+                        collItemsRemoved = toRemove.Count;
+                        if (ctx.Debug)
+                        {
+                            _log.Debug(collResult == 0
+                                ? $"  {cName}  →  up to date ({currentMembers.Count} items)"
+                                : $"  {cName}  →  updated (+{toAdd.Count}, -{toRemove.Count})");
+                            var collMap = allItems.ToDictionary(i => i.InternalId, i => i.Name + (i.ProductionYear.HasValue ? $" ({i.ProductionYear})" : ""));
+                            string CollLabel(long id) => collMap.TryGetValue(id, out var cn) ? cn : id.ToString();
+                            foreach (var id in toAdd) _log.Debug($"    + {CollLabel(id)}");
+                            foreach (var id in toRemove) _log.Debug($"    - {CollLabel(id)}");
+                        }
+                    }
+                    gs.CollectionCreated = collCreated;
+                    gs.CollectionItemsAdded = collItemsAdded;
+                    gs.CollectionItemsRemoved = collItemsRemoved;
+                    _log.Info(collCreated
+                        ? $"    Collection \"{cName}\" created with {RunLog.Plural(collItemsAdded, "item")}  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}"
+                        : collResult == 0
+                            ? $"    Collection \"{cName}\" is up to date  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}"
+                            : $"    Collection \"{cName}\" updated (+{collItemsAdded}, -{collItemsRemoved})  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
+                }
+                catch (Exception ex)
+                {
+                    _log.Error($"Collection \"{cName}\" could not be updated: {ex.Message}");
+                    WriteExceptionDebug(ex);
+                    gs.Warnings.Add($"Collection could not be updated: {ex.Message}");
+                    throw;
+                }
+            }
+            return collResult;
+        }
+
     }
 }
