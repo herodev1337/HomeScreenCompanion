@@ -66,7 +66,9 @@ export default {
         rawTextPlugin(),
         esbuild({
             target: 'es2020',
-            include: /\.[cm]?tsx?$/
+            include: /\.[cm]?tsx?$/,
+            minify: true,
+            legalComments: 'none'
         })
     ]
 };
