@@ -2,9 +2,6 @@
 
 	<PropertyGroup>
 		<TargetFramework>net9.0</TargetFramework>
-		<LangVersion>latest</LangVersion>
-		<ImplicitUsings>disable</ImplicitUsings>
-		<Nullable>enable</Nullable>
 		<IsPackable>false</IsPackable>
 		<RootNamespace>HomeScreenCompanion.Tests</RootNamespace>
 		<AssemblyName>HomeScreenCompanion.Tests</AssemblyName>

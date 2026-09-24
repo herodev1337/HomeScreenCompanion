@@ -44,7 +44,7 @@ public class BuildContentSectionTests
                     var t = targetMethod.GetGenericArguments()[0];
                     return SysJson.JsonSerializer.Deserialize(text, t);
                 }
-                var type = (Type)args![1];
+                var type = (Type)args![1]!;
                 return SysJson.JsonSerializer.Deserialize(text, type);
             }
             if (name == "SerializeToString" && args != null)
