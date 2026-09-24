@@ -49,6 +49,14 @@ namespace HomeScreenCompanion
         private Dictionary<string, int>? _runTagRemovedByTag;
         private HashSet<string>? _runManagedTags;
         private HashSet<string>? _runFailedFetches;
+        private Dictionary<string, HashSet<long>>? _runDesiredCollectionsMap;
+        private Dictionary<string, string>? _runCollectionDescriptions;
+        private Dictionary<string, string>? _runCollectionPosters;
+        private HashSet<string>? _runActiveCollections;
+        private List<string>? _runPreviouslyManagedCollections;
+        private HashSet<string>? _runCollCreatedSet;
+        private Dictionary<string, int>? _runCollItemsAdded;
+        private Dictionary<string, int>? _runCollItemsRemoved;
 
         public static HomeScreenCompanionTask? Instance { get; private set; }
         public static string LastRunStatus { get; private set; } = "Unknown (resets at server restart)";
@@ -234,11 +242,11 @@ namespace HomeScreenCompanion
                 _runDesiredTagsMap = new Dictionary<Guid, HashSet<string>>();
                 _runAllScannedEpisodeItems = new Dictionary<Guid, BaseItem>();
                 _runAllScannedSeasonItems = new Dictionary<Guid, BaseItem>();
-                var desiredCollectionsMap = new Dictionary<string, HashSet<long>>(StringComparer.OrdinalIgnoreCase);
-                var collectionDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                var collectionPosters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                _runDesiredCollectionsMap = new Dictionary<string, HashSet<long>>(StringComparer.OrdinalIgnoreCase);
+                _runCollectionDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                _runCollectionPosters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 _runManagedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var activeCollections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _runActiveCollections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 _runFailedFetches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 // A group with several sources (URLs / local sources) is stored as one flat TagConfig per
                 // source. Playlists and rank files must be built from the union of all sources in the group,
@@ -251,7 +259,7 @@ namespace HomeScreenCompanion
                 var previouslyManagedTags = LoadFileHistory("homescreencompanion_history.txt");
                 foreach (var t in previouslyManagedTags) _runManagedTags!.Add(t);
 
-                var previouslyManagedCollections = LoadFileHistory("homescreencompanion_collections.txt");
+                _runPreviouslyManagedCollections = LoadFileHistory("homescreencompanion_collections.txt");
                 // Also track collection names from inactive groups so they get cleaned up
                 // even if the group was only ever run via single-entry sync (which doesn't update history)
                 foreach (var tc in ctx.Config.Tags)
@@ -259,8 +267,8 @@ namespace HomeScreenCompanion
                     if (tc.EnableCollection && !string.IsNullOrWhiteSpace(tc.Tag))
                     {
                         string cn = string.IsNullOrWhiteSpace(tc.CollectionName) ? tc.Tag.Trim() : tc.CollectionName.Trim();
-                        if (!previouslyManagedCollections.Contains(cn))
-                            previouslyManagedCollections.Add(cn);
+                        if (!_runPreviouslyManagedCollections!.Contains(cn))
+                            _runPreviouslyManagedCollections!.Add(cn);
                     }
                 }
 
@@ -493,9 +501,9 @@ namespace HomeScreenCompanion
                 bool aiConfigChanged = false;
                 _runTagAddedByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 _runTagRemovedByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                var collCreatedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var collItemsAdded = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                var collItemsRemoved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _runCollCreatedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _runCollItemsAdded = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                _runCollItemsRemoved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
                 // Process OverrideWhenActive entries first so they can remove themselves from
                 // activeTagOverrides before non-override entries for the same tag are evaluated.
@@ -578,11 +586,11 @@ namespace HomeScreenCompanion
                     }
                     if (tagConfig.EnableCollection)
                     {
-                        activeCollections.Add(cName);
+                        _runActiveCollections!.Add(cName);
                         if (!string.IsNullOrWhiteSpace(tagConfig.CollectionDescription))
-                            collectionDescriptions[cName] = tagConfig.CollectionDescription;
+                            _runCollectionDescriptions![cName] = tagConfig.CollectionDescription;
                         if (!string.IsNullOrWhiteSpace(tagConfig.CollectionPosterPath) && File.Exists(tagConfig.CollectionPosterPath))
-                            collectionPosters[cName] = tagConfig.CollectionPosterPath;
+                            _runCollectionPosters![cName] = tagConfig.CollectionPosterPath;
                     }
 
                     var groupTimer = System.Diagnostics.Stopwatch.StartNew();
@@ -1052,10 +1060,10 @@ namespace HomeScreenCompanion
 
                         if (tagConfig.EnableCollection)
                         {
-                            if (!desiredCollectionsMap.ContainsKey(cName))
-                                desiredCollectionsMap[cName] = new HashSet<long>();
+                            if (!_runDesiredCollectionsMap!.ContainsKey(cName))
+                                _runDesiredCollectionsMap[cName] = new HashSet<long>();
                             foreach (var localItem in collectionOutputItems)
-                                desiredCollectionsMap[cName].Add(localItem.InternalId);
+                                _runDesiredCollectionsMap[cName].Add(localItem.InternalId);
                         }
 
                         // Collect this entry's items for the group's playlist sync (done once per group after
@@ -1167,122 +1175,7 @@ namespace HomeScreenCompanion
 
                 _log.Blank();
                 _log.Info("» Collections");
-                phaseTimer.Restart();
-                int collCreated = 0, collUpdated = 0, collWouldCreate = 0, collWouldUpdate = 0;
-                _log.Section("Collections");
-                foreach (var kvp in desiredCollectionsMap)
-                {
-                    string cName = kvp.Key;
-                    var desiredIds = kvp.Value;
-                    if (desiredIds.Count == 0) continue;
-
-                    try
-                    {
-                        var existingColl = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = new[] { "BoxSet" }, Name = cName, Recursive = true }).FirstOrDefault();
-
-                        if (existingColl == null)
-                        {
-                            if (ctx.DryRun) { collWouldCreate++; _log.Debug($"  {cName}  →  would be created ({desiredIds.Count} items)"); continue; }
-                            var createdRef = await _collectionManager.CreateCollection(new CollectionCreationOptions { Name = cName, IsLocked = false, ItemIdList = desiredIds.ToArray() });
-                            if (createdRef != null)
-                            {
-                                collCreated++;
-                                collCreatedSet.Add(cName);
-                                collItemsAdded[cName] = desiredIds.Count;
-                                _log.Debug($"  {cName}  →  created ({desiredIds.Count} items)");
-                                if (collectionDescriptions.ContainsKey(cName) || collectionPosters.ContainsKey(cName))
-                                    ApplyCollectionMeta(createdRef, cName, collectionDescriptions, collectionPosters, ctx.Debug);
-                            }
-                        }
-                        else
-                        {
-                            var currentMembers = _libraryManager.GetItemList(new InternalItemsQuery { CollectionIds = new[] { existingColl.InternalId }, Recursive = true, IsVirtualItem = false }).Select(i => i.InternalId).ToHashSet();
-                            var toAdd = desiredIds.Where(id => !currentMembers.Contains(id)).ToList();
-                            var toRemove = currentMembers.Where(id => !desiredIds.Contains(id)).ToList();
-                            if (toAdd.Count > 0 && !ctx.DryRun)
-                                await _collectionManager.AddToCollection(existingColl.InternalId, toAdd.ToArray());
-                            if (toRemove.Count > 0 && !ctx.DryRun && existingColl is BoxSet boxSet)
-                                _collectionManager.RemoveFromCollection(boxSet, toRemove.ToArray());
-                            if ((toAdd.Count > 0 || toRemove.Count > 0) && !ctx.DryRun)
-                            {
-                                collUpdated++;
-                                collItemsAdded[cName] = toAdd.Count;
-                                collItemsRemoved[cName] = toRemove.Count;
-                                if (ctx.Debug)
-                                {
-                                    _log.Debug($"  {cName}  →  updated (+{toAdd.Count}, -{toRemove.Count})");
-                                    var _collMap = ctx.AllItems.ToDictionary(i => i.InternalId, i => i.Name + (i.ProductionYear.HasValue ? $" ({i.ProductionYear})" : ""));
-                                    string CollLabel(long id) => _collMap.TryGetValue(id, out var _cn) ? _cn : id.ToString();
-                                    foreach (var id in toAdd) _log.Debug($"    + {CollLabel(id)}");
-                                    foreach (var id in toRemove) _log.Debug($"    - {CollLabel(id)}");
-                                }
-                            }
-                            else if (toAdd.Count > 0 || toRemove.Count > 0)
-                            {
-                                collWouldUpdate++;
-                                _log.Debug($"  {cName}  →  would be updated (+{toAdd.Count}, -{toRemove.Count})");
-                            }
-                            else
-                            {
-                                _log.Debug($"  {cName}  →  up to date ({currentMembers.Count} items)");
-                            }
-                            if (!ctx.DryRun && (collectionDescriptions.ContainsKey(cName) || collectionPosters.ContainsKey(cName)))
-                                ApplyCollectionMeta(existingColl, cName, collectionDescriptions, collectionPosters, ctx.Debug);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _log.Error($"Collection \"{cName}\" could not be updated: {ex.Message}");
-                        WriteExceptionDebug(ex);
-                        foreach (var _gsC in ctx.StatsList.Where(g => string.Equals(g.CollectionName, cName, StringComparison.OrdinalIgnoreCase)))
-                            _gsC.Warnings.Add($"Collection could not be updated: {ex.Message}");
-                    }
-                }
-                foreach (var gs in ctx.StatsList)
-                {
-                    if (gs.CollectionName != null)
-                    {
-                        gs.CollectionCreated = collCreatedSet.Contains(gs.CollectionName);
-                        gs.CollectionItemsAdded = collItemsAdded.GetValueOrDefault(gs.CollectionName);
-                        gs.CollectionItemsRemoved = collItemsRemoved.GetValueOrDefault(gs.CollectionName);
-                    }
-                }
-
-                int collDeleted = 0;
-                var toDelete = previouslyManagedCollections.Where(h => !activeCollections.Contains(h)).ToList();
-                foreach (var oldName in toDelete)
-                {
-                    if (_runFailedFetches!.Contains(oldName))
-                    {
-                        _log.Warn($"Collection \"{oldName}\" was kept because its source failed to load (safety check)");
-                        activeCollections.Add(oldName);
-                        continue;
-                    }
-
-                    try
-                    {
-                        var coll = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = new[] { "BoxSet" }, Name = oldName, Recursive = true }).FirstOrDefault();
-                        if (coll != null && !ctx.DryRun)
-                        {
-                            _libraryManager.DeleteItem(coll, new DeleteOptions { DeleteFileLocation = false });
-                            collDeleted++;
-                            _log.Skip($"Collection \"{oldName}\" removed (its group is deleted, disabled or not in schedule)");
-                        }
-                        else if (coll != null)
-                        {
-                            _log.Skip($"Collection \"{oldName}\" would be removed (its group is deleted, disabled or not in schedule)");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _log.Warn($"Collection \"{oldName}\" could not be removed: {ex.Message}");
-                    }
-                }
-                _log.Info(ctx.DryRun
-                    ? $"    Would create {collWouldCreate} and update {collWouldUpdate} collections"
-                    : $"    {collCreated} created, {collUpdated} updated, {collDeleted} removed  ·  {RunLog.Elapsed(phaseTimer.Elapsed)}");
-                if (!ctx.DryRun) SaveFileHistory("homescreencompanion_collections.txt", activeCollections.ToList());
-                if (!ctx.DryRun) Plugin.Instance.SaveConfiguration();
+                var (collCreated, collUpdated, collWouldCreate, collWouldUpdate, collDeleted) = await CollectionsPhase(ctx, cancellationToken);
 
                 tagsRemoved += CleanupBoxSetTags(ctx.Config, ctx.DryRun, cancellationToken);
 
