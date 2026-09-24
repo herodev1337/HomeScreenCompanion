@@ -74,22 +74,27 @@ namespace HomeScreenCompanion
             try
             {
                 dynamic dynItem = itemToCheck;
-                try {
+                try
+                {
                     int defaultWidth = (int)dynItem.Width;
                     if (defaultWidth >= 7680) info.Is8k = true;
                     else if (defaultWidth >= 3800) info.Is4k = true;
                     else if (defaultWidth >= 1900 && !info.Is4k && !info.Is8k) info.Is1080 = true;
                     else if (defaultWidth >= 1200 && !info.Is1080 && !info.Is4k && !info.Is8k) info.Is720 = true;
                     else if (defaultWidth > 0 && !info.Is720 && !info.Is1080 && !info.Is4k && !info.Is8k) info.IsSd = true;
-                } catch { }
+                }
+                catch { }
 
                 System.Collections.IEnumerable streams = null;
                 try { streams = dynItem.GetMediaStreams(); } catch { }
-                if (streams == null) {
-                    try {
+                if (streams == null)
+                {
+                    try
+                    {
                         var sources = dynItem.GetMediaSources(false);
                         if (sources != null) { foreach (var src in sources) { if (src.MediaStreams != null) { streams = src.MediaStreams; break; } } }
-                    } catch { }
+                    }
+                    catch { }
                 }
                 if (streams == null) { try { streams = dynItem.MediaStreams; } catch { } }
 
@@ -304,218 +309,242 @@ namespace HomeScreenCompanion
 
             bool EvaluateCriterionCore(string c)
             {
-            // Handle Collection/Playlist before Split(':') — names may contain colons
-            if (c.StartsWith("Collection:", StringComparison.OrdinalIgnoreCase) ||
-                c.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase))
-            {
-                var ci = c.IndexOf(':');
-                var cpProp = c.Substring(0, ci);
-                var cpVal  = c.Substring(ci + 1).Trim();
-                return cpProp.Equals("Collection", StringComparison.OrdinalIgnoreCase)
-                    ? collectionMembershipCache != null && SplitCommaValues(cpVal).Any(n => collectionMembershipCache.TryGetValue("Collection:" + n, out var cIds) && cIds.Contains(item.InternalId))
-                    : collectionMembershipCache != null && SplitCommaValues(cpVal).Any(n => collectionMembershipCache.TryGetValue("Playlist:" + n, out var pIds)  && pIds.Contains(item.InternalId));
-            }
-            var parts = c.Split(':');
-            if (parts.Length == 2)
-            {
-                var prop = parts[0]; var val = parts[1].Trim();
-                return prop switch
+                // Handle Collection/Playlist before Split(':') — names may contain colons
+                if (c.StartsWith("Collection:", StringComparison.OrdinalIgnoreCase) ||
+                    c.StartsWith("Playlist:", StringComparison.OrdinalIgnoreCase))
                 {
-                    "Studio"        => SplitCommaValues(val).Any(v => MatchesAny(item.Studios, v)),
-                    "Genre"         => SplitCommaValues(val).Any(v => MatchesAny(item.Genres, v)),
-                    "Actor"         => personCache != null && SplitCommaValues(val).Any(n => personCache.TryGetValue("Actor:" + n, out var aIds) && aIds.Contains(item.InternalId)),
-                    "Director"      => personCache != null && SplitCommaValues(val).Any(n => personCache.TryGetValue("Director:" + n, out var dIds) && dIds.Contains(item.InternalId)),
-                    "Writer"        => personCache != null && SplitCommaValues(val).Any(n => personCache.TryGetValue("Writer:" + n, out var wIds) && wIds.Contains(item.InternalId)),
-                    "Title"         => SplitCommaValues(val).Any(v => GetTitleName(item)?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
-                    "EpisodeTitle"  => SplitCommaValues(val).Any(v => MatchesEpisodeTitle(item, v, false, seriesEpisodeNamesCache)),
-                    "Overview"      => SplitCommaValues(val).Any(v => item.Overview?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
-                    "ContentRating" => SplitCommaValues(val).Any(v => string.Equals(item.OfficialRating, v, StringComparison.OrdinalIgnoreCase)),
-                    "AudioLanguage" => audioLanguages != null && SplitCommaValues(val).Any(v => audioLanguages.Contains(v)),
-                    "MediaType"     => val.Equals("EpisodeIncludeSeries", StringComparison.OrdinalIgnoreCase)
-                                        ? item.GetType().Name.Contains("Episode")
-                                        : string.Equals(mediaType, val, StringComparison.OrdinalIgnoreCase),
-                    "Tag"           => itemTags != null && SplitCommaValues(val).Any(v => MatchesAny(itemTags, v)),
-                    "ImdbId"        => MatchesImdbId(item.GetProviderId("Imdb"), val),
-                    "TvdbId"        => MatchesImdbId(item.GetProviderId("Tvdb"), val),
-                    "FolderPath"    => SplitCommaValues(val).Any(v => !string.IsNullOrEmpty(item.Path) && item.Path.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
-                    "Country"       => item.ProductionLocations != null && SplitCommaValues(val).Any(v => MatchesAny(item.ProductionLocations, v)),
-                    "Artist"        => SplitCommaValues(val).Any(v => MatchesArtistOrAlbumArtist(item, v, false)),
-                    "Album"         => SplitCommaValues(val).Any(v => MatchesAlbumTitle(item, v, false)),
-                    _ => false
-                };
-            }
-            if (parts.Length == 4)
-            {
-                var prop4 = parts[0]; var userId4 = parts[1]; var op4 = parts[2]; var valStr4 = parts[3];
-                if (userId4 == "__any__" || userId4 == "__all__")
+                    var ci = c.IndexOf(':');
+                    var cpProp = c.Substring(0, ci);
+                    var cpVal = c.Substring(ci + 1).Trim();
+                    return cpProp.Equals("Collection", StringComparison.OrdinalIgnoreCase)
+                        ? collectionMembershipCache != null && SplitCommaValues(cpVal).Any(n => collectionMembershipCache.TryGetValue("Collection:" + n, out var cIds) && cIds.Contains(item.InternalId))
+                        : collectionMembershipCache != null && SplitCommaValues(cpVal).Any(n => collectionMembershipCache.TryGetValue("Playlist:" + n, out var pIds) && pIds.Contains(item.InternalId));
+                }
+                var parts = c.Split(':');
+                if (parts.Length == 2)
                 {
-                    bool matchAll = userId4 == "__all__";
-                    var allUsers = preloadedUsers ?? _userManager.GetUserList(new UserQuery { IsDisabled = false });
-                    if (allUsers == null || allUsers.Length == 0) return false;
+                    var prop = parts[0]; var val = parts[1].Trim();
+                    return prop switch
+                    {
+                        "Studio" => SplitCommaValues(val).Any(v => MatchesAny(item.Studios, v)),
+                        "Genre" => SplitCommaValues(val).Any(v => MatchesAny(item.Genres, v)),
+                        "Actor" => personCache != null && SplitCommaValues(val).Any(n => personCache.TryGetValue("Actor:" + n, out var aIds) && aIds.Contains(item.InternalId)),
+                        "Director" => personCache != null && SplitCommaValues(val).Any(n => personCache.TryGetValue("Director:" + n, out var dIds) && dIds.Contains(item.InternalId)),
+                        "Writer" => personCache != null && SplitCommaValues(val).Any(n => personCache.TryGetValue("Writer:" + n, out var wIds) && wIds.Contains(item.InternalId)),
+                        "Title" => SplitCommaValues(val).Any(v => GetTitleName(item)?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
+                        "EpisodeTitle" => SplitCommaValues(val).Any(v => MatchesEpisodeTitle(item, v, false, seriesEpisodeNamesCache)),
+                        "Overview" => SplitCommaValues(val).Any(v => item.Overview?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
+                        "ContentRating" => SplitCommaValues(val).Any(v => string.Equals(item.OfficialRating, v, StringComparison.OrdinalIgnoreCase)),
+                        "AudioLanguage" => audioLanguages != null && SplitCommaValues(val).Any(v => audioLanguages.Contains(v)),
+                        "MediaType" => val.Equals("EpisodeIncludeSeries", StringComparison.OrdinalIgnoreCase)
+                                            ? item.GetType().Name.Contains("Episode")
+                                            : string.Equals(mediaType, val, StringComparison.OrdinalIgnoreCase),
+                        "Tag" => itemTags != null && SplitCommaValues(val).Any(v => MatchesAny(itemTags, v)),
+                        "ImdbId" => MatchesImdbId(item.GetProviderId("Imdb"), val),
+                        "TvdbId" => MatchesImdbId(item.GetProviderId("Tvdb"), val),
+                        "FolderPath" => SplitCommaValues(val).Any(v => !string.IsNullOrEmpty(item.Path) && item.Path.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
+                        "Country" => item.ProductionLocations != null && SplitCommaValues(val).Any(v => MatchesAny(item.ProductionLocations, v)),
+                        "Artist" => SplitCommaValues(val).Any(v => MatchesArtistOrAlbumArtist(item, v, false)),
+                        "Album" => SplitCommaValues(val).Any(v => MatchesAlbumTitle(item, v, false)),
+                        _ => false
+                    };
+                }
+                if (parts.Length == 4)
+                {
+                    var prop4 = parts[0]; var userId4 = parts[1]; var op4 = parts[2]; var valStr4 = parts[3];
+                    if (userId4 == "__any__" || userId4 == "__all__")
+                    {
+                        bool matchAll = userId4 == "__all__";
+                        var allUsers = preloadedUsers ?? _userManager.GetUserList(new UserQuery { IsDisabled = false });
+                        if (allUsers == null || allUsers.Length == 0) return false;
+                        if (prop4 == "IsPlayed")
+                        {
+                            bool wantWatched = string.Equals(valStr4, "Watched", StringComparison.OrdinalIgnoreCase);
+                            Func<User, bool> checkPlayed = u =>
+                            {
+                                var k = (u.Id, item.InternalId);
+                                if (userDataCache != null && userDataCache.TryGetValue(k, out var cd)) return cd.Played == wantWatched;
+                                var ud2 = _userDataManager?.GetUserData(u, item);
+                                if (userDataCache != null) userDataCache[k] = ud2 == null ? (false, null, 0) : (ud2.Played, ud2.LastPlayedDate, ud2.PlayCount);
+                                return ud2 != null && ud2.Played == wantWatched;
+                            };
+                            return matchAll ? allUsers.All(checkPlayed) : allUsers.Any(checkPlayed);
+                        }
+                        if (prop4 == "LastPlayed" &&
+                            double.TryParse(valStr4, System.Globalization.NumberStyles.Any,
+                                            System.Globalization.CultureInfo.InvariantCulture, out var daysU))
+                        {
+                            bool isSeries = item.GetType().Name.Contains("Series");
+                            Func<User, bool> checkLp = u =>
+                            {
+                                DateTimeOffset? lpDate;
+                                if (isSeries)
+                                    lpDate = seriesLastPlayedCache != null ? GetSeriesLastPlayed(u, item, seriesLastPlayedCache, userDataCache) : null;
+                                else
+                                {
+                                    var k = (u.Id, item.InternalId);
+                                    if (userDataCache != null && userDataCache.TryGetValue(k, out var cd)) { lpDate = cd.LastPlayedDate; }
+                                    else
+                                    {
+                                        var ud2 = _userDataManager?.GetUserData(u, item); lpDate = ud2?.LastPlayedDate;
+                                        if (userDataCache != null) userDataCache[k] = ud2 == null ? (false, (DateTimeOffset?)null, 0) : (ud2.Played, ud2.LastPlayedDate, ud2.PlayCount);
+                                    }
+                                }
+                                if (lpDate == null) return false;
+                                return ApplyNumericOp((DateTimeOffset.UtcNow - lpDate.Value).TotalDays, op4, daysU);
+                            };
+                            return matchAll ? allUsers.All(checkLp) : allUsers.Any(checkLp);
+                        }
+                        if (prop4 == "PlayCount" &&
+                            double.TryParse(valStr4, System.Globalization.NumberStyles.Any,
+                                            System.Globalization.CultureInfo.InvariantCulture, out var countU))
+                        {
+                            Func<User, bool> checkPc = u =>
+                            {
+                                var k = (u.Id, item.InternalId);
+                                int playCount;
+                                if (userDataCache != null && userDataCache.TryGetValue(k, out var cd)) { playCount = cd.PlayCount; }
+                                else
+                                {
+                                    var ud2 = _userDataManager?.GetUserData(u, item); playCount = ud2?.PlayCount ?? 0;
+                                    if (userDataCache != null) userDataCache[k] = ud2 == null ? (false, (DateTimeOffset?)null, 0) : (ud2.Played, ud2.LastPlayedDate, ud2.PlayCount);
+                                }
+                                return ApplyNumericOp(playCount, op4, countU);
+                            };
+                            return matchAll ? allUsers.All(checkPc) : allUsers.Any(checkPc);
+                        }
+                        return false;
+                    }
+                    if (!Guid.TryParse(userId4, out var guid4)) return false;
+                    var udKey = (guid4, item.InternalId);
+                    (bool Played, DateTimeOffset? LastPlayedDate, int PlayCount) udResult;
+                    if (userDataCache != null && userDataCache.TryGetValue(udKey, out udResult))
+                    {
+                    }
+                    else
+                    {
+                        var user4 = _userManager.GetUserById(guid4);
+                        if (user4 == null) return false;
+                        var ud = _userDataManager?.GetUserData(user4, item);
+                        if (ud == null) return false;
+                        udResult = (ud.Played, ud.LastPlayedDate, ud.PlayCount);
+                        if (userDataCache != null) userDataCache[udKey] = udResult;
+                    }
                     if (prop4 == "IsPlayed")
                     {
                         bool wantWatched = string.Equals(valStr4, "Watched", StringComparison.OrdinalIgnoreCase);
-                        Func<User, bool> checkPlayed = u => {
-                            var k = (u.Id, item.InternalId);
-                            if (userDataCache != null && userDataCache.TryGetValue(k, out var cd)) return cd.Played == wantWatched;
-                            var ud2 = _userDataManager?.GetUserData(u, item);
-                            if (userDataCache != null) userDataCache[k] = ud2 == null ? (false, null, 0) : (ud2.Played, ud2.LastPlayedDate, ud2.PlayCount);
-                            return ud2 != null && ud2.Played == wantWatched;
-                        };
-                        return matchAll ? allUsers.All(checkPlayed) : allUsers.Any(checkPlayed);
+                        return udResult.Played == wantWatched;
                     }
                     if (prop4 == "LastPlayed" &&
                         double.TryParse(valStr4, System.Globalization.NumberStyles.Any,
-                                        System.Globalization.CultureInfo.InvariantCulture, out var daysU))
+                                        System.Globalization.CultureInfo.InvariantCulture, out var days4))
                     {
-                        bool isSeries = item.GetType().Name.Contains("Series");
-                        Func<User, bool> checkLp = u => {
-                            DateTimeOffset? lpDate;
-                            if (isSeries)
-                                lpDate = seriesLastPlayedCache != null ? GetSeriesLastPlayed(u, item, seriesLastPlayedCache, userDataCache) : null;
-                            else
-                            {
-                                var k = (u.Id, item.InternalId);
-                                if (userDataCache != null && userDataCache.TryGetValue(k, out var cd)) { lpDate = cd.LastPlayedDate; }
-                                else { var ud2 = _userDataManager?.GetUserData(u, item); lpDate = ud2?.LastPlayedDate;
-                                       if (userDataCache != null) userDataCache[k] = ud2 == null ? (false, (DateTimeOffset?)null, 0) : (ud2.Played, ud2.LastPlayedDate, ud2.PlayCount); }
-                            }
-                            if (lpDate == null) return false;
-                            return ApplyNumericOp((DateTimeOffset.UtcNow - lpDate.Value).TotalDays, op4, daysU);
-                        };
-                        return matchAll ? allUsers.All(checkLp) : allUsers.Any(checkLp);
+                        DateTimeOffset? lpDate4 = item.GetType().Name.Contains("Series") && seriesLastPlayedCache != null
+                            ? GetSeriesLastPlayed(_userManager.GetUserById(guid4)!, item, seriesLastPlayedCache, userDataCache)
+                            : udResult.LastPlayedDate;
+                        if (!lpDate4.HasValue) return false;
+                        return ApplyNumericOp((DateTime.UtcNow - lpDate4.Value).TotalDays, op4, days4);
                     }
                     if (prop4 == "PlayCount" &&
                         double.TryParse(valStr4, System.Globalization.NumberStyles.Any,
-                                        System.Globalization.CultureInfo.InvariantCulture, out var countU))
+                                        System.Globalization.CultureInfo.InvariantCulture, out var count4))
                     {
-                        Func<User, bool> checkPc = u => {
-                            var k = (u.Id, item.InternalId);
-                            int playCount;
-                            if (userDataCache != null && userDataCache.TryGetValue(k, out var cd)) { playCount = cd.PlayCount; }
-                            else { var ud2 = _userDataManager?.GetUserData(u, item); playCount = ud2?.PlayCount ?? 0;
-                                   if (userDataCache != null) userDataCache[k] = ud2 == null ? (false, (DateTimeOffset?)null, 0) : (ud2.Played, ud2.LastPlayedDate, ud2.PlayCount); }
-                            return ApplyNumericOp(playCount, op4, countU);
-                        };
-                        return matchAll ? allUsers.All(checkPc) : allUsers.Any(checkPc);
+                        return ApplyNumericOp(udResult.PlayCount, op4, count4);
                     }
                     return false;
                 }
-                if (!Guid.TryParse(userId4, out var guid4)) return false;
-                var udKey = (guid4, item.InternalId);
-                (bool Played, DateTimeOffset? LastPlayedDate, int PlayCount) udResult;
-                if (userDataCache != null && userDataCache.TryGetValue(udKey, out udResult))
+                if (parts.Length == 3 && (parts[1] == "contains" || parts[1] == "exact"))
                 {
+                    var tProp = parts[0]; var tOp = parts[1]; var tVal = parts[2].Trim();
+                    bool exact = tOp == "exact";
+                    return tProp switch
+                    {
+                        "Title" => exact ? SplitCommaValues(tVal).Any(v => string.Equals(GetTitleName(item), v, StringComparison.OrdinalIgnoreCase))
+                                                 : SplitCommaValues(tVal).Any(v => GetTitleName(item)?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
+                        "EpisodeTitle" => SplitCommaValues(tVal).Any(v => MatchesEpisodeTitle(item, v, exact, seriesEpisodeNamesCache)),
+                        "Overview" => exact ? SplitCommaValues(tVal).Any(v => string.Equals(item.Overview, v, StringComparison.OrdinalIgnoreCase))
+                                                 : SplitCommaValues(tVal).Any(v => item.Overview?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
+                        "Studio" => exact ? item.Studios != null && SplitCommaValues(tVal).Any(v => item.Studios.Any(s => string.Equals(s, v, StringComparison.OrdinalIgnoreCase)))
+                                                 : SplitCommaValues(tVal).Any(v => MatchesAny(item.Studios, v)),
+                        "Genre" => exact ? item.Genres != null && SplitCommaValues(tVal).Any(v => item.Genres.Any(g => string.Equals(g, v, StringComparison.OrdinalIgnoreCase)))
+                                                 : SplitCommaValues(tVal).Any(v => MatchesAny(item.Genres, v)),
+                        "Tag" => exact ? itemTags != null && SplitCommaValues(tVal).Any(v => itemTags.Any(t => string.Equals(t, v, StringComparison.OrdinalIgnoreCase)))
+                                                 : itemTags != null && SplitCommaValues(tVal).Any(v => MatchesAny(itemTags, v)),
+                        "ContentRating" => exact ? SplitCommaValues(tVal).Any(v => string.Equals(item.OfficialRating, v, StringComparison.OrdinalIgnoreCase))
+                                                 : SplitCommaValues(tVal).Any(v => item.OfficialRating?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
+                        "AudioLanguage" => exact ? audioLanguages != null && SplitCommaValues(tVal).Any(v => audioLanguages.Contains(v))
+                                                 : audioLanguages != null && SplitCommaValues(tVal).Any(v => audioLanguages.Any(l => l.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0)),
+                        "Actor" => personCache != null && (exact
+                                            ? SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Actor:exact:" + n, out var aIds3) && aIds3.Contains(item.InternalId))
+                                            : SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Actor:contains:" + n, out var aIdsC) && aIdsC.Contains(item.InternalId))),
+                        "Director" => personCache != null && (exact
+                                            ? SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Director:exact:" + n, out var dIds3) && dIds3.Contains(item.InternalId))
+                                            : SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Director:contains:" + n, out var dIdsC) && dIdsC.Contains(item.InternalId))),
+                        "Writer" => personCache != null && (exact
+                                            ? SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Writer:exact:" + n, out var wIds3) && wIds3.Contains(item.InternalId))
+                                            : SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Writer:contains:" + n, out var wIdsC) && wIdsC.Contains(item.InternalId))),
+                        "Artist" => SplitCommaValues(tVal).Any(v => MatchesArtistOrAlbumArtist(item, v, exact)),
+                        "Album" => SplitCommaValues(tVal).Any(v => MatchesAlbumTitle(item, v, exact)),
+                        "FolderPath" => exact
+                                            ? SplitCommaValues(tVal).Any(v => string.Equals(item.Path, v, StringComparison.OrdinalIgnoreCase))
+                                            : SplitCommaValues(tVal).Any(v => !string.IsNullOrEmpty(item.Path) && item.Path.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
+                        "Country" => exact
+                                            ? item.ProductionLocations != null && SplitCommaValues(tVal).Any(v => item.ProductionLocations.Any(c => string.Equals(c, v, StringComparison.OrdinalIgnoreCase)))
+                                            : item.ProductionLocations != null && SplitCommaValues(tVal).Any(v => MatchesAny(item.ProductionLocations, v)),
+                        _ => false
+                    };
                 }
-                else
+                if (parts.Length == 3 && double.TryParse(parts[2],
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var num))
                 {
-                    var user4 = _userManager.GetUserById(guid4);
-                    if (user4 == null) return false;
-                    var ud = _userDataManager?.GetUserData(user4, item);
-                    if (ud == null) return false;
-                    udResult = (ud.Played, ud.LastPlayedDate, ud.PlayCount);
-                    if (userDataCache != null) userDataCache[udKey] = udResult;
+                    double? v = parts[0] switch
+                    {
+                        "CommunityRating" => (double?)item.CommunityRating,
+                        "Year" => (double?)item.ProductionYear,
+                        "Runtime" => item.RunTimeTicks.HasValue
+                                            ? (double?)(item.RunTimeTicks.Value / TimeSpan.TicksPerMinute) : null,
+                        "DateAdded" => (double?)(DateTime.UtcNow - item.DateCreated).TotalDays,
+                        "DateModified" => cachedDateModifiedDays ?? TryGetDateModified(item),
+                        "FileSize" => cachedFileSizeMb ?? TryGetFileSize(item),
+                        "BitRate" => cachedBitRate,
+                        "SampleRate" => cachedSampleRate,
+                        "BitsPerSample" => cachedBitsPerSample,
+                        "TrackNumber" => cachedTrackNumber,
+                        "DiscNumber" => cachedDiscNumber,
+                        "WatchedByCount" => (double?)CountWatchedByUsers(item, preloadedUsers, userDataCache),
+                        _ => null
+                    };
+                    if (!v.HasValue) return false;
+                    return ApplyNumericOp(v.Value, parts[1], num);
                 }
-                if (prop4 == "IsPlayed")
+                return c switch
                 {
-                    bool wantWatched = string.Equals(valStr4, "Watched", StringComparison.OrdinalIgnoreCase);
-                    return udResult.Played == wantWatched;
-                }
-                if (prop4 == "LastPlayed" &&
-                    double.TryParse(valStr4, System.Globalization.NumberStyles.Any,
-                                    System.Globalization.CultureInfo.InvariantCulture, out var days4))
-                {
-                    DateTimeOffset? lpDate4 = item.GetType().Name.Contains("Series") && seriesLastPlayedCache != null
-                        ? GetSeriesLastPlayed(_userManager.GetUserById(guid4)!, item, seriesLastPlayedCache, userDataCache)
-                        : udResult.LastPlayedDate;
-                    if (!lpDate4.HasValue) return false;
-                    return ApplyNumericOp((DateTime.UtcNow - lpDate4.Value).TotalDays, op4, days4);
-                }
-                if (prop4 == "PlayCount" &&
-                    double.TryParse(valStr4, System.Globalization.NumberStyles.Any,
-                                    System.Globalization.CultureInfo.InvariantCulture, out var count4))
-                {
-                    return ApplyNumericOp(udResult.PlayCount, op4, count4);
-                }
-                return false;
-            }
-            if (parts.Length == 3 && (parts[1] == "contains" || parts[1] == "exact"))
-            {
-                var tProp = parts[0]; var tOp = parts[1]; var tVal = parts[2].Trim();
-                bool exact = tOp == "exact";
-                return tProp switch
-                {
-                    "Title"         => exact ? SplitCommaValues(tVal).Any(v => string.Equals(GetTitleName(item), v, StringComparison.OrdinalIgnoreCase))
-                                             : SplitCommaValues(tVal).Any(v => GetTitleName(item)?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
-                    "EpisodeTitle"  => SplitCommaValues(tVal).Any(v => MatchesEpisodeTitle(item, v, exact, seriesEpisodeNamesCache)),
-                    "Overview"      => exact ? SplitCommaValues(tVal).Any(v => string.Equals(item.Overview, v, StringComparison.OrdinalIgnoreCase))
-                                             : SplitCommaValues(tVal).Any(v => item.Overview?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
-                    "Studio"        => exact ? item.Studios != null && SplitCommaValues(tVal).Any(v => item.Studios.Any(s => string.Equals(s, v, StringComparison.OrdinalIgnoreCase)))
-                                             : SplitCommaValues(tVal).Any(v => MatchesAny(item.Studios, v)),
-                    "Genre"         => exact ? item.Genres != null && SplitCommaValues(tVal).Any(v => item.Genres.Any(g => string.Equals(g, v, StringComparison.OrdinalIgnoreCase)))
-                                             : SplitCommaValues(tVal).Any(v => MatchesAny(item.Genres, v)),
-                    "Tag"           => exact ? itemTags != null && SplitCommaValues(tVal).Any(v => itemTags.Any(t => string.Equals(t, v, StringComparison.OrdinalIgnoreCase)))
-                                             : itemTags != null && SplitCommaValues(tVal).Any(v => MatchesAny(itemTags, v)),
-                    "ContentRating" => exact ? SplitCommaValues(tVal).Any(v => string.Equals(item.OfficialRating, v, StringComparison.OrdinalIgnoreCase))
-                                             : SplitCommaValues(tVal).Any(v => item.OfficialRating?.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
-                    "AudioLanguage" => exact ? audioLanguages != null && SplitCommaValues(tVal).Any(v => audioLanguages.Contains(v))
-                                             : audioLanguages != null && SplitCommaValues(tVal).Any(v => audioLanguages.Any(l => l.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0)),
-                    "Actor"         => personCache != null && (exact
-                                        ? SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Actor:exact:" + n, out var aIds3) && aIds3.Contains(item.InternalId))
-                                        : SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Actor:contains:" + n, out var aIdsC) && aIdsC.Contains(item.InternalId))),
-                    "Director"      => personCache != null && (exact
-                                        ? SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Director:exact:" + n, out var dIds3) && dIds3.Contains(item.InternalId))
-                                        : SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Director:contains:" + n, out var dIdsC) && dIdsC.Contains(item.InternalId))),
-                    "Writer"        => personCache != null && (exact
-                                        ? SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Writer:exact:" + n, out var wIds3) && wIds3.Contains(item.InternalId))
-                                        : SplitCommaValues(tVal).Any(n => personCache.TryGetValue("Writer:contains:" + n, out var wIdsC) && wIdsC.Contains(item.InternalId))),
-                    "Artist"        => SplitCommaValues(tVal).Any(v => MatchesArtistOrAlbumArtist(item, v, exact)),
-                    "Album"         => SplitCommaValues(tVal).Any(v => MatchesAlbumTitle(item, v, exact)),
-                    "FolderPath"    => exact
-                                        ? SplitCommaValues(tVal).Any(v => string.Equals(item.Path, v, StringComparison.OrdinalIgnoreCase))
-                                        : SplitCommaValues(tVal).Any(v => !string.IsNullOrEmpty(item.Path) && item.Path.IndexOf(v, StringComparison.OrdinalIgnoreCase) >= 0),
-                    "Country"       => exact
-                                        ? item.ProductionLocations != null && SplitCommaValues(tVal).Any(v => item.ProductionLocations.Any(c => string.Equals(c, v, StringComparison.OrdinalIgnoreCase)))
-                                        : item.ProductionLocations != null && SplitCommaValues(tVal).Any(v => MatchesAny(item.ProductionLocations, v)),
+                    "4K" => is4k,
+                    "8K" => is8k,
+                    "1080p" => is1080,
+                    "720p" => is720,
+                    "SD" => isSd,
+                    "HEVC" => isHevc,
+                    "AV1" => isAv1,
+                    "H264" => isH264,
+                    "HDR" => isHdr || isDv,
+                    "HDR10" => isHdr10,
+                    "DolbyVision" => isDv,
+                    "Atmos" => isAtmos,
+                    "TrueHD" => isTrueHd,
+                    "DtsHdMa" => isDtsHdMa,
+                    "DTS" => isDts,
+                    "AC3" => isAc3,
+                    "AAC" => isAac,
+                    "7.1" => is71,
+                    "5.1" => is51,
+                    "Stereo" => isStereo,
+                    "Mono" => isMono,
+                    // Viewer-dependent — never true during the global scan; resolved per user by the home section query.
+                    "InProgress" => false,
                     _ => false
                 };
-            }
-            if (parts.Length == 3 && double.TryParse(parts[2],
-                System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture, out var num))
-            {
-                double? v = parts[0] switch
-                {
-                    "CommunityRating" => (double?)item.CommunityRating,
-                    "Year"            => (double?)item.ProductionYear,
-                    "Runtime"         => item.RunTimeTicks.HasValue
-                                        ? (double?)(item.RunTimeTicks.Value / TimeSpan.TicksPerMinute) : null,
-                    "DateAdded"       => (double?)(DateTime.UtcNow - item.DateCreated).TotalDays,
-                    "DateModified"    => cachedDateModifiedDays ?? TryGetDateModified(item),
-                    "FileSize"        => cachedFileSizeMb ?? TryGetFileSize(item),
-                    "BitRate"          => cachedBitRate,
-                    "SampleRate"       => cachedSampleRate,
-                    "BitsPerSample"    => cachedBitsPerSample,
-                    "TrackNumber"      => cachedTrackNumber,
-                    "DiscNumber"       => cachedDiscNumber,
-                    "WatchedByCount"   => (double?)CountWatchedByUsers(item, preloadedUsers, userDataCache),
-                    _ => null
-                };
-                if (!v.HasValue) return false;
-                return ApplyNumericOp(v.Value, parts[1], num);
-            }
-            return c switch
-            {
-                "4K" => is4k, "8K" => is8k, "1080p" => is1080, "720p" => is720, "SD" => isSd,
-                "HEVC" => isHevc, "AV1" => isAv1, "H264" => isH264,
-                "HDR" => isHdr || isDv, "HDR10" => isHdr10, "DolbyVision" => isDv,
-                "Atmos" => isAtmos, "TrueHD" => isTrueHd, "DtsHdMa" => isDtsHdMa,
-                "DTS" => isDts, "AC3" => isAc3, "AAC" => isAac,
-                "7.1" => is71, "5.1" => is51, "Stereo" => isStereo, "Mono" => isMono,
-                // Viewer-dependent — never true during the global scan; resolved per user by the home section query.
-                "InProgress" => false,
-                _ => false
-            };
             } // EvaluateCriterionCore
         }
 
@@ -671,7 +700,7 @@ namespace HomeScreenCompanion
 
             var typeName = item.GetType().Name;
 
-            if (typeName.Contains("Movie"))   return false;
+            if (typeName.Contains("Movie")) return false;
             if (typeName.Contains("Episode")) return matches(item.Name);
             if (typeName.Contains("Series"))
             {
@@ -690,11 +719,11 @@ namespace HomeScreenCompanion
 
         private static bool ApplyNumericOp(double v, string op, double num) => op switch
         {
-            ">"  => v > num,
+            ">" => v > num,
             ">=" => v >= num,
-            "<"  => v < num,
+            "<" => v < num,
             "<=" => v <= num,
-            "="  => Math.Abs(v - num) < 0.01,
+            "=" => Math.Abs(v - num) < 0.01,
             _ => false
         };
 

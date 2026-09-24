@@ -84,8 +84,8 @@ namespace HomeScreenCompanion
             switch (severity)
             {
                 case LogSeverity.Error: _logger.Error(server); break;
-                case LogSeverity.Warn:  _logger.Warn(server);  break;
-                default:                _logger.Info(server);  break;
+                case LogSeverity.Warn: _logger.Warn(server); break;
+                default: _logger.Info(server); break;
             }
         }
 

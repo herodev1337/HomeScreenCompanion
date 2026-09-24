@@ -192,9 +192,12 @@ namespace HomeScreenCompanion
 
                             if (entryIdsToRemove.Count > 0)
                             {
-                                try {
+                                try
+                                {
                                     await _playlistManager.RemoveFromPlaylist(existingPlaylist.InternalId, entryIdsToRemove.ToArray());
-                                } catch (Exception ex) {
+                                }
+                                catch (Exception ex)
+                                {
                                     _log.Warn($"Playlist \"{plName}\": could not remove {entryIdsToRemove.Count} items for {plUser.Name}: {ex.Message}");
                                 }
                             }

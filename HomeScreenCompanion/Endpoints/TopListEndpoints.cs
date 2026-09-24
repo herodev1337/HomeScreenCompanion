@@ -136,17 +136,17 @@ namespace HomeScreenCompanion
                 Directory.CreateDirectory(tempDir);
                 try
                 {
-                foreach (var entry in selected)
-                {
-                    count++;
-                    var sortPrefix = count.ToString().PadLeft(digits, '0');
-                    var fileName = entry.BaseName;
-                    File.WriteAllText(Path.Combine(folderPath, fileName + ".nfo"), BuildTopListNfo(entry.Item, sortPrefix));
-                    WriteRankedImages(entry.Item, count, Path.Combine(folderPath, fileName), request.BadgeStyle, tempDir);
-                    // .strm last: the folder is a watched library, and Emby creates the item the
-                    // moment it sees the .strm — the nfo and badged images must already be there.
-                    File.WriteAllText(Path.Combine(folderPath, fileName + ".strm"), entry.FilePath);
-                }
+                    foreach (var entry in selected)
+                    {
+                        count++;
+                        var sortPrefix = count.ToString().PadLeft(digits, '0');
+                        var fileName = entry.BaseName;
+                        File.WriteAllText(Path.Combine(folderPath, fileName + ".nfo"), BuildTopListNfo(entry.Item, sortPrefix));
+                        WriteRankedImages(entry.Item, count, Path.Combine(folderPath, fileName), request.BadgeStyle, tempDir);
+                        // .strm last: the folder is a watched library, and Emby creates the item the
+                        // moment it sees the .strm — the nfo and badged images must already be there.
+                        File.WriteAllText(Path.Combine(folderPath, fileName + ".strm"), entry.FilePath);
+                    }
                 }
                 finally { try { Directory.Delete(tempDir, true); } catch { } }
 
@@ -180,8 +180,8 @@ namespace HomeScreenCompanion
                     .ThenBy(i => i.ProductionYear)
                     .Select(i => new MovieItem
                     {
-                        Name   = i.Name ?? "",
-                        Year   = i.ProductionYear,
+                        Name = i.Name ?? "",
+                        Year = i.ProductionYear,
                         ImdbId = i.GetProviderId("Imdb") ?? "",
                         ItemId = i.Id.ToString("N")
                     })
@@ -241,8 +241,8 @@ namespace HomeScreenCompanion
                             try
                             {
                                 var gpParams = getPolicyMethod.GetParameters();
-                                var gpArg0   = BuildUserArg(gpParams[0].ParameterType, user);
-                                var gpArgs   = BuildArgList(gpParams, gpArg0, null);
+                                var gpArg0 = BuildUserArg(gpParams[0].ParameterType, user);
+                                var gpArgs = BuildArgList(gpParams, gpArg0, null);
                                 policy = getPolicyMethod.Invoke(_userManager, gpArgs);
                             }
                             catch { }
@@ -264,8 +264,8 @@ namespace HomeScreenCompanion
                         if (updateMethod == null) { errors.Add("UpdateUserPolicy not found"); break; }
 
                         var upParams = updateMethod.GetParameters();
-                        var upArg0   = BuildUserArg(upParams[0].ParameterType, user);
-                        var upArgs   = BuildArgList(upParams, upArg0, policy);
+                        var upArg0 = BuildUserArg(upParams[0].ParameterType, user);
+                        var upArgs = BuildArgList(upParams, upArg0, policy);
                         updateMethod.Invoke(_userManager, upArgs);
                         updated++;
                     }
@@ -414,7 +414,7 @@ namespace HomeScreenCompanion
         {
             if (paramType == typeof(long) || paramType == typeof(Int64))
                 return _userManager.GetInternalId(user.Id.ToString());
-            if (paramType == typeof(Guid))   return user.Id;
+            if (paramType == typeof(Guid)) return user.Id;
             if (paramType == typeof(string)) return user.Id.ToString();
             return user;
         }
@@ -425,10 +425,10 @@ namespace HomeScreenCompanion
             args[0] = arg0;
             for (int i = 1; i < parms.Length; i++)
             {
-                if (i == 1 && arg1 != null)                             args[i] = arg1;
+                if (i == 1 && arg1 != null) args[i] = arg1;
                 else if (parms[i].ParameterType == typeof(CancellationToken)) args[i] = CancellationToken.None;
-                else if (parms[i].HasDefaultValue)                      args[i] = parms[i].DefaultValue;
-                else                                                    args[i] = null;
+                else if (parms[i].HasDefaultValue) args[i] = parms[i].DefaultValue;
+                else args[i] = null;
             }
             return args;
         }
@@ -506,16 +506,16 @@ namespace HomeScreenCompanion
                 if (string.IsNullOrWhiteSpace(request.ListName))
                     return new PrepareTopListFolderResponse { Success = false, Message = "ListName is required." };
 
-                var dataPath   = Plugin.Instance.DataFolderPath;
-                var sanitized  = SanitizeFolderName(request.ListName);
+                var dataPath = Plugin.Instance.DataFolderPath;
+                var sanitized = SanitizeFolderName(request.ListName);
                 var folderPath = Path.Combine(dataPath, "toplists", sanitized);
                 Directory.CreateDirectory(folderPath);
 
                 foreach (var f in Directory.GetFiles(folderPath, "*.strm")) File.Delete(f);
-                foreach (var f in Directory.GetFiles(folderPath, "*.nfo"))  File.Delete(f);
-                foreach (var f in Directory.GetFiles(folderPath, "*.jpg"))  File.Delete(f);
+                foreach (var f in Directory.GetFiles(folderPath, "*.nfo")) File.Delete(f);
+                foreach (var f in Directory.GetFiles(folderPath, "*.jpg")) File.Delete(f);
 
-                var items    = request.Items ?? new List<ManualTopListItem>();
+                var items = request.Items ?? new List<ManualTopListItem>();
                 var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var selected = new List<(string BaseName, string FilePath, BaseItem Item)>();
                 var strmToOriginal = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
@@ -542,20 +542,20 @@ namespace HomeScreenCompanion
                 }
 
                 int digits = Math.Max(2, selected.Count.ToString().Length);
-                int count  = 0;
+                int count = 0;
                 var tempDir2 = Path.Combine(Path.GetTempPath(), "hsc_toplist_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir2);
                 try
                 {
-                foreach (var entry in selected)
-                {
-                    count++;
-                    var sortPrefix = count.ToString().PadLeft(digits, '0');
-                    File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".nfo"), BuildTopListNfo(entry.Item, sortPrefix));
-                    WriteRankedImages(entry.Item, count, Path.Combine(folderPath, entry.BaseName), request.BadgeStyle, tempDir2);
-                    // .strm last — see PrepareTopListFolderRequest handler.
-                    File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".strm"), entry.FilePath);
-                }
+                    foreach (var entry in selected)
+                    {
+                        count++;
+                        var sortPrefix = count.ToString().PadLeft(digits, '0');
+                        File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".nfo"), BuildTopListNfo(entry.Item, sortPrefix));
+                        WriteRankedImages(entry.Item, count, Path.Combine(folderPath, entry.BaseName), request.BadgeStyle, tempDir2);
+                        // .strm last — see PrepareTopListFolderRequest handler.
+                        File.WriteAllText(Path.Combine(folderPath, entry.BaseName + ".strm"), entry.FilePath);
+                    }
                 }
                 finally { try { Directory.Delete(tempDir2, true); } catch { } }
 
@@ -697,9 +697,9 @@ namespace HomeScreenCompanion
                 providerManager.RefreshFullItem(item, new MetadataRefreshOptions(fileSystem)
                 {
                     MetadataRefreshMode = MetadataRefreshMode.ValidationOnly,
-                    ImageRefreshMode    = MetadataRefreshMode.FullRefresh,
-                    ReplaceAllImages    = false,
-                    ForceSave           = true
+                    ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                    ReplaceAllImages = false,
+                    ForceSave = true
                 }, cts.Token).GetAwaiter().GetResult();
 
                 // Re-read from the library so we see the ImageInfos the refresh persisted.
@@ -721,7 +721,7 @@ namespace HomeScreenCompanion
         {
             var images = item.ImageInfos ?? Array.Empty<ItemImageInfo>();
             var poster = EnsureLocalImagePath(httpClient, images.FirstOrDefault(i => i.Type == ImageType.Primary)?.Path, tempDir);
-            var thumb  = EnsureLocalImagePath(httpClient, images.FirstOrDefault(i => i.Type == ImageType.Thumb)?.Path, tempDir)
+            var thumb = EnsureLocalImagePath(httpClient, images.FirstOrDefault(i => i.Type == ImageType.Thumb)?.Path, tempDir)
                       ?? EnsureLocalImagePath(httpClient, images.FirstOrDefault(i => i.Type == ImageType.Backdrop)?.Path, tempDir);
             return (poster, thumb);
         }
@@ -807,27 +807,27 @@ namespace HomeScreenCompanion
             switch (badgeStyle?.ToLowerInvariant())
             {
                 case "slate-grey":
-                    bgColor   = new SKColor(0x41, 0x41, 0x4B, 224);
+                    bgColor = new SKColor(0x41, 0x41, 0x4B, 224);
                     textColor = SKColors.White;
                     break;
                 case "emby-green":
-                    bgColor   = new SKColor(0x52, 0xB5, 0x4B, 200);
+                    bgColor = new SKColor(0x52, 0xB5, 0x4B, 200);
                     textColor = SKColors.White;
                     break;
                 case "ocean-blue":
-                    bgColor   = new SKColor(0x2E, 0x86, 0xC1, 210);
+                    bgColor = new SKColor(0x2E, 0x86, 0xC1, 210);
                     textColor = SKColors.White;
                     break;
                 case "soft-red":
-                    bgColor   = new SKColor(0xC9, 0x45, 0x45, 210);
+                    bgColor = new SKColor(0xC9, 0x45, 0x45, 210);
                     textColor = SKColors.White;
                     break;
                 case "violet":
-                    bgColor   = new SKColor(0x7B, 0x52, 0xB5, 210);
+                    bgColor = new SKColor(0x7B, 0x52, 0xB5, 210);
                     textColor = SKColors.White;
                     break;
                 default:
-                    bgColor   = new SKColor(0, 0, 0, 210);
+                    bgColor = new SKColor(0, 0, 0, 210);
                     textColor = SKColors.White;
                     break;
             }
@@ -894,29 +894,29 @@ namespace HomeScreenCompanion
         {
             try
             {
-                var sanitized  = SanitizeFolderName(request.ListName);
+                var sanitized = SanitizeFolderName(request.ListName);
                 var folderPath = Path.Combine(Plugin.Instance.DataFolderPath, "toplists", sanitized);
                 if (!Directory.Exists(folderPath))
                     return new GetManualTopListItemsResponse { Success = false, Message = "Folder not found." };
 
-                var config   = Plugin.Instance.Configuration;
+                var config = Plugin.Instance.Configuration;
                 var tlConfig = (config.TopLists ?? new System.Collections.Generic.List<TopListHomeSection>())
                     .FirstOrDefault(t => string.Equals(SanitizeFolderName(t.TagName), sanitized, StringComparison.OrdinalIgnoreCase));
 
-                var customName  = "";
+                var customName = "";
                 var displayMode = "";
-                var imageType   = "";
-                var badgeStyle  = "neutral";
-                var userIds     = new List<string>();
+                var imageType = "";
+                var badgeStyle = "neutral";
+                var userIds = new List<string>();
                 if (tlConfig != null)
                 {
                     try
                     {
                         var settings = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(tlConfig.HomeSectionSettings ?? "{}") ?? new Dictionary<string, string>();
-                        customName  = settings.TryGetValue("CustomName",  out var cn) ? cn  : "";
-                        displayMode = settings.TryGetValue("DisplayMode", out var dm) ? dm  : "";
-                        imageType   = settings.TryGetValue("ImageType",   out var it) ? it  : "";
-                        badgeStyle  = settings.TryGetValue("BadgeStyle",  out var bs) ? bs  : "neutral";
+                        customName = settings.TryGetValue("CustomName", out var cn) ? cn : "";
+                        displayMode = settings.TryGetValue("DisplayMode", out var dm) ? dm : "";
+                        imageType = settings.TryGetValue("ImageType", out var it) ? it : "";
+                        badgeStyle = settings.TryGetValue("BadgeStyle", out var bs) ? bs : "neutral";
                     }
                     catch { }
                     userIds = tlConfig.HomeSectionUserIds ?? new List<string>();
@@ -926,13 +926,13 @@ namespace HomeScreenCompanion
 
                 return new GetManualTopListItemsResponse
                 {
-                    Success     = true,
-                    Movies      = movies,
-                    CustomName  = customName,
+                    Success = true,
+                    Movies = movies,
+                    CustomName = customName,
                     DisplayMode = displayMode,
-                    ImageType   = imageType,
-                    BadgeStyle  = badgeStyle,
-                    UserIds     = userIds
+                    ImageType = imageType,
+                    BadgeStyle = badgeStyle,
+                    UserIds = userIds
                 };
             }
             catch (Exception ex)
@@ -1287,8 +1287,8 @@ namespace HomeScreenCompanion
             foreach (var strmFile in Directory.GetFiles(folderPath, "*.strm"))
             {
                 var baseName = Path.GetFileNameWithoutExtension(strmFile);
-                var nfoFile  = Path.Combine(folderPath, baseName + ".nfo");
-                int rank     = int.MaxValue;
+                var nfoFile = Path.Combine(folderPath, baseName + ".nfo");
+                int rank = int.MaxValue;
                 if (File.Exists(nfoFile))
                 {
                     try
@@ -1320,8 +1320,8 @@ namespace HomeScreenCompanion
                 {
                     movies.Add(new MovieItem
                     {
-                        Name   = item.Name ?? "",
-                        Year   = item.ProductionYear,
+                        Name = item.Name ?? "",
+                        Year = item.ProductionYear,
                         ImdbId = item.GetProviderId("Imdb") ?? "",
                         ItemId = item.Id.ToString("N")
                     });

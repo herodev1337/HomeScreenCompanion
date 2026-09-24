@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using MediaBrowser.Model.Entities;
 
 namespace HomeScreenCompanion

@@ -14,10 +14,10 @@ namespace HomeScreenCompanion
         {
             switch (tc.SourceType)
             {
-                case "MediaInfo":       return "Smart playlist";
+                case "MediaInfo": return "Smart playlist";
                 case "LocalCollection": return "Local collection";
-                case "LocalPlaylist":   return "Local playlist";
-                case "AI":              return "AI · " + (string.IsNullOrWhiteSpace(tc.AiProvider) ? "unknown provider" : tc.AiProvider);
+                case "LocalPlaylist": return "Local playlist";
+                case "AI": return "AI · " + (string.IsNullOrWhiteSpace(tc.AiProvider) ? "unknown provider" : tc.AiProvider);
                 default:
                     var url = tc.Url ?? "";
                     if (url.IndexOf("mdblist.com", StringComparison.OrdinalIgnoreCase) >= 0) return "MDBList";

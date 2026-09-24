@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -253,11 +253,11 @@ namespace HomeScreenCompanion
                     }
                     else
                     {
-                        apiUrl = string.IsNullOrEmpty(target.Endpoint) 
+                        apiUrl = string.IsNullOrEmpty(target.Endpoint)
                             ? $"https://api.themoviedb.org/3/list/{target.ListId}?page={page}"
                             : $"https://api.themoviedb.org/3/{target.Endpoint}?page={page}";
                     }
-                        
+
                     if (!isToken) apiUrl += $"&api_key={apiKey}";
 
                     try
@@ -296,7 +296,7 @@ namespace HomeScreenCompanion
                         var type = target.MediaType ?? (item.media_type == "tv" ? "tv" : "movie");
                         var extUrl = $"https://api.themoviedb.org/3/{type}/{item.id}/external_ids";
                         if (!isToken) extUrl += $"?api_key={apiKey}";
-                        
+
                         var extOptions = new HttpRequestOptions { Url = extUrl, CancellationToken = cancellationToken };
                         if (isToken)
                         {

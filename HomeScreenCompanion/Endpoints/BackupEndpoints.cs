@@ -27,22 +27,22 @@ namespace HomeScreenCompanion
             {
                 BackupVersion = BackupFormatVersion,
                 PluginVersion = Plugin.Instance?.Version.ToString() ?? "0.0.0",
-                CreatedUtc    = DateTime.UtcNow.ToString("o")
+                CreatedUtc = DateTime.UtcNow.ToString("o")
             };
 
             if (request.Settings)
             {
                 file.Settings = new BackupSettings
                 {
-                    OpenAiModel               = config.OpenAiModel ?? "",
-                    GeminiModel               = config.GeminiModel ?? "",
-                    ClaudeModel               = config.ClaudeModel ?? "",
-                    OllamaBaseUrl             = config.OllamaBaseUrl ?? "",
-                    OllamaModel               = config.OllamaModel ?? "",
-                    AiSystemPrompt            = config.AiSystemPrompt ?? "",
-                    ExtendedConsoleOutput     = config.ExtendedConsoleOutput,
-                    LogMissingItems           = config.LogMissingItems,
-                    DryRunMode                = config.DryRunMode,
+                    OpenAiModel = config.OpenAiModel ?? "",
+                    GeminiModel = config.GeminiModel ?? "",
+                    ClaudeModel = config.ClaudeModel ?? "",
+                    OllamaBaseUrl = config.OllamaBaseUrl ?? "",
+                    OllamaModel = config.OllamaModel ?? "",
+                    AiSystemPrompt = config.AiSystemPrompt ?? "",
+                    ExtendedConsoleOutput = config.ExtendedConsoleOutput,
+                    LogMissingItems = config.LogMissingItems,
+                    DryRunMode = config.DryRunMode,
                     PreserveTagsOnEmptyResult = config.PreserveTagsOnEmptyResult
                 };
                 file.Sections.Add("Settings");
@@ -54,10 +54,10 @@ namespace HomeScreenCompanion
                 {
                     TraktClientId = config.TraktClientId ?? "",
                     MdblistApiKey = config.MdblistApiKey ?? "",
-                    TmdbApiKey    = config.TmdbApiKey ?? "",
-                    OpenAiApiKey  = config.OpenAiApiKey ?? "",
-                    GeminiApiKey  = config.GeminiApiKey ?? "",
-                    ClaudeApiKey  = config.ClaudeApiKey ?? ""
+                    TmdbApiKey = config.TmdbApiKey ?? "",
+                    OpenAiApiKey = config.OpenAiApiKey ?? "",
+                    GeminiApiKey = config.GeminiApiKey ?? "",
+                    ClaudeApiKey = config.ClaudeApiKey ?? ""
                 };
                 file.Sections.Add("ApiKeys");
             }
@@ -105,10 +105,10 @@ namespace HomeScreenCompanion
             {
                 file.HomeSync = new BackupHomeSync
                 {
-                    HomeSyncEnabled       = config.HomeSyncEnabled,
-                    HomeSyncSourceUserId  = config.HomeSyncSourceUserId ?? "",
+                    HomeSyncEnabled = config.HomeSyncEnabled,
+                    HomeSyncSourceUserId = config.HomeSyncSourceUserId ?? "",
                     HomeSyncTargetUserIds = (config.HomeSyncTargetUserIds ?? new List<string>()).ToList(),
-                    HomeSyncLibraryOrder  = config.HomeSyncLibraryOrder
+                    HomeSyncLibraryOrder = config.HomeSyncLibraryOrder
                 };
                 file.Sections.Add("HomeSync");
             }
@@ -139,15 +139,15 @@ namespace HomeScreenCompanion
                 if (request.Settings && Has("Settings") && backup.Settings != null)
                 {
                     var s = backup.Settings;
-                    config.OpenAiModel               = s.OpenAiModel ?? "";
-                    config.GeminiModel               = s.GeminiModel ?? "";
-                    config.ClaudeModel               = s.ClaudeModel ?? "";
-                    config.OllamaBaseUrl             = s.OllamaBaseUrl ?? "";
-                    config.OllamaModel               = s.OllamaModel ?? "";
-                    config.AiSystemPrompt            = s.AiSystemPrompt ?? "";
-                    config.ExtendedConsoleOutput     = s.ExtendedConsoleOutput;
-                    config.LogMissingItems           = s.LogMissingItems;
-                    config.DryRunMode                = s.DryRunMode;
+                    config.OpenAiModel = s.OpenAiModel ?? "";
+                    config.GeminiModel = s.GeminiModel ?? "";
+                    config.ClaudeModel = s.ClaudeModel ?? "";
+                    config.OllamaBaseUrl = s.OllamaBaseUrl ?? "";
+                    config.OllamaModel = s.OllamaModel ?? "";
+                    config.AiSystemPrompt = s.AiSystemPrompt ?? "";
+                    config.ExtendedConsoleOutput = s.ExtendedConsoleOutput;
+                    config.LogMissingItems = s.LogMissingItems;
+                    config.DryRunMode = s.DryRunMode;
                     config.PreserveTagsOnEmptyResult = s.PreserveTagsOnEmptyResult;
                     response.Applied.Add("Settings");
                 }
@@ -157,10 +157,10 @@ namespace HomeScreenCompanion
                     var k = backup.ApiKeys;
                     config.TraktClientId = k.TraktClientId ?? "";
                     config.MdblistApiKey = k.MdblistApiKey ?? "";
-                    config.TmdbApiKey    = k.TmdbApiKey ?? "";
-                    config.OpenAiApiKey  = k.OpenAiApiKey ?? "";
-                    config.GeminiApiKey  = k.GeminiApiKey ?? "";
-                    config.ClaudeApiKey  = k.ClaudeApiKey ?? "";
+                    config.TmdbApiKey = k.TmdbApiKey ?? "";
+                    config.OpenAiApiKey = k.OpenAiApiKey ?? "";
+                    config.GeminiApiKey = k.GeminiApiKey ?? "";
+                    config.ClaudeApiKey = k.ClaudeApiKey ?? "";
                     response.Applied.Add("API keys");
                 }
 
@@ -196,10 +196,10 @@ namespace HomeScreenCompanion
                 if (request.HomeSync && Has("HomeSync") && backup.HomeSync != null)
                 {
                     var h = backup.HomeSync;
-                    config.HomeSyncEnabled       = h.HomeSyncEnabled;
-                    config.HomeSyncSourceUserId  = h.HomeSyncSourceUserId ?? "";
+                    config.HomeSyncEnabled = h.HomeSyncEnabled;
+                    config.HomeSyncSourceUserId = h.HomeSyncSourceUserId ?? "";
                     config.HomeSyncTargetUserIds = (h.HomeSyncTargetUserIds ?? new List<string>()).ToList();
-                    config.HomeSyncLibraryOrder  = h.HomeSyncLibraryOrder;
+                    config.HomeSyncLibraryOrder = h.HomeSyncLibraryOrder;
                     if (!string.IsNullOrEmpty(config.HomeSyncSourceUserId) && !IsKnownUser(knownUsers, config.HomeSyncSourceUserId))
                     {
                         config.HomeSyncSourceUserId = "";
@@ -277,14 +277,14 @@ namespace HomeScreenCompanion
                             tl.HomeSectionLibraryId = "auto";
                             response.TopListsNeedingLibrary.Add(new TopListLibraryInfo
                             {
-                                TagName     = tl.TagName,
-                                CustomName  = settings.TryGetValue("CustomName", out var cn) && !string.IsNullOrEmpty(cn) ? cn : tl.TagName,
+                                TagName = tl.TagName,
+                                CustomName = settings.TryGetValue("CustomName", out var cn) && !string.IsNullOrEmpty(cn) ? cn : tl.TagName,
                                 DisplayMode = settings.TryGetValue("DisplayMode", out var dm) ? dm : "",
-                                ImageType   = settings.TryGetValue("ImageType", out var it) ? it : "",
-                                BadgeStyle  = badgeStyle,
-                                MaxItems    = tl.MaxItems,
-                                UserIds     = tl.HomeSectionUserIds.ToList(),
-                                FolderPath  = folderPath
+                                ImageType = settings.TryGetValue("ImageType", out var it) ? it : "",
+                                BadgeStyle = badgeStyle,
+                                MaxItems = tl.MaxItems,
+                                UserIds = tl.HomeSectionUserIds.ToList(),
+                                FolderPath = folderPath
                             });
                         }
                         else
@@ -374,15 +374,15 @@ namespace HomeScreenCompanion
             var result = new BackupFile { BackupVersion = 1 };
             result.Settings = new BackupSettings
             {
-                OpenAiModel               = legacy.OpenAiModel ?? "",
-                GeminiModel               = legacy.GeminiModel ?? "",
-                ClaudeModel               = legacy.ClaudeModel ?? "",
-                OllamaBaseUrl             = legacy.OllamaBaseUrl ?? "",
-                OllamaModel               = legacy.OllamaModel ?? "",
-                AiSystemPrompt            = legacy.AiSystemPrompt ?? "",
-                ExtendedConsoleOutput     = legacy.ExtendedConsoleOutput,
-                LogMissingItems           = legacy.LogMissingItems,
-                DryRunMode                = legacy.DryRunMode,
+                OpenAiModel = legacy.OpenAiModel ?? "",
+                GeminiModel = legacy.GeminiModel ?? "",
+                ClaudeModel = legacy.ClaudeModel ?? "",
+                OllamaBaseUrl = legacy.OllamaBaseUrl ?? "",
+                OllamaModel = legacy.OllamaModel ?? "",
+                AiSystemPrompt = legacy.AiSystemPrompt ?? "",
+                ExtendedConsoleOutput = legacy.ExtendedConsoleOutput,
+                LogMissingItems = legacy.LogMissingItems,
+                DryRunMode = legacy.DryRunMode,
                 PreserveTagsOnEmptyResult = legacy.PreserveTagsOnEmptyResult
             };
             result.Sections.Add("Settings");
@@ -390,10 +390,10 @@ namespace HomeScreenCompanion
             {
                 TraktClientId = legacy.TraktClientId ?? "",
                 MdblistApiKey = legacy.MdblistApiKey ?? "",
-                TmdbApiKey    = legacy.TmdbApiKey ?? "",
-                OpenAiApiKey  = legacy.OpenAiApiKey ?? "",
-                GeminiApiKey  = legacy.GeminiApiKey ?? "",
-                ClaudeApiKey  = legacy.ClaudeApiKey ?? ""
+                TmdbApiKey = legacy.TmdbApiKey ?? "",
+                OpenAiApiKey = legacy.OpenAiApiKey ?? "",
+                GeminiApiKey = legacy.GeminiApiKey ?? "",
+                ClaudeApiKey = legacy.ClaudeApiKey ?? ""
             };
             result.Sections.Add("ApiKeys");
             if (HasKey("Tags")) { result.Tags = legacy.Tags ?? new List<TagConfig>(); result.Sections.Add("Tags"); }
@@ -405,20 +405,20 @@ namespace HomeScreenCompanion
         // the plugin assumes they are never null.
         private static TagConfig NormalizeTag(TagConfig t)
         {
-            t.Name                ??= "";
-            t.Tag                 ??= "";
-            t.Url                 ??= "";
-            t.SourceType          ??= "External";
-            t.LocalSourceId       ??= "";
-            t.LocalSources        ??= new List<string>();
+            t.Name ??= "";
+            t.Tag ??= "";
+            t.Url ??= "";
+            t.SourceType ??= "External";
+            t.LocalSourceId ??= "";
+            t.LocalSources ??= new List<string>();
             t.MediaInfoConditions ??= new List<string>();
-            t.MediaInfoFilters    ??= new List<MediaInfoFilter>();
-            t.Blacklist           ??= new List<string>();
-            t.ActiveIntervals     ??= new List<DateInterval>();
-            t.HomeSectionUserIds  ??= new List<string>();
-            t.HomeSectionTracked  ??= new List<HomeSectionTracking>();
-            t.PlaylistUserIds     ??= new List<string>();
-            t.PlaylistMappings    ??= new List<PlaylistMapping>();
+            t.MediaInfoFilters ??= new List<MediaInfoFilter>();
+            t.Blacklist ??= new List<string>();
+            t.ActiveIntervals ??= new List<DateInterval>();
+            t.HomeSectionUserIds ??= new List<string>();
+            t.HomeSectionTracked ??= new List<HomeSectionTracking>();
+            t.PlaylistUserIds ??= new List<string>();
+            t.PlaylistMappings ??= new List<PlaylistMapping>();
             if (string.IsNullOrEmpty(t.HomeSectionLibraryId)) t.HomeSectionLibraryId = "auto";
             if (string.IsNullOrEmpty(t.HomeSectionSettings)) t.HomeSectionSettings = "{}";
             foreach (var m in t.PlaylistMappings) m.LastSyncedItemIds ??= new List<long>();

@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Providers;
@@ -63,11 +63,11 @@ namespace HomeScreenCompanion
                 }
 
                 var cfg = Plugin.Instance!.Configuration;
-                cfg.TraktClientId         = oldConfig.TraktClientId;
-                cfg.MdblistApiKey         = oldConfig.MdblistApiKey;
-                cfg.TmdbApiKey            = oldConfig.TmdbApiKey;
+                cfg.TraktClientId = oldConfig.TraktClientId;
+                cfg.MdblistApiKey = oldConfig.MdblistApiKey;
+                cfg.TmdbApiKey = oldConfig.TmdbApiKey;
                 cfg.ExtendedConsoleOutput = oldConfig.ExtendedConsoleOutput;
-                cfg.DryRunMode            = oldConfig.DryRunMode;
+                cfg.DryRunMode = oldConfig.DryRunMode;
                 if (oldConfig.Tags?.Count > 0) cfg.Tags = oldConfig.Tags;
                 Plugin.Instance.SaveConfiguration();
 
@@ -181,7 +181,7 @@ namespace HomeScreenCompanion
                     if (!_processedStrmIds.Add(item.Id)) return;
                 }
 
-                var itemId   = item.Id;
+                var itemId = item.Id;
                 var itemName = item.Name;
 
                 // Run the library mutations OFF the event thread. Emby raises ItemAdded/ItemUpdated

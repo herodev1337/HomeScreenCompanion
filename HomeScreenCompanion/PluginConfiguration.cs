@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Plugins;
 using System;
 using System.Collections.Generic;
 
@@ -63,7 +63,7 @@ namespace HomeScreenCompanion
         public int AiRecentlyWatchedCount { get; set; } = 20;
         public int AiRefreshIntervalDays { get; set; } = 0;
         public DateTime AiLastRunDate { get; set; } = DateTime.MinValue;
-        
+
         public List<string> Blacklist { get; set; } = new List<string>();
         public List<DateInterval> ActiveIntervals { get; set; } = new List<DateInterval>();
 
@@ -83,13 +83,13 @@ namespace HomeScreenCompanion
 
         // Tag output targets (what level to tag when scanning episodes)
         public bool TagTargetEpisode { get; set; } = false;
-        public bool TagTargetSeason  { get; set; } = false;
-        public bool TagTargetSeries  { get; set; } = false;
+        public bool TagTargetSeason { get; set; } = false;
+        public bool TagTargetSeries { get; set; } = false;
 
         // Collection output targets (what level to add to collection when scanning episodes)
         public bool CollectionTargetEpisode { get; set; } = false;
-        public bool CollectionTargetSeason  { get; set; } = false;
-        public bool CollectionTargetSeries  { get; set; } = false;
+        public bool CollectionTargetSeason { get; set; } = false;
+        public bool CollectionTargetSeries { get; set; } = false;
 
         public bool EnableHomeSection { get; set; } = false;
         public List<string> HomeSectionUserIds { get; set; } = new List<string>();

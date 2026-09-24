@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Serialization;
 using System;
 using System.Collections.Generic;
 using System.IO;

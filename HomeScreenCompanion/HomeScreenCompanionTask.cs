@@ -1,4 +1,4 @@
-﻿using MediaBrowser.Common.Net;
+using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Entities;
@@ -63,7 +63,7 @@ namespace HomeScreenCompanion
         }
 
         // ExtendedItemsQuery class moved to HomeSections/HomeScreenCompanionTask.cs
-// (used only by BuildContentSection, which is also there).
+        // (used only by BuildContentSection, which is also there).
 
         private class GroupRunStats
         {
@@ -672,18 +672,22 @@ namespace HomeScreenCompanion
 
                                         if (child.GetType().Name.Contains("PlaylistItem"))
                                         {
-                                            try { 
-                                                var inner = ((dynamic)child).Item; 
+                                            try
+                                            {
+                                                var inner = ((dynamic)child).Item;
                                                 if (inner != null) itemToTag = inner;
-                                            } catch { }
+                                            }
+                                            catch { }
                                         }
 
                                         if (itemToTag.GetType().Name.Contains("Episode"))
                                         {
-                                            try {
+                                            try
+                                            {
                                                 var series = ((dynamic)itemToTag).Series;
                                                 if (series != null) itemToTag = series;
-                                            } catch { }
+                                            }
+                                            catch { }
                                         }
 
                                         if (!IsTaggableTopLevelItem(itemToTag))
@@ -800,12 +804,12 @@ namespace HomeScreenCompanion
                                         var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
                                         if (ser) list.AddRange(matchedLocalItems);
                                         if (sea) { var s = ResolveChildSeasons(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {s.Count} seasons"); list.AddRange(s); foreach (var x in s) allScannedSeasonItems.TryAdd(x.Id, x); list.AddRange(movies); }
-                                        if (ep)  { var e = ResolveChildEpisodes(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {e.Count} episodes"); list.AddRange(e); foreach (var x in e) allScannedEpisodeItems.TryAdd(x.Id, x); list.AddRange(movies); }
+                                        if (ep) { var e = ResolveChildEpisodes(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {e.Count} episodes"); list.AddRange(e); foreach (var x in e) allScannedEpisodeItems.TryAdd(x.Id, x); list.AddRange(movies); }
                                     }
                                     return list;
                                 }
 
-                                tagOutputItems        = BuildOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
+                                tagOutputItems = BuildOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
                                 collectionOutputItems = BuildOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
                             }
                             if (debug)
@@ -921,11 +925,11 @@ namespace HomeScreenCompanion
                                 var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
                                 if (ser) list.AddRange(matchedLocalItems);
                                 if (sea) { var s = ResolveChildSeasons(seriesOnly); list.AddRange(s); foreach (var x in s) allScannedSeasonItems.TryAdd(x.Id, x); list.AddRange(movies); }
-                                if (ep)  { var e = ResolveChildEpisodes(seriesOnly); list.AddRange(e); foreach (var x in e) allScannedEpisodeItems.TryAdd(x.Id, x); list.AddRange(movies); }
+                                if (ep) { var e = ResolveChildEpisodes(seriesOnly); list.AddRange(e); foreach (var x in e) allScannedEpisodeItems.TryAdd(x.Id, x); list.AddRange(movies); }
                                 return list;
                             }
 
-                            tagOutputItems        = BuildNonMiOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
+                            tagOutputItems = BuildNonMiOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
                             collectionOutputItems = BuildNonMiOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
                         }
 
@@ -1407,32 +1411,32 @@ namespace HomeScreenCompanion
                         {
                             var merged = new GroupRunStats
                             {
-                                DisplayName      = gs.DisplayName,
-                                SourceType       = gs.SourceType,
-                                Skipped          = gs.Skipped,
-                                SkipReason       = gs.SkipReason,
-                                ErrorMessage     = gs.ErrorMessage,
-                                EnableTag        = gs.EnableTag,
+                                DisplayName = gs.DisplayName,
+                                SourceType = gs.SourceType,
+                                Skipped = gs.Skipped,
+                                SkipReason = gs.SkipReason,
+                                ErrorMessage = gs.ErrorMessage,
+                                EnableTag = gs.EnableTag,
                                 EnableCollection = gs.EnableCollection,
                                 EnableHomeSection = gs.EnableHomeSection,
                                 HomeSectionSynced = gs.HomeSectionSynced,
                                 HomeSectionUserCount = gs.HomeSectionUserCount,
                                 HomeSectionRemoved = gs.HomeSectionRemoved,
-                                BoxSetHse        = true,
-                                BoxSetFound      = gs.BoxSetFound,
+                                BoxSetHse = true,
+                                BoxSetFound = gs.BoxSetFound,
                                 BoxSetTaggedCount = gs.BoxSetTaggedCount,
-                                TagName          = gs.TagName,
-                                CollectionName   = gs.CollectionName,
-                                SourceLabel      = gs.SourceLabel,
-                                EnablePlaylist   = gs.EnablePlaylist,
-                                PlaylistName     = gs.PlaylistName,
+                                TagName = gs.TagName,
+                                CollectionName = gs.CollectionName,
+                                SourceLabel = gs.SourceLabel,
+                                EnablePlaylist = gs.EnablePlaylist,
+                                PlaylistName = gs.PlaylistName,
                                 PlaylistUsersTotal = gs.PlaylistUsersTotal,
                                 PlaylistUsersCreated = gs.PlaylistUsersCreated,
                                 PlaylistUsersUpdated = gs.PlaylistUsersUpdated,
                                 PlaylistUsersFailed = gs.PlaylistUsersFailed,
-                                Warnings         = new List<string>(gs.Warnings),
-                                MissingItems     = new List<string>(gs.MissingItems),
-                                ElapsedMs        = gs.ElapsedMs,
+                                Warnings = new List<string>(gs.Warnings),
+                                MissingItems = new List<string>(gs.MissingItems),
+                                ElapsedMs = gs.ElapsedMs,
                             };
                             boxSetMergeMap[key] = merged;
                             displayStatsList.Add(merged);
@@ -1479,10 +1483,10 @@ namespace HomeScreenCompanion
                 if (aiConfigChanged)
                     Plugin.Instance.SaveConfiguration();
 
-                int groupsFailed  = displayStatsList.Count(g => g.ErrorMessage != null);
+                int groupsFailed = displayStatsList.Count(g => g.ErrorMessage != null);
                 int groupsSkipped = displayStatsList.Count(g => g.Skipped);
-                int groupsWarned  = displayStatsList.Count(g => !g.Skipped && g.ErrorMessage == null && g.Warnings.Count > 0);
-                int groupsOk      = displayStatsList.Count - groupsFailed - groupsSkipped - groupsWarned;
+                int groupsWarned = displayStatsList.Count(g => !g.Skipped && g.ErrorMessage == null && g.Warnings.Count > 0);
+                int groupsOk = displayStatsList.Count - groupsFailed - groupsSkipped - groupsWarned;
                 string finalStatus = BuildFinalStatus(dryRun, groupsFailed, groupsWarned);
                 LastRunStatus = $"{finalStatus} ({DateTime.Now:HH:mm})";
 
@@ -1520,7 +1524,7 @@ namespace HomeScreenCompanion
             LastRunStatus = "Running...";
             try
             {
-            return await RunSingleEntryInternalAsync(entryName, cancellationToken);
+                return await RunSingleEntryInternalAsync(entryName, cancellationToken);
             }
             finally
             {
@@ -2013,12 +2017,12 @@ namespace HomeScreenCompanion
                                 var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
                                 if (ser) list.AddRange(matchedLocalItems);
                                 if (sea) { list.AddRange(ResolveChildSeasons(seriesOnly)); list.AddRange(movies); }
-                                if (ep)  { list.AddRange(ResolveChildEpisodes(seriesOnly)); list.AddRange(movies); }
+                                if (ep) { list.AddRange(ResolveChildEpisodes(seriesOnly)); list.AddRange(movies); }
                             }
                             return list;
                         }
 
-                        tagOutputItems        = BuildOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
+                        tagOutputItems = BuildOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
                         collectionOutputItems = BuildOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
                     }
                 }
@@ -2136,11 +2140,11 @@ namespace HomeScreenCompanion
                     var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
                     if (ser) list.AddRange(matchedLocalItems);
                     if (sea) { var s = ResolveChildSeasons(seriesOnly); list.AddRange(s); list.AddRange(movies); }
-                    if (ep)  { var e = ResolveChildEpisodes(seriesOnly); list.AddRange(e); list.AddRange(movies); }
+                    if (ep) { var e = ResolveChildEpisodes(seriesOnly); list.AddRange(e); list.AddRange(movies); }
                     return list;
                 }
 
-                tagOutputItems        = BuildNonMiOutput(tEp, tSea, tSer, tEp || tSea || tSer);
+                tagOutputItems = BuildNonMiOutput(tEp, tSea, tSer, tEp || tSea || tSer);
                 collectionOutputItems = BuildNonMiOutput(cEp, cSea, cSer, cEp || cSea || cSer);
             }
 
@@ -2664,7 +2668,7 @@ namespace HomeScreenCompanion
                 .Distinct().ToList();
             if (libIds.Count == 0) return 0;
 
-            var parentIdProp  = typeof(ContentSection).GetProperty("ParentId");
+            var parentIdProp = typeof(ContentSection).GetProperty("ParentId");
             var exFoldersProp = typeof(ContentSection).GetProperty("ExcludedFolders");
             var queryPropInfo = typeof(ContentSection).GetProperty("Query");
             int updated = 0;
@@ -2831,7 +2835,8 @@ namespace HomeScreenCompanion
 
         private static bool ConfigNeedsMusicItems(PluginConfiguration config) =>
             config.Tags.Any(t => t.Active && t.SourceType == "MediaInfo"
-                && GetAllCriteria(t).Any(c => {
+                && GetAllCriteria(t).Any(c =>
+                {
                     var s = c.TrimStart('!');
                     return s.StartsWith("MediaType:Audio", StringComparison.OrdinalIgnoreCase)
                         || s.StartsWith("MediaType:MusicVideo", StringComparison.OrdinalIgnoreCase)
@@ -3062,44 +3067,44 @@ namespace HomeScreenCompanion
                 WriteGroupBlock(gs, dryRun, logMissing);
         }
 
-// ───────────────────────── Moved-to-partial method index ─────────────────────────
-// Methods moved to per-feature partials (see REFACTOR_MAP.md §B.3):
-//
-// Diagnostics/HomeScreenCompanionTask.cs:
-//   DescribeSource, DescribeSourceDetail, WriteFetchLine, DescribeSourceCounts,
-//   WriteGroupBlock, WriteSingleRunFooter, BuildFinalStatus, StatusSymbol,
-//   WriteMatchedItemsDebug, WriteExceptionDebug, BuildRecentlyWatchedContext
-//
-// Tagging/HomeScreenCompanionTask.cs:
-//   WriteTagDiffDebug, FindByTitleAndYear, LoadFileHistory, SaveFileHistory
-//
-// Collections/HomeScreenCompanionTask.cs:
-//   CleanupBoxSetTags
-//
-// TopLists/HomeScreenCompanionTask.cs:
-//   SyncTopListFolders, SanitizeTopListFolderName
-//
-// Playlists/HomeScreenCompanionTask.cs:
-//   SyncPlaylistsForEntryAsync, CleanupDisabledPlaylists
-//
-// HomeSections/HomeScreenCompanionTask.cs:
-//   ManageHomeSections, DeleteSectionForUser (BuildContentSection + ExtendedItemsQuery also)
-//
-// MediaInfo/HomeScreenCompanionTask.cs:
-//   ResolveItemForMediaInfo, GetSeriesLastPlayed, ExtractMediaInfo, ItemMatchesMediaInfo,
-//   EvaluateCriterion, MatchesAny, SplitCommaValues, MatchesImdbId, MatchesPerson,
-//   GetTitleName, GetAllCriteria, IsViewerDependentCriterion, HasViewerCriteria,
-//   IsViewerOnlyMediaInfoFilter, EffectiveLegacyTargetType, MatchesArtistOrAlbumArtist,
-//   MatchesAlbumTitle, CountWatchedByUsers, TagConfigIncludesParentSeries, MatchesEpisodeTitle,
-//   ApplyNumericOp, TryGetDateModified, TryGetFileSize
-//
-// Cross-cutting methods kept here (used by both Execute and RunSingleEntryInternalAsync):
-//   GroupKey, WriteRankFile, IsBoxSetHomeSectionEntry, ApplyTagToSourceBoxSet,
-//   UpdateUntrackedSections, IsScheduleActive, ApplyViewerCriteriaToSectionSettings,
-//   EffectiveTagTargets, EffectiveCollectionTargets, TagConfigTargetsEpisodes,
-//   ConfigNeedsMusicItems, BuildItemTypes, IsTaggableTopLevelItem,
-//   TagConfigTargetsSeason, ResolveParentSeasons, ResolveParentSeries,
-//   ResolveChildSeasons, ResolveChildEpisodes, ExtractTitleContains, HsWarn, ApplyCollectionMeta
+        // ───────────────────────── Moved-to-partial method index ─────────────────────────
+        // Methods moved to per-feature partials (see REFACTOR_MAP.md §B.3):
+        //
+        // Diagnostics/HomeScreenCompanionTask.cs:
+        //   DescribeSource, DescribeSourceDetail, WriteFetchLine, DescribeSourceCounts,
+        //   WriteGroupBlock, WriteSingleRunFooter, BuildFinalStatus, StatusSymbol,
+        //   WriteMatchedItemsDebug, WriteExceptionDebug, BuildRecentlyWatchedContext
+        //
+        // Tagging/HomeScreenCompanionTask.cs:
+        //   WriteTagDiffDebug, FindByTitleAndYear, LoadFileHistory, SaveFileHistory
+        //
+        // Collections/HomeScreenCompanionTask.cs:
+        //   CleanupBoxSetTags
+        //
+        // TopLists/HomeScreenCompanionTask.cs:
+        //   SyncTopListFolders, SanitizeTopListFolderName
+        //
+        // Playlists/HomeScreenCompanionTask.cs:
+        //   SyncPlaylistsForEntryAsync, CleanupDisabledPlaylists
+        //
+        // HomeSections/HomeScreenCompanionTask.cs:
+        //   ManageHomeSections, DeleteSectionForUser (BuildContentSection + ExtendedItemsQuery also)
+        //
+        // MediaInfo/HomeScreenCompanionTask.cs:
+        //   ResolveItemForMediaInfo, GetSeriesLastPlayed, ExtractMediaInfo, ItemMatchesMediaInfo,
+        //   EvaluateCriterion, MatchesAny, SplitCommaValues, MatchesImdbId, MatchesPerson,
+        //   GetTitleName, GetAllCriteria, IsViewerDependentCriterion, HasViewerCriteria,
+        //   IsViewerOnlyMediaInfoFilter, EffectiveLegacyTargetType, MatchesArtistOrAlbumArtist,
+        //   MatchesAlbumTitle, CountWatchedByUsers, TagConfigIncludesParentSeries, MatchesEpisodeTitle,
+        //   ApplyNumericOp, TryGetDateModified, TryGetFileSize
+        //
+        // Cross-cutting methods kept here (used by both Execute and RunSingleEntryInternalAsync):
+        //   GroupKey, WriteRankFile, IsBoxSetHomeSectionEntry, ApplyTagToSourceBoxSet,
+        //   UpdateUntrackedSections, IsScheduleActive, ApplyViewerCriteriaToSectionSettings,
+        //   EffectiveTagTargets, EffectiveCollectionTargets, TagConfigTargetsEpisodes,
+        //   ConfigNeedsMusicItems, BuildItemTypes, IsTaggableTopLevelItem,
+        //   TagConfigTargetsSeason, ResolveParentSeasons, ResolveParentSeries,
+        //   ResolveChildSeasons, ResolveChildEpisodes, ExtractTitleContains, HsWarn, ApplyCollectionMeta
 
     }
 }

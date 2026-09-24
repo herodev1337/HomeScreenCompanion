@@ -17,10 +17,10 @@ namespace HomeScreenCompanion
     {
         // Utökar ItemsQuery med IsUnplayed så att Embys JSON-serialisering inkluderar fältet.
         // IsPlayed finns nativt i ItemsQuery (Emby 4.10.0.10+) och sätts via basklassen.
-            private class ExtendedItemsQuery : ItemsQuery
-            {
-                public bool? IsUnplayed { get; set; }
-            }
+        private class ExtendedItemsQuery : ItemsQuery
+        {
+            public bool? IsUnplayed { get; set; }
+        }
         private void ManageHomeSections(PluginConfiguration config, CancellationToken cancellationToken, bool debug = false, List<GroupRunStats>? statsList = null, string? filterTagName = null)
         {
             bool configChanged = false;
@@ -270,7 +270,7 @@ namespace HomeScreenCompanion
                             trackId = !string.IsNullOrEmpty(newId) ? newId : sectionMarker;
                         }
 
-                        _hsSectionDone:
+                    _hsSectionDone:
 
                         if (tracked != null)
                             tracked.SectionId = trackId;

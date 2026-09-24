@@ -39,7 +39,7 @@ namespace HomeScreenCompanion
                 bool updated = false;
                 foreach (var tagName in allHseTags)
                 {
-                    var hasTag    = (boxSet.Tags ?? Array.Empty<string>()).Any(t => string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase));
+                    var hasTag = (boxSet.Tags ?? Array.Empty<string>()).Any(t => string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase));
                     activeTags.TryGetValue(tagName, out var targets);
                     var shouldHave = targets != null && targets.Any(n => string.Equals(n, boxSet.Name, StringComparison.OrdinalIgnoreCase));
                     if (shouldHave == hasTag) continue;

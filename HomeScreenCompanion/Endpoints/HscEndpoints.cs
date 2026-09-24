@@ -178,7 +178,7 @@ namespace HomeScreenCompanion
 
                 var tc = config.Tags?.FirstOrDefault(t =>
                     string.Equals(t.Name, request.TagName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(t.Tag,  request.TagName, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(t.Tag, request.TagName, StringComparison.OrdinalIgnoreCase));
 
                 if (tc == null)
                     return new HscApplyTagHomeSectionsResponse { Success = false, Message = $"Tag '{request.TagName}' not found." };

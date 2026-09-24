@@ -51,11 +51,11 @@ namespace HomeScreenCompanion
             {
                 var opts = new MetadataRefreshOptions(fileSystem)
                 {
-                    MetadataRefreshMode      = MetadataRefreshMode.FullRefresh,
+                    MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
                     EnableRemoteContentProbe = true,
-                    ImageRefreshMode         = MetadataRefreshMode.ValidationOnly, // keep our ranked posters
-                    ReplaceAllImages         = false,
-                    ForceSave                = true
+                    ImageRefreshMode = MetadataRefreshMode.ValidationOnly, // keep our ranked posters
+                    ReplaceAllImages = false,
+                    ForceSave = true
                 };
                 providerManager.QueueRefresh(li.InternalId, opts, RefreshPriority.High);
             }
