@@ -484,4 +484,46 @@ describe('refreshStatus', () => {
         for (let i = 0; i < 20; i++) await Promise.resolve();
         expect(state.lastStatus.sync?.LastRunStatus).toBe('fast-sync');
     });
+
+    it('skips the TopList probe entirely when topListStatusAvailable is false', async () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        state.topListStatusAvailable = false;
+        const getJSON = vi.fn()
+            .mockResolvedValueOnce({ IsRunning: false, LastRunStatus: 'OK', Logs: ['a', 'b'], StartedUtc: '2025-06-15T12:00:00Z' })
+            .mockResolvedValueOnce({ IsRunning: false, LastRunStatus: 'HSC OK', Logs: ['h'] });
+        const deps = makeDeps(state, getJSON, vi.fn());
+
+        refreshStatus(view, deps);
+
+        expect(getJSON).toHaveBeenCalledTimes(2);
+        expect(getJSON).toHaveBeenCalledWith('HomeScreenCompanion/Status');
+        expect(getJSON).toHaveBeenCalledWith('HomeScreenCompanion/Hsc/Status');
+        expect(getJSON).not.toHaveBeenCalledWith('HomeScreenCompanion/TopList/Status');
+
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        expect(state.lastStatus.tl).toBe(null);
+        expect(state.lastStatus.sync?.LastRunStatus).toBe('OK');
+        expect(state.lastStatus.hsc?.LastRunStatus).toBe('HSC OK');
+    });
+
+    it('flips topListStatusAvailable to false when the TopList probe rejects', async () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        expect(state.topListStatusAvailable).toBe(true);
+        const getJSON = vi.fn()
+            .mockResolvedValueOnce({ IsRunning: false, LastRunStatus: 'OK', Logs: [], StartedUtc: '2025-06-15T12:00:00Z' })
+            .mockResolvedValueOnce({ IsRunning: false, LastRunStatus: 'HSC OK', Logs: [] })
+            .mockRejectedValueOnce(new Error('404'));
+        const deps = makeDeps(state, getJSON, vi.fn());
+
+        refreshStatus(view, deps);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        expect(state.topListStatusAvailable).toBe(false);
+        expect(state.lastStatus.tl).toBe(null);
+        expect(state.lastStatus.sync?.LastRunStatus).toBe('OK');
+        expect(state.lastStatus.hsc?.LastRunStatus).toBe('HSC OK');
+    });
 });

@@ -136,12 +136,18 @@ export interface OriginalConfigStateRef {
  * inner fns in `renderLogModal` (legacy.js:2647-2649). `statusRequestId`
  * is a monotonic counter incremented before every `refreshStatus` fetch
  * (legacy.js:2680) so an in-flight stale response can be discarded
- * (legacy.js:2686, 2715).
+ * (legacy.js:2686, 2715). `topListStatusAvailable` is a one-shot
+ * feature-detect flag for the `TopList/Status` endpoint: `refreshStatus`
+ * probes it once, and if the probe rejects (or the server returns
+ * `null`, which a healthy build never does) it flips the flag to
+ * `false` so subsequent polls skip the request entirely (silences the
+ * cosmetic 404 against older deployed DLLs that lack the endpoint).
  */
 export interface LogStatusState {
     lastStatus: { sync: TaskStatusLike | null; hsc: TaskStatusLike | null; tl: TaskStatusLike | null };
     logTab: LogTabKey | null;
     statusRequestId: number;
+    topListStatusAvailable: boolean;
 }
 
 /**
@@ -182,7 +188,7 @@ export function createOriginalConfigStateRef(): OriginalConfigStateRef {
     };
 }
 
-export function createLogStatusState(): LogStatusState { return { lastStatus: { sync: null, hsc: null, tl: null }, logTab: null, statusRequestId: 0 }; }
+export function createLogStatusState(): LogStatusState { return { lastStatus: { sync: null, hsc: null, tl: null }, logTab: null, statusRequestId: 0, topListStatusAvailable: true }; }
 export function createViewShowEphemeralState(): ViewShowEphemeralState { return { formAc: null, statusInterval: null }; }
 
 // ─── AppState aggregate ───────────────────────────────────────────────────────

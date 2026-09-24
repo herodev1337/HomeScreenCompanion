@@ -405,8 +405,18 @@ export function renderLogModal(view: HTMLElement, deps: LogModalDeps): void {
  *
  *   1. `++deps.state.statusRequestId` (captured as `myId`).
  *   2. `Promise.all` over `getJSON('HomeScreenCompanion/Status')` plus
- *      `.catch(() => null)` wrappers for the `Hsc/Status` and
- *      `TopList/Status` endpoints.
+ *      a `.catch(() => null)` wrapper for the `Hsc/Status` endpoint.
+ *      The `TopList/Status` endpoint is feature-detected: when
+ *      `deps.state.topListStatusAvailable` is `true` (default), the
+ *      probe runs and any rejection (network error or 404) flips the
+ *      flag to `false` so subsequent polls skip the request entirely.
+ *      The probe also coerces a `null` resolution to a rejection (the
+ *      server's `TopList/Status` endpoint always returns a non-null
+ *      `TopListStatusResponse`, so `null` indicates an older build
+ *      serving the legacy `{}` body that the legacy `.catch` already
+ *      masked). When the flag is already `false`, a
+ *      `Promise.resolve(null)` placeholder is used so the `results[2]`
+ *      slot stays stable.
  *   3. On resolve: if `myId !== deps.state.statusRequestId`, discard
  *      (the user already triggered a newer refresh). Otherwise:
  *      - toggle `.btn-save` / `#btnRunSync` based on `IsRunning`
@@ -414,7 +424,8 @@ export function renderLogModal(view: HTMLElement, deps: LogModalDeps): void {
  *      - if not running, ping `deps.checkFormState()` (matches the
  *        legacy `else` branch at legacy.js:2699);
  *      - stamp `#lastRunStatusLabel` + the `#dotStatus` class;
- *      - write `deps.state.lastStatus = { sync, hsc, tl }`;
+ *      - write `deps.state.lastStatus = { sync, hsc, tl }` (with
+ *        `tl = null` when the TopList probe is skipped or failed);
  *      - call `renderLogModal(view, deps)` when `#logContent` exists.
  *   4. On full rejection (only possible when the sync endpoint rejects,
  *      since the other two have inner `.catch` fallbacks): just check
@@ -429,10 +440,22 @@ export function refreshStatus(view: HTMLElement, deps: LogModalDeps): void {
     const myId = ++deps.state.statusRequestId;
     const api = deps.getApiClient();
 
+    const tlProbe = (): Promise<TaskStatusLike | null> => deps.state.topListStatusAvailable
+        ? api.getJSON<TaskStatusLike>('HomeScreenCompanion/TopList/Status')
+            .then((r) => {
+                if (!r) throw new Error('null toplist status');
+                return r;
+            })
+            .catch(() => {
+                deps.state.topListStatusAvailable = false;
+                return null;
+            })
+        : Promise.resolve(null);
+
     Promise.all([
         api.getJSON<TaskStatusLike>('HomeScreenCompanion/Status'),
         api.getJSON<TaskStatusLike>('HomeScreenCompanion/Hsc/Status').catch(() => null),
-        api.getJSON<TaskStatusLike>('HomeScreenCompanion/TopList/Status').catch(() => null),
+        tlProbe(),
     ]).then((results) => {
         if (myId !== deps.state.statusRequestId) return;
         const result = results[0];
