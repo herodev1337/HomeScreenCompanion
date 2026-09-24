@@ -11,12 +11,18 @@
 //   - `buildUserMultiSelectHtml` is tested against representative
 //     empty / partial / all-selected cases.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
     buildUserMultiSelectHtml,
     wireUserMultiSelect,
+    getHseUsers,
+    preFetchLibraryData,
+    type HseUsersApiClient,
+    type HseUsersDeps,
     type UserOption,
 } from './users';
+import { createHseUserCacheState, type HseUserCacheState } from '../state/state';
+import type { HscUserLike } from './hscTab';
 
 const USERS: readonly UserOption[] = [
     { Id: 'a', Name: 'Alice' },
@@ -42,7 +48,39 @@ afterEach(() => {
         const c = mounted.pop();
         c?.remove();
     }
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
+
+/**
+ * Build a stub `HseUsersApiClient`. Tests can override individual
+ * methods (e.g. only `getJSON`).
+ */
+function makeApi(overrides: Partial<HseUsersApiClient> = {}): HseUsersApiClient {
+    return {
+        getJSON: overrides.getJSON ?? vi.fn().mockResolvedValue([]),
+        getUrl: overrides.getUrl ?? vi.fn().mockImplementation((name: string) => 'http://legacy.test/' + name),
+        accessToken: overrides.accessToken ?? (() => 'test-token'),
+    };
+}
+
+/**
+ * Build a `HseUsersDeps` bundle. The `cache` defaults to a fresh
+ * `HseUserCacheState`; tests that pre-populate it pass `cache` explicitly.
+ */
+function makeDeps(opts: { api?: HseUsersApiClient; cache?: HseUserCacheState } = {}): {
+    deps: HseUsersDeps;
+    api: HseUsersApiClient;
+    cache: HseUserCacheState;
+} {
+    const api = opts.api ?? makeApi();
+    const cache = opts.cache ?? createHseUserCacheState();
+    return {
+        deps: { getApiClient: () => api, cache },
+        api,
+        cache,
+    };
+}
 
 // ---------------------------------------------------------------------------
 // `buildUserMultiSelectHtml`
@@ -260,5 +298,154 @@ describe('wireUserMultiSelect', () => {
         btn.click();
         // Toggled back to closed by the button's listener (which ran first).
         expect(panel.classList.contains('open')).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// `getHseUsers`
+// ---------------------------------------------------------------------------
+
+describe('getHseUsers', () => {
+    it('returns the cached list without calling the API when cache.users is non-null', async () => {
+        const cached: readonly HscUserLike[] = [{ Id: 'a', Name: 'Alice' }];
+        const { deps, api } = makeDeps({
+            cache: { users: cached as HscUserLike[], libraryPromise: null },
+        });
+
+        const result = await getHseUsers(deps);
+
+        expect(result).toBe(cached);
+        expect(api.getJSON).not.toHaveBeenCalled();
+    });
+
+    it('fetches /Users with IsDisabled=false, trims to {Id, Name}, stores in cache, returns the mapped result', async () => {
+        const api = makeApi({
+            getJSON: vi.fn().mockResolvedValue([
+                { Id: 'a', Name: 'Alice', Email: 'alice@example.com' },
+                { Id: 'b', Name: 'Bob', IsHidden: true },
+            ]),
+        });
+        const { deps, cache } = makeDeps({ api });
+
+        const result = await getHseUsers(deps);
+
+        expect(api.getJSON).toHaveBeenCalledWith('Users', { IsDisabled: false });
+        expect(result).toEqual([
+            { Id: 'a', Name: 'Alice' },
+            { Id: 'b', Name: 'Bob' },
+        ]);
+        expect(cache.users).toEqual(result);
+    });
+
+    it('returns and stores an empty array when the API response is null', async () => {
+        const api = makeApi({ getJSON: vi.fn().mockResolvedValue(null) });
+        const { deps, cache } = makeDeps({ api });
+
+        const result = await getHseUsers(deps);
+
+        expect(result).toEqual([]);
+        expect(cache.users).toEqual([]);
+    });
+
+    it('returns and stores an empty array when the API response is an empty array', async () => {
+        const api = makeApi({ getJSON: vi.fn().mockResolvedValue([]) });
+        const { deps, cache } = makeDeps({ api });
+
+        const result = await getHseUsers(deps);
+
+        expect(result).toEqual([]);
+        expect(cache.users).toEqual([]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// `preFetchLibraryData`
+// ---------------------------------------------------------------------------
+
+interface PreFetchResult {
+    readonly topListFolderNames: Set<string>;
+    readonly virtualFolders: readonly unknown[];
+}
+
+describe('preFetchLibraryData', () => {
+    it('returns the cached promise without fetching when cache.libraryPromise is non-null', () => {
+        const cachedPromise = Promise.resolve({ hit: true } as unknown);
+        const { deps } = makeDeps({
+            cache: { users: null, libraryPromise: cachedPromise },
+        });
+
+        const result = preFetchLibraryData(deps);
+
+        expect(result).toBe(cachedPromise);
+    });
+
+    it('fetches both endpoints with X-MediaBrowser-Token and combines results on success', async () => {
+        const topListBody = { FolderNames: ['Movies', 'TV Shows'] };
+        const foldersBody = [{ Name: 'lib1' }, { Name: 'lib2' }];
+
+        const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+            const urlStr = typeof input === 'string' ? input : String(input);
+            if (urlStr.includes('TopList')) {
+                return Promise.resolve({ json: () => Promise.resolve(topListBody) });
+            }
+            return Promise.resolve({ json: () => Promise.resolve(foldersBody) });
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+        const { deps, api, cache } = makeDeps();
+
+        const result = (await preFetchLibraryData(deps)) as PreFetchResult;
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(api.getUrl).toHaveBeenCalledWith('HomeScreenCompanion/TopList/List');
+        expect(api.getUrl).toHaveBeenCalledWith('Library/VirtualFolders');
+        for (const call of fetchMock.mock.calls) {
+            const init = call[1] as { headers?: unknown } | undefined;
+            expect(init?.headers).toEqual({ 'X-MediaBrowser-Token': 'test-token' });
+        }
+
+        expect(result.topListFolderNames).toBeInstanceOf(Set);
+        expect(Array.from(result.topListFolderNames).sort()).toEqual(['movies', 'tv shows']);
+        expect(result.virtualFolders).toEqual(foldersBody);
+
+        expect(cache.libraryPromise).not.toBeNull();
+    });
+
+    it('uses the { FolderNames: [] } fallback when the TopList/List fetch rejects', async () => {
+        const foldersBody = [{ Name: 'lib1' }];
+        const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+            const urlStr = typeof input === 'string' ? input : String(input);
+            if (urlStr.includes('TopList')) {
+                return Promise.reject(new Error('boom'));
+            }
+            return Promise.resolve({ json: () => Promise.resolve(foldersBody) });
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+        const { deps } = makeDeps();
+
+        const result = (await preFetchLibraryData(deps)) as PreFetchResult;
+
+        expect(Array.from(result.topListFolderNames)).toEqual([]);
+        expect(result.virtualFolders).toEqual(foldersBody);
+    });
+
+    it('uses the [] fallback when the Library/VirtualFolders fetch rejects', async () => {
+        const topListBody = { FolderNames: ['Anime'] };
+        const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+            const urlStr = typeof input === 'string' ? input : String(input);
+            if (urlStr.includes('VirtualFolders')) {
+                return Promise.reject(new Error('boom'));
+            }
+            return Promise.resolve({ json: () => Promise.resolve(topListBody) });
+        });
+        vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+        const { deps } = makeDeps();
+
+        const result = (await preFetchLibraryData(deps)) as PreFetchResult;
+
+        expect(Array.from(result.topListFolderNames)).toEqual(['anime']);
+        expect(result.virtualFolders).toEqual([]);
     });
 });

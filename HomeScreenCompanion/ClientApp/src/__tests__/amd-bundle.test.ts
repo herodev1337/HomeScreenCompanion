@@ -44,8 +44,9 @@ describe('AMD bundle (Rollup output)', () => {
         expect(src).toMatch(/emby-button/);
         expect(src).toMatch(/emby-select/);
         expect(src).toMatch(/emby-checkbox/);
-        // And it must be wrapped in `define(...)`.
-        expect(src.trimStart().startsWith('define(')).toBe(true);
+        // And it must be wrapped in `define(...)`. Strip leading /* ... */ banners.
+        const stripped = src.replace(/^\s*\/\*[\s\S]*?\*\//, '').trimStart();
+        expect(stripped.startsWith('define(')).toBe(true);
     });
 
     it('exports a callable factory via AMD `define`', () => {

@@ -1,24 +1,60 @@
 // Phase 3 wave 2: live-log rendering, leaf module.
 //
 // Lifted from `Configuration/configPage.js` (legacy.js:2589-2745).
-// Three functions extracted here:
+// Five functions extracted here:
 //
 //   - `renderLogLines(container, entries, isRunning)` (legacy.js:2589)
 //     Pure given inputs: walks each entry, classifies its leading
 //     symbol/timestamp, appends a `<div class="log-line …">` per line,
 //     and conditionally sticks the scroll position to the bottom.
 //
-//   - `renderLogModal(view)` (legacy.js:2641) DEFERRED. Reads three
-//     module-scope vars (`_lastStatus`, `_logTab`) and the implicit
-//     `keys = ['sync', 'hsc', 'tl']` task tab set.
+//   - `renderLogModal(view, deps)` (legacy.js:2641). Reads
+//     `deps.state.lastStatus` and `deps.state.logTab` and renders the
+//     merged task log tabs/body into `#logModal`.
+//
+//   - `refreshStatus(view, deps)` (legacy.js:2679). Fires three
+//     `getJSON` calls (`HomeScreenCompanion/Status`,
+//     `HomeScreenCompanion/Hsc/Status`,
+//     `HomeScreenCompanion/TopList/Status`), guards with the
+//     `statusRequestId` request-id race gate, writes
+//     `deps.state.lastStatus`, then pings `deps.checkFormState()` and
+//     re-renders the modal.
 //
 //   - `sortRows(container, criteria)` (legacy.js:2719) Pure from DOM +
 //     `criteria`: reorders the `.tag-row` children and toggles the
 //     `.sort-hidden` container class based on the sort key.
-//
-// `refreshStatus` (legacy.js:2679) is deferred — it depends on
-// `window.ApiClient`, the `statusRequestId` request-id gate, and the
-// `_lastStatus` module-scope state.
+
+import type { LogStatusState, LogTabKey, TaskStatusLike } from '../state/state';
+
+/**
+ * Minimal Jellyfin `ApiClient` shape the log-modal helpers touch. The
+ * factory in `index.ts` builds a thin wrapper that resolves the
+ * `ApiClient.getUrl(name, params)` URL internally so the log-modal code
+ * never has to reach for `window.ApiClient` directly.
+ */
+export interface LogModalApiClient {
+    getJSON<T = unknown>(name: string, params?: Record<string, unknown>): Promise<T>;
+}
+
+/**
+ * Dependencies for the log-modal helpers:
+ *
+ *   - `getApiClient`    returns a fresh `LogModalApiClient` (the factory
+ *                       builds one per page mount).
+ *   - `state`           the {@link LogStatusState} holder: writes
+ *                       happen to `lastStatus` and `statusRequestId`
+ *                       (from `refreshStatus`); reads happen to
+ *                       `lastStatus` and `logTab` (from `renderLogModal`).
+ *   - `checkFormState`  closure target for `refreshStatus`
+ *                       (legacy.js:2699). Bound at the factory so the
+ *                       wiring keeps the existing `CheckFormStateDeps`
+ *                       shape.
+ */
+export interface LogModalDeps {
+    readonly getApiClient: () => LogModalApiClient;
+    readonly state: LogStatusState;
+    readonly checkFormState: () => void;
+}
 
 /**
  * A single classified log line. The server-side task emits one `text`
@@ -271,4 +307,174 @@ export function sortRows(container: HTMLElement, criteria: SortCriteria): void {
 
     if (criteria !== 'Manual') container.classList.add('sort-hidden');
     else container.classList.remove('sort-hidden');
+}
+
+/**
+ * Render the log modal tabs + body into `view` (legacy.js:2641-2677).
+ *
+ * Picks the "selected" tab in this order:
+ *   1. `deps.state.logTab` (the user's pinned tab), else
+ *   2. the first tab whose `IsRunning` is true, else
+ *   3. the tab whose `StartedUtc` parses as the most-recent, else
+ *   4. `'sync'`.
+ *
+ * Walks every `#logTabs .log-tab`, toggling its `active` / `empty`
+ * classes and the inner `.status-dot` visibility / `running` class +
+ * the `.log-tab-time` text. Then builds the merged `LogEntry[]` for the
+ * selected tab and hands off to {@link renderLogLines}; when no logs
+ * exist for the selected tab, writes `(no runs yet)` and returns.
+ *
+ * `Logs` from the server is `readonly unknown[]`; each entry is coerced
+ * via `String()` because the legacy `renderLogLines` body calls
+ * `e.text || ''` and treats `text` as a string. The cast through
+ * `LogTabKey` after `tab.getAttribute('data-log')` is safe because the
+ * DOM is owned by `Configuration/configPage.html` and only contains the
+ * three expected keys.
+ *
+ * @param view  The config page root containing `#logTabs` + `#logContent`.
+ * @param deps  See {@link LogModalDeps}.
+ */
+export function renderLogModal(view: HTMLElement, deps: LogModalDeps): void {
+    const content = view.querySelector<HTMLElement>('#logContent');
+    const tabs = view.querySelectorAll<HTMLElement>('#logTabs .log-tab');
+    if (!content) return;
+
+    const keys: readonly LogTabKey[] = ['sync', 'hsc', 'tl'];
+    const ls = deps.state.lastStatus;
+    function startedMs(k: LogTabKey): number {
+        const s = ls[k];
+        const t = s && s.StartedUtc ? Date.parse(s.StartedUtc) : NaN;
+        return isNaN(t) ? 0 : t;
+    }
+    function running(k: LogTabKey): boolean {
+        const s = ls[k];
+        return !!(s && s.IsRunning);
+    }
+    function logs(k: LogTabKey): readonly unknown[] {
+        const s = ls[k];
+        return (s && s.Logs) || [];
+    }
+
+    let selected: LogTabKey | null = deps.state.logTab;
+    if (!selected) {
+        const runningKey = keys.find((k) => running(k));
+        if (runningKey) {
+            selected = runningKey;
+        } else {
+            let best = 0;
+            keys.forEach((k) => {
+                const ms = startedMs(k);
+                if (ms > best) { best = ms; selected = k; }
+            });
+        }
+        if (!selected) selected = 'sync';
+    }
+    const finalSelected: LogTabKey = selected;
+
+    tabs.forEach((tab) => {
+        const k = (tab.getAttribute('data-log') ?? '') as LogTabKey;
+        tab.classList.toggle('active', k === finalSelected);
+        tab.classList.toggle('empty', logs(k).length === 0 && !running(k));
+        const dot = tab.querySelector<HTMLElement>('.status-dot');
+        if (dot) {
+            dot.className = 'status-dot';
+            if (running(k)) dot.classList.add('running');
+            dot.style.visibility = (running(k) || logs(k).length) ? 'visible' : 'hidden';
+        }
+        const timeEl = tab.querySelector<HTMLElement>('.log-tab-time');
+        if (timeEl) {
+            const ms = startedMs(k);
+            timeEl.textContent = ms
+                ? new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                : '';
+        }
+    });
+
+    const rawLogs = logs(finalSelected);
+    const entries: LogEntry[] = rawLogs.map((l): LogEntry => ({ src: finalSelected, text: String(l) }));
+    if (!entries.length) {
+        content.textContent = '(no runs yet)';
+        return;
+    }
+    renderLogLines(content, entries, running(finalSelected));
+}
+
+/**
+ * Poll the three status endpoints, then refresh the log modal
+ * (legacy.js:2679-2717).
+ *
+ *   1. `++deps.state.statusRequestId` (captured as `myId`).
+ *   2. `Promise.all` over `getJSON('HomeScreenCompanion/Status')` plus
+ *      `.catch(() => null)` wrappers for the `Hsc/Status` and
+ *      `TopList/Status` endpoints.
+ *   3. On resolve: if `myId !== deps.state.statusRequestId`, discard
+ *      (the user already triggered a newer refresh). Otherwise:
+ *      - toggle `.btn-save` / `#btnRunSync` based on `IsRunning`
+ *        (either the sync or hsc task counts);
+ *      - if not running, ping `deps.checkFormState()` (matches the
+ *        legacy `else` branch at legacy.js:2699);
+ *      - stamp `#lastRunStatusLabel` + the `#dotStatus` class;
+ *      - write `deps.state.lastStatus = { sync, hsc, tl }`;
+ *      - call `renderLogModal(view, deps)` when `#logContent` exists.
+ *   4. On full rejection (only possible when the sync endpoint rejects,
+ *      since the other two have inner `.catch` fallbacks): just check
+ *      the request id and return — matches the silent catch at
+ *      legacy.js:2714.
+ *
+ * @param view  The config page root. Used to find `#lastRunStatusLabel`,
+ *              `#dotStatus`, `.btn-save`, `#btnRunSync`, and `#logContent`.
+ * @param deps  See {@link LogModalDeps}.
+ */
+export function refreshStatus(view: HTMLElement, deps: LogModalDeps): void {
+    const myId = ++deps.state.statusRequestId;
+    const api = deps.getApiClient();
+
+    Promise.all([
+        api.getJSON<TaskStatusLike>('HomeScreenCompanion/Status'),
+        api.getJSON<TaskStatusLike>('HomeScreenCompanion/Hsc/Status').catch(() => null),
+        api.getJSON<TaskStatusLike>('HomeScreenCompanion/TopList/Status').catch(() => null),
+    ]).then((results) => {
+        if (myId !== deps.state.statusRequestId) return;
+        const result = results[0];
+        const hscResult = results[1];
+        const tlResult = results[2];
+
+        const label = view.querySelector<HTMLElement>('#lastRunStatusLabel');
+        const dot = view.querySelector<HTMLElement>('#dotStatus');
+        const content = view.querySelector<HTMLElement>('#logContent');
+        const btnSave = view.querySelector<HTMLElement>('.btn-save');
+        const btnRun = view.querySelector<HTMLElement>('#btnRunSync');
+
+        const eitherRunning = !!(result && result.IsRunning) || !!(hscResult && hscResult.IsRunning);
+        if (eitherRunning) {
+            if (btnSave) {
+                (btnSave as HTMLButtonElement).disabled = true;
+                btnSave.style.opacity = '0.5';
+                const span = btnSave.querySelector<HTMLElement>('span');
+                if (span) span.textContent = 'Sync in progress...';
+            }
+            if (btnRun) (btnRun as HTMLButtonElement).disabled = true;
+        } else {
+            if (btnRun) (btnRun as HTMLButtonElement).disabled = false;
+            if (btnSave) {
+                const span = btnSave.querySelector<HTMLElement>('span');
+                if (span) span.textContent = 'Save Settings';
+                deps.checkFormState();
+            }
+        }
+
+        if (label) label.textContent = (result && result.LastRunStatus) || 'Never';
+        if (dot) {
+            dot.className = 'status-dot';
+            const st = (result && result.LastRunStatus) || '';
+            if (st.includes('Running')) dot.classList.add('running');
+            else if (/failed|error/i.test(st)) dot.classList.add('failed');
+            else if (/warning/i.test(st)) dot.classList.add('warn');
+        }
+
+        deps.state.lastStatus = { sync: result, hsc: hscResult, tl: tlResult };
+        if (content) renderLogModal(view, deps);
+    }).catch(() => {
+        if (myId !== deps.state.statusRequestId) return;
+    });
 }

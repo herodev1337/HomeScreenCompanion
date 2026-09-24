@@ -4,14 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "TZ=UTC node scripts/build-bridge.mjs",
-    "build:experimental": "TZ=UTC rollup -c",
-    "build:legacy": "TZ=UTC node scripts/build-legacy-bundle.mjs",
+    "build": "TZ=UTC rollup -c",
     "typecheck": "tsc --noEmit",
     "test": "TZ=UTC vitest run",
-    "test:watch": "TZ=UTC vitest",
-    "pretest:legacy": "npm run build:legacy",
-    "test:legacy": "TZ=UTC vitest run --config vitest.legacy.config.mts"
+    "test:watch": "TZ=UTC vitest"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^15.2.3",

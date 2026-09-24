@@ -1,7 +1,9 @@
 // Phase 5 (state wiring): Manage Home Screen tab helpers.
 //
-// Three functions extracted verbatim from legacy.js:6340-6519:
+// Four functions extracted verbatim from legacy.js:6253-6519:
 //
+//   - loadHscManageTab      (legacy.js:6253) -- entry point: users +
+//                                               section-list wiring
 //   - fetchManageSections   (legacy.js:6340) -- fetch + store Sections
 //   - renderManageSections  (legacy.js:6364) -- rows + drag/touch wiring
 //   - applyManageSections   (legacy.js:6483) -- POST the current order
@@ -21,6 +23,8 @@
 // This mirrors the `hscTab.ts` deps pattern: the legacy caller
 // (`loadHscManageTab`, legacy.js:6253) keeps wrapping these with the
 // closure-bound arguments until the rest of the tab is migrated.
+
+import type { ManageState } from '../state/state';
 
 /**
  * Minimal shape of one home-screen section row. The legacy code only
@@ -368,4 +372,119 @@ export function applyManageSections(
             deps.alert('Error applying changes. Check server logs.');
             btnApply!.disabled = false;
         });
+}
+
+/**
+ * Dependencies for {@link loadHscManageTab}. Extends {@link ManageDeps}
+ * with:
+ *
+ *   - `getHseUsers` — resolves to the Emby user list. Only `.Id` and
+ *                     `.Name` are read, so the return type is left
+ *                     loose as `unknown`; callers (and tests) provide
+ *                     whatever shape the existing `getHseUsers`
+ *                     helper (`modules/homesections/users.ts`)
+ *                     returns.
+ *   - `prompt`      — synchronous `window.prompt` analog, injected so
+ *                     the "Add section" flow is testable without a
+ *                     real dialog.
+ *   - `fetchSections` / `applySections` — optional injection points for
+ *                     the two sibling functions {@link fetchManageSections}
+ *                     and {@link applyManageSections}. Both default to
+ *                     the local exports, so production callers only
+ *                     need to provide `getHseUsers` and `prompt`;
+ *                     tests override these with spies so they can
+ *                     assert on the calls without running the real
+ *                     implementations.
+ */
+export interface LoadHscManageTabDeps extends ManageDeps {
+    readonly getHseUsers: () => Promise<unknown>;
+    readonly prompt: (message: string, defaultValue?: string) => string | null;
+    readonly fetchSections?: typeof fetchManageSections;
+    readonly applySections?: typeof applyManageSections;
+}
+
+/**
+ * Wire the HSC Manage tab (legacy.js:6253-6338).
+ *
+ * Entry point for the tab. Looks up the four controls, fetches the
+ * user list, populates the select dropdown, stamps the
+ * `data-original-options` cache for restore, then wires the
+ * change / refresh / apply / add interactions and renders the initial
+ * section list.
+ *
+ * Behavior contract:
+ *   1. `view.querySelector('#hscManageContainer')` — early-return on
+ *      miss.
+ *   2. Look up `#hscManageUserSelect`, `#btnAddManSection`,
+ *      `#btnApplyManSections`, `#btnRefreshManSections` — early-return
+ *      when any are missing.
+ *   3. `deps.getHseUsers()` resolves to a `{Id, Name}[]`. Each user
+ *      renders as `<option value="<Id>"><Name></option>` and is
+ *      joined into `select.innerHTML` (replacing the empty default).
+ *   4. `select.dataset.originalOptions` is stamped with the
+ *      JSON-stringified user list.
+ *   5. `select` `change` listener: when a user is picked,
+ *      {@link fetchManageSections} is called with that id.
+ *   6. Initial render: {@link renderManageSections} is invoked once
+ *      via `deps.renderSections` so the placeholder copy or any
+ *      pre-loaded sections show up immediately.
+ *   7. `#btnAddManSection` `click` → `deps.prompt('Section name:', '')`.
+ *      On a non-empty / non-whitespace result, a
+ *      `{ CustomName: name, SectionType: 'Movies' }` record is pushed
+ *      onto `state.sections` and the list is re-rendered.
+ *   8. `#btnApplyManSections` `click` → {@link applyManageSections}.
+ *   9. `#btnRefreshManSections` `click` → {@link fetchManageSections}
+ *      for the currently selected user.
+ *
+ * @param view   The config page root.
+ * @param state  Caller-owned holder for the managed sections.
+ * @param deps   See {@link LoadHscManageTabDeps}.
+ */
+export function loadHscManageTab(
+    view: HTMLElement,
+    state: ManageState,
+    deps: LoadHscManageTabDeps,
+): void {
+    const container = view.querySelector('#hscManageContainer');
+    if (!container) return;
+
+    const selUser = container.querySelector<HTMLSelectElement>('#hscManageUserSelect');
+    const btnAdd = container.querySelector<HTMLButtonElement>('#btnAddManSection');
+    const btnApply = container.querySelector<HTMLButtonElement>('#btnApplyManSections');
+    const btnRefresh = container.querySelector<HTMLButtonElement>('#btnRefreshManSections');
+    if (!selUser || !btnAdd || !btnApply || !btnRefresh) return;
+
+    const fetchSections = deps.fetchSections ?? fetchManageSections;
+    const applySections = deps.applySections ?? applyManageSections;
+
+    void deps.getHseUsers().then((raw) => {
+        const users = ((raw || []) as readonly { Id: string; Name: string }[]).slice();
+        const userOptions = users
+            .map((u) => '<option value="' + u.Id + '">' + u.Name + '</option>')
+            .join('');
+        selUser.innerHTML = userOptions;
+        selUser.dataset.originalOptions = JSON.stringify(users);
+
+        selUser.addEventListener('change', () => {
+            if (selUser.value) fetchSections(view, selUser.value, state, deps);
+        });
+
+        deps.renderSections(view, state, deps);
+
+        btnAdd.addEventListener('click', () => {
+            const name = deps.prompt('Section name:', '');
+            if (name && name.trim()) {
+                state.sections.push({ CustomName: name.trim(), SectionType: 'Movies' });
+                deps.renderSections(view, state, deps);
+            }
+        });
+
+        btnApply.addEventListener('click', () => {
+            applySections(view, state, deps);
+        });
+
+        btnRefresh.addEventListener('click', () => {
+            if (selUser.value) fetchSections(view, selUser.value, state, deps);
+        });
+    });
 }

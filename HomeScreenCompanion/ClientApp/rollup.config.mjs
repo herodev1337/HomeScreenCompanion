@@ -42,7 +42,7 @@ function rawTextPlugin() {
 }
 
 export default {
-    input: 'src/entry-amd.ts',
+    input: 'src/modules/index.ts',
     output: {
         file: OUT,
         format: 'amd',

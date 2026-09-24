@@ -9,16 +9,28 @@
 //
 // `sortRows` and `classifyLogLine` are also unit-tested here since
 // they live in the same module and are pure given inputs.
+//
+// `renderLogModal` and `refreshStatus` are smoke-tested here —
+// minimal DOM fixture, mocked `ApiClient.getJSON`, drained microtasks
+// (manageTab.test.ts pattern). The stale-response guard test fires
+// two `refreshStatus` calls back-to-back, resolves the second's
+// promises before the first's, and asserts the first's result is
+// discarded via the `statusRequestId` race gate.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import {
     renderLogLines,
+    renderLogModal,
+    refreshStatus,
     sortRows,
     classifyLogLine,
     type LogEntry,
     type LogContainer,
+    type LogModalApiClient,
+    type LogModalDeps,
 } from './logModal';
+import { createLogStatusState } from '../state/state';
 
 function makeContainer(): LogContainer {
     const el = document.createElement('div') as unknown as LogContainer;
@@ -225,5 +237,251 @@ describe('sortRows', () => {
         expect((c.children[0]!.querySelector('.txtEntryLabel') as HTMLInputElement).value).toBe('B');
         expect((c.children[1]!.querySelector('.txtEntryLabel') as HTMLInputElement).value).toBe('C');
         expect((c.children[2]!.querySelector('.txtEntryLabel') as HTMLInputElement).value).toBe('A');
+    });
+});
+
+/**
+ * Build a minimal `#logModal` fixture: three `.log-tab` children of
+ * `#logTabs`, each carrying a `.status-dot` + `.log-tab-time`, plus
+ * the `#logContent` body that `renderLogModal` writes into. Returns
+ * the view element so tests can append it to `document.body`.
+ */
+function buildLogView(): HTMLElement {
+    document.body.innerHTML = '';
+    const view = document.createElement('div');
+    view.id = 'logModal';
+    view.innerHTML = [
+        '<div id="logTabs">',
+        '<div class="log-tab" data-log="sync"><span class="status-dot"></span><span class="log-tab-time"></span></div>',
+        '<div class="log-tab" data-log="hsc"><span class="status-dot"></span><span class="log-tab-time"></span></div>',
+        '<div class="log-tab" data-log="tl"><span class="status-dot"></span><span class="log-tab-time"></span></div>',
+        '</div>',
+        '<div id="logContent"></div>',
+        '<span id="lastRunStatusLabel"></span>',
+        '<span id="dotStatus"></span>',
+        '<button type="button" class="btn-save"><span>Save Settings</span></button>',
+        '<button type="button" id="btnRunSync"></button>',
+    ].join('');
+    document.body.appendChild(view);
+    return view;
+}
+
+/** Promise + manual resolve/reject for race-condition tests. */
+function makeDeferred<T>(): {
+    promise: Promise<T>;
+    resolve: (v: T) => void;
+    reject: (e: unknown) => void;
+} {
+    let resolveFn!: (v: T) => void;
+    let rejectFn!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolveFn = res;
+        rejectFn = rej;
+    });
+    return { promise, resolve: resolveFn, reject: rejectFn };
+}
+
+function makeApi(getJSON: ReturnType<typeof vi.fn>): LogModalApiClient {
+    return { getJSON: getJSON as unknown as LogModalApiClient['getJSON'] };
+}
+
+function makeDeps(
+    state: ReturnType<typeof createLogStatusState>,
+    getJSON: ReturnType<typeof vi.fn>,
+    checkFormState: ReturnType<typeof vi.fn>,
+): LogModalDeps {
+    return {
+        getApiClient: () => makeApi(getJSON),
+        state,
+        checkFormState,
+    };
+}
+
+describe('renderLogModal', () => {
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    it('marks the sync tab active and renders log lines from state.lastStatus.sync', () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        state.lastStatus.sync = {
+            StartedUtc: '2025-06-15T12:00:00Z',
+            IsRunning: false,
+            LastRunStatus: 'OK',
+            Logs: ['[12:00:01] line one', '[12:00:02] line two'],
+        };
+        const deps = makeDeps(state, vi.fn(), vi.fn());
+
+        renderLogModal(view, deps);
+
+        const syncTab = view.querySelector<HTMLElement>('[data-log="sync"]')!;
+        const hscTab = view.querySelector<HTMLElement>('[data-log="hsc"]')!;
+        const tlTab = view.querySelector<HTMLElement>('[data-log="tl"]')!;
+
+        expect(syncTab.classList.contains('active')).toBe(true);
+        expect(syncTab.classList.contains('empty')).toBe(false);
+        expect(hscTab.classList.contains('empty')).toBe(true);
+        expect(tlTab.classList.contains('empty')).toBe(true);
+
+        const lines = view.querySelectorAll('#logContent .log-line');
+        expect(lines.length).toBe(2);
+    });
+
+    it('picks the running tab when no logTab is pinned', () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        state.lastStatus.sync = { IsRunning: false, StartedUtc: '2025-06-01T00:00:00Z', Logs: [] };
+        state.lastStatus.hsc = { IsRunning: true, StartedUtc: '2025-06-02T00:00:00Z', Logs: ['hot'] };
+        state.lastStatus.tl = { IsRunning: false, StartedUtc: '2025-06-03T00:00:00Z', Logs: [] };
+        const deps = makeDeps(state, vi.fn(), vi.fn());
+
+        renderLogModal(view, deps);
+
+        const hscTab = view.querySelector<HTMLElement>('[data-log="hsc"]')!;
+        expect(hscTab.classList.contains('active')).toBe(true);
+        expect(view.querySelector<HTMLElement>('[data-log="sync"]')!.classList.contains('active')).toBe(false);
+    });
+
+    it('falls back to the most-recent StartedUtc when nothing is running', () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        state.lastStatus.sync = { IsRunning: false, StartedUtc: '2025-06-01T00:00:00Z', Logs: ['oldest'] };
+        state.lastStatus.hsc = { IsRunning: false, StartedUtc: '2025-06-03T00:00:00Z', Logs: ['newest'] };
+        state.lastStatus.tl = { IsRunning: false, StartedUtc: '2025-06-02T00:00:00Z', Logs: ['middle'] };
+        const deps = makeDeps(state, vi.fn(), vi.fn());
+
+        renderLogModal(view, deps);
+
+        const hscTab = view.querySelector<HTMLElement>('[data-log="hsc"]')!;
+        expect(hscTab.classList.contains('active')).toBe(true);
+    });
+
+    it('writes "(no runs yet)" when the selected tab has empty Logs and writes the running dot class', () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        state.logTab = 'tl';
+        state.lastStatus.tl = { IsRunning: true, Logs: [] };
+        const deps = makeDeps(state, vi.fn(), vi.fn());
+
+        renderLogModal(view, deps);
+
+        const tlTab = view.querySelector<HTMLElement>('[data-log="tl"]')!;
+        expect(tlTab.classList.contains('active')).toBe(true);
+        expect(view.querySelector('#logContent')!.textContent).toBe('(no runs yet)');
+        expect(tlTab.querySelector<HTMLElement>('.status-dot')!.classList.contains('running')).toBe(true);
+    });
+
+    it('is a no-op when #logContent is missing', () => {
+        document.body.innerHTML = '<div id="logModal"></div>';
+        const view = document.getElementById('logModal')!;
+        const state = createLogStatusState();
+        state.lastStatus.sync = { IsRunning: false, Logs: ['x'] };
+        const deps = makeDeps(state, vi.fn(), vi.fn());
+        expect(() => renderLogModal(view, deps)).not.toThrow();
+    });
+});
+
+describe('refreshStatus', () => {
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    it('polls the three status endpoints, populates state.lastStatus, and pings checkFormState', async () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        const getJSON = vi.fn()
+            .mockResolvedValueOnce({ IsRunning: false, LastRunStatus: 'OK', Logs: ['a', 'b'], StartedUtc: '2025-06-15T12:00:00Z' })
+            .mockResolvedValueOnce({ IsRunning: false, LastRunStatus: 'HSC OK', Logs: ['h'] })
+            .mockResolvedValueOnce(null);
+        const checkFormState = vi.fn();
+        const deps = makeDeps(state, getJSON, checkFormState);
+
+        refreshStatus(view, deps);
+
+        expect(getJSON).toHaveBeenCalledWith('HomeScreenCompanion/Status');
+        expect(getJSON).toHaveBeenCalledWith('HomeScreenCompanion/Hsc/Status');
+        expect(getJSON).toHaveBeenCalledWith('HomeScreenCompanion/TopList/Status');
+
+        // Drain microtasks so the Promise.all.then runs.
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        expect(state.lastStatus.sync?.LastRunStatus).toBe('OK');
+        expect(state.lastStatus.hsc?.LastRunStatus).toBe('HSC OK');
+        expect(state.lastStatus.tl).toBe(null);
+        expect(checkFormState).toHaveBeenCalledTimes(1);
+
+        // #logContent was repopulated (renderLogModal was invoked).
+        expect(view.querySelectorAll('#logContent .log-line').length).toBe(2);
+    });
+
+    it('disables .btn-save and #btnRunSync while either task is running, and skips checkFormState', async () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        const getJSON = vi.fn()
+            .mockResolvedValueOnce({ IsRunning: true, LastRunStatus: 'Running...', Logs: [] })
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+        const checkFormState = vi.fn();
+        const deps = makeDeps(state, getJSON, checkFormState);
+
+        refreshStatus(view, deps);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        const btnSave = view.querySelector<HTMLButtonElement>('.btn-save')!;
+        const btnRun = view.querySelector<HTMLButtonElement>('#btnRunSync')!;
+        expect(btnSave.disabled).toBe(true);
+        expect(btnSave.style.opacity).toBe('0.5');
+        expect(btnSave.querySelector('span')!.textContent).toBe('Sync in progress...');
+        expect(btnRun.disabled).toBe(true);
+        expect(checkFormState).not.toHaveBeenCalled();
+    });
+
+    it('stamps #lastRunStatusLabel and the failed/warn/running dot class', async () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+        const getJSON = vi.fn()
+            .mockResolvedValueOnce({ IsRunning: false, LastRunStatus: 'Sync failed: timeout', Logs: [] })
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null);
+        const deps = makeDeps(state, getJSON, vi.fn());
+
+        refreshStatus(view, deps);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+
+        expect(view.querySelector<HTMLElement>('#lastRunStatusLabel')!.textContent).toBe('Sync failed: timeout');
+        expect(view.querySelector<HTMLElement>('#dotStatus')!.classList.contains('failed')).toBe(true);
+    });
+
+    it('discards the stale response when a newer refresh completes first (request-id race gate)', async () => {
+        const view = buildLogView();
+        const state = createLogStatusState();
+
+        // First refresh gets slow promises; second gets fast ones. Both
+        // share the same getJSON mock; we route by call index.
+        let callIdx = 0;
+        const slow = [makeDeferred(), makeDeferred(), makeDeferred()];
+        const fast = [makeDeferred(), makeDeferred(), makeDeferred()];
+        const getJSON = vi.fn().mockImplementation(() => {
+            callIdx++;
+            if (callIdx <= 3) return slow[callIdx - 1]!.promise;
+            return fast[callIdx - 4]!.promise;
+        });
+        const deps = makeDeps(state, getJSON, vi.fn());
+
+        refreshStatus(view, deps);  // myId=1, statusRequestId=1
+        refreshStatus(view, deps);  // myId=2, statusRequestId=2
+        expect(state.statusRequestId).toBe(2);
+
+        // Resolve the second (fast) refresh first.
+        fast[0]!.resolve({ IsRunning: false, LastRunStatus: 'fast-sync', Logs: [] });
+        fast[1]!.resolve(null);
+        fast[2]!.resolve(null);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        expect(state.lastStatus.sync?.LastRunStatus).toBe('fast-sync');
+
+        // Now resolve the first (slow) refresh — the myId check must
+        // discard it and leave state.lastStatus pointing at 'fast-sync'.
+        slow[0]!.resolve({ IsRunning: false, LastRunStatus: 'slow-sync', Logs: [] });
+        slow[1]!.resolve(null);
+        slow[2]!.resolve(null);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        expect(state.lastStatus.sync?.LastRunStatus).toBe('fast-sync');
     });
 });

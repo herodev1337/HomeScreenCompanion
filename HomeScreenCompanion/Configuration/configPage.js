@@ -1,78 +1,5310 @@
-define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function () {
-    'use strict';
+/* GENERATED from HomeScreenCompanion/ClientApp/src by rollup - do not edit */
+define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], (function (embyInput, embyButton, embySelect, embyCheckbox) { 'use strict';
 
-    var pluginId = "7c10708f-43e4-4d69-923c-77d01802315b";
-    var statusInterval = null;
-    // Live log modal: latest status per task and the tab the user picked (null = automatic)
-    var _lastStatus = { sync: null, hsc: null, tl: null };
-    var _logTab = null;
-    var originalConfigState = null;
-    var statusRequestId = 0;
+    const PLUGIN_ID = "7c10708f-43e4-4d69-923c-77d01802315b";
+    const DEFAULT_AI_SYSTEM_PROMPT = 'You are a movie and TV show recommendation assistant. Respond ONLY with a valid JSON array. No explanation, no markdown, no code fences. Each item must have these fields: "title" (string, required), "year" (integer or null), "imdb_id" (string starting with "tt" if known, otherwise null), "type" ("movie" or "show"). Return exactly the items requested. Do not add any commentary. Example: [{"title":"Inception","year":2010,"imdb_id":"tt1375666","type":"movie"}]';
+    function createHscState() {
+      return { config: {} };
+    }
+    function createManageState() {
+      return { sections: [] };
+    }
+    function createSavedFiltersState() {
+      return { filters: [] };
+    }
+    function createTopListsState() {
+      return { tagNames: /* @__PURE__ */ new Set() };
+    }
+    function createLibraryCacheState() {
+      return { collections: [], playlists: [], tags: [] };
+    }
+    function createMiUsersState() {
+      return { users: null };
+    }
+    function createHseUserCacheState() {
+      return { users: null, libraryPromise: null };
+    }
+    function createOriginalConfigStateRef() {
+      let current = null;
+      return {
+        getOriginalConfigState: () => current,
+        setOriginalConfigState: (value) => {
+          current = value;
+        }
+      };
+    }
+    function createLogStatusState() {
+      return { lastStatus: { sync: null, hsc: null, tl: null }, logTab: null, statusRequestId: 0 };
+    }
+    function createViewShowEphemeralState() {
+      return { formAc: null, statusInterval: null };
+    }
+    function createAppState() {
+      return {
+        hsc: createHscState(),
+        manage: createManageState(),
+        savedFilters: createSavedFiltersState(),
+        topLists: createTopListsState(),
+        libraryCache: createLibraryCacheState(),
+        miUsers: createMiUsersState(),
+        hseUserCache: createHseUserCacheState(),
+        originalConfigState: createOriginalConfigStateRef(),
+        logStatus: createLogStatusState(),
+        viewShow: createViewShowEphemeralState()
+      };
+    }
 
-    var DEFAULT_AI_SYSTEM_PROMPT = 'You are a movie and TV show recommendation assistant. Respond ONLY with a valid JSON array. No explanation, no markdown, no code fences. Each item must have these fields: "title" (string, required), "year" (integer or null), "imdb_id" (string starting with "tt" if known, otherwise null), "type" ("movie" or "show"). Return exactly the items requested. Do not add any commentary. Example: [{"title":"Inception","year":2010,"imdb_id":"tt1375666","type":"movie"}]';
+    const MI_CRITERION_MAP = {
+      "4K": { prop: "Resolution", val: "4K" },
+      "8K": { prop: "Resolution", val: "8K" },
+      "1080p": { prop: "Resolution", val: "1080p" },
+      "720p": { prop: "Resolution", val: "720p" },
+      "SD": { prop: "Resolution", val: "SD" },
+      "HEVC": { prop: "VideoCodec", val: "HEVC" },
+      "AV1": { prop: "VideoCodec", val: "AV1" },
+      "H264": { prop: "VideoCodec", val: "H264" },
+      "HDR": { prop: "HDR", val: "HDR" },
+      "DolbyVision": { prop: "HDR", val: "DolbyVision" },
+      "HDR10": { prop: "HDR", val: "HDR10" },
+      "Atmos": { prop: "AudioFormat", val: "Atmos" },
+      "TrueHD": { prop: "AudioFormat", val: "TrueHD" },
+      "DtsHdMa": { prop: "AudioFormat", val: "DtsHdMa" },
+      "DTS": { prop: "AudioFormat", val: "DTS" },
+      "AC3": { prop: "AudioFormat", val: "AC3" },
+      "AAC": { prop: "AudioFormat", val: "AAC" },
+      "7.1": { prop: "AudioChannels", val: "7.1" },
+      "5.1": { prop: "AudioChannels", val: "5.1" },
+      "Stereo": { prop: "AudioChannels", val: "Stereo" },
+      "Mono": { prop: "AudioChannels", val: "Mono" },
+      "InProgress": { prop: "InProgress", val: "InProgress" }
+    };
+    const MI_REVERSE_MAP = (() => {
+      const out = {};
+      for (const k of Object.keys(MI_CRITERION_MAP)) {
+        const m = MI_CRITERION_MAP[k];
+        out[`${m.prop}:${m.val}`] = k;
+      }
+      return out;
+    })();
+    function parseCriterion(crit) {
+      if (!crit) return { prop: "Resolution", op: "", val: "", userId: "", not: false };
+      const not = crit.charAt(0) === "!";
+      const body = not ? crit.slice(1) : crit;
+      const lcrit = body.toLowerCase();
+      if (lcrit.startsWith("collection:") || lcrit.startsWith("playlist:")) {
+        const ci = body.indexOf(":");
+        return { prop: body.substring(0, ci), op: "", val: body.substring(ci + 1), userId: "", not };
+      }
+      const parts = body.split(":");
+      if (parts.length === 1) {
+        const mapped = MI_CRITERION_MAP[body];
+        return mapped ? { prop: mapped.prop, op: "", val: mapped.val, userId: "", not } : { prop: "", op: "", val: body, userId: "", not };
+      }
+      if (parts.length === 2) return { prop: parts[0], op: "", val: parts[1], userId: "", not };
+      if (parts.length === 3) return { prop: parts[0], op: parts[1], val: parts[2], userId: "", not };
+      if (parts.length === 4) return { prop: parts[0], userId: parts[1], op: parts[2], val: parts[3], not };
+      return { prop: "Resolution", op: "", val: "", userId: "", not: false };
+    }
+    function buildCriterion(prop, op, val, userId) {
+      if (!prop || val === "") return "";
+      if (userId) return `${prop}:${userId}:${op}:${val}`;
+      if (op) return `${prop}:${op}:${val}`;
+      const key = `${prop}:${val}`;
+      return MI_REVERSE_MAP[key] ?? `${prop}:${val}`;
+    }
+    function migrateCommaSeparated(val) {
+      if (!val || val.indexOf("\n") >= 0) return val;
+      if (val.indexOf(",") < 0) return val;
+      return val.split(",").map((s) => s.trim()).filter((s) => s.length > 0).join("\n");
+    }
+
+    function groupConfigTags(tags) {
+      const grouped = {};
+      (tags ?? []).forEach((t) => {
+        const key = t.Name ? t.Name + "" + t.Tag : t.Tag;
+        if (!grouped[key]) {
+          grouped[key] = {
+            Tag: t.Tag,
+            Name: t.Name || "",
+            Urls: [],
+            LocalSources: [],
+            Active: t.Active !== false,
+            Blacklist: t.Blacklist,
+            ActiveIntervals: t.ActiveIntervals,
+            EnableTag: t.EnableTag !== false,
+            EnableCollection: t.EnableCollection,
+            CollectionName: t.CollectionName,
+            CollectionDescription: t.CollectionDescription || "",
+            CollectionPosterPath: t.CollectionPosterPath || "",
+            OnlyCollection: t.OnlyCollection,
+            OverrideWhenActive: t.OverrideWhenActive || false,
+            LastModified: t.LastModified,
+            SourceType: t.SourceType || "External",
+            MediaInfoConditions: t.MediaInfoConditions || [],
+            MediaInfoFilters: t.MediaInfoFilters || [],
+            Limit: t.Limit || 0,
+            EnableHomeSection: t.EnableHomeSection || false,
+            HomeSectionLibraryId: t.HomeSectionLibraryId || "auto",
+            HomeSectionUserIds: t.HomeSectionUserIds || [],
+            HomeSectionSettings: t.HomeSectionSettings || "{}",
+            HomeSectionTracked: t.HomeSectionTracked || [],
+            AiProvider: t.AiProvider || "OpenAI",
+            AiPrompt: t.AiPrompt || "",
+            AiIncludeRecentlyWatched: t.AiIncludeRecentlyWatched || false,
+            AiRecentlyWatchedUserId: t.AiRecentlyWatchedUserId || "",
+            AiRecentlyWatchedCount: t.AiRecentlyWatchedCount || 20,
+            TagTargetEpisode: t.TagTargetEpisode || false,
+            TagTargetSeason: t.TagTargetSeason || false,
+            TagTargetSeries: t.TagTargetSeries || false,
+            CollectionTargetEpisode: t.CollectionTargetEpisode || false,
+            CollectionTargetSeason: t.CollectionTargetSeason || false,
+            CollectionTargetSeries: t.CollectionTargetSeries || false,
+            EnablePlaylist: t.EnablePlaylist || false,
+            PlaylistName: t.PlaylistName || "",
+            PlaylistUserIds: t.PlaylistUserIds || [],
+            PlaylistMappings: t.PlaylistMappings || []
+          };
+        }
+        if (t.SourceType === "External" && t.Url) {
+          grouped[key].Urls.push({ url: t.Url, limit: t.Limit ?? 0 });
+        }
+        if ((t.SourceType === "LocalCollection" || t.SourceType === "LocalPlaylist") && t.LocalSourceId) {
+          grouped[key].LocalSources.push({ id: t.LocalSourceId, limit: t.Limit ?? 0 });
+        }
+        if (t.SourceType === "MediaInfo") grouped[key].Limit = t.Limit ?? 0;
+        if (t.SourceType === "AI") grouped[key].Limit = t.Limit ?? 0;
+      });
+      return grouped;
+    }
+    function updateDryRunWarning(originalConfigState) {
+      const view = document.querySelector("#HomeScreenCompanionConfigPage");
+      if (!view || !originalConfigState) return;
+      const warn = view.querySelector(".dry-run-warning");
+      if (warn) {
+        try {
+          const savedConfig = JSON.parse(originalConfigState);
+          warn.style.display = savedConfig.DryRunMode ? "flex" : "none";
+        } catch {
+          warn.style.display = "none";
+        }
+      }
+    }
+    function getUiConfig(view, forComparison, deps) {
+      const flatTags = [];
+      view.querySelectorAll(".tag-row").forEach((row) => {
+        const rowEl = row;
+        if (!rowEl.querySelector(".txtEntryLabel")) return;
+        const entryLabel = rowEl.querySelector(".txtEntryLabel").value;
+        const name = rowEl.querySelector(".txtTagName").value || entryLabel;
+        const active = rowEl.querySelector(".chkTagActive").checked;
+        const blInput = rowEl.querySelector(".txtTagBlacklist");
+        const bl = blInput ? blInput.value.split(/[\n\r]+/).map((s) => s.trim()).filter((s) => s.length > 0) : [];
+        const enableTagChk = rowEl.querySelector(".chkEnableTag").checked;
+        const enableColl = rowEl.querySelector(".chkEnableCollection").checked;
+        const overrideWhenActive = !!rowEl.querySelector(".chkOverrideWhenActive")?.checked;
+        const collName = rowEl.querySelector(".txtCollectionName").value;
+        const collDescription = rowEl.querySelector(".txtCollectionDescription") ? rowEl.querySelector(".txtCollectionDescription").value : "";
+        const collPoster = rowEl.querySelector(".hiddenPosterPath") ? rowEl.querySelector(".hiddenPosterPath").value : "";
+        const intervals = [];
+        rowEl.querySelectorAll(".date-row").forEach((dr) => {
+          const type = dr.querySelector(".selDateType").value;
+          let s = null;
+          let e = null;
+          let days = "";
+          if (type === "SpecificDate") {
+            s = dr.querySelector(".txtFullStartDate").value;
+            e = dr.querySelector(".txtFullEndDate").value;
+          } else if (type === "EveryYear") {
+            const sM = dr.querySelector(".selStartMonth").value;
+            const sD = dr.querySelector(".selStartDay").value;
+            const eM = dr.querySelector(".selEndMonth").value;
+            const eD = dr.querySelector(".selEndDay").value;
+            s = `2000-${sM.padStart(2, "0")}-${sD.padStart(2, "0")}`;
+            e = `2000-${eM.padStart(2, "0")}-${eD.padStart(2, "0")}`;
+          } else if (type === "Weekly") {
+            const activeBtns = Array.from(dr.querySelectorAll(".day-toggle.active")).map((b) => b.dataset.day);
+            days = activeBtns.join(",");
+          }
+          intervals.push({ Type: type, Start: s || null, End: e || null, DayOfWeek: days });
+        });
+        const currentLastMod = rowEl.dataset.lastModified || (/* @__PURE__ */ new Date()).toISOString();
+        const st = rowEl.querySelector(".selSourceType").value;
+        const miFilters = [];
+        rowEl.querySelectorAll(".mediainfo-filter-group").forEach((group, gi) => {
+          const operator = group.dataset.op || "AND";
+          const groupOp = gi === 0 ? "AND" : group.dataset.groupOp || "AND";
+          const criteria = [];
+          group.querySelectorAll(".mi-rule").forEach((rule) => {
+            const prop = rule.querySelector(".selMiProperty")?.value || "";
+            const selVal = rule.querySelector(".selMiValue");
+            const txtVal = rule.querySelector(".txtMiValue");
+            const selOp = rule.querySelector(".selMiOp");
+            const txtNum = rule.querySelector(".txtMiNum");
+            const selUser = rule.querySelector(".selMiUser");
+            const selTextOp = rule.querySelector(".selMiTextOp");
+            let val = selVal ? selVal.value : txtVal ? txtVal.value.replace(/\r?\n/g, "\n").trim() : "";
+            if (prop === "MediaType" && val === "Episode") {
+              const incParentChk = rule.querySelector(".chkIncludeParentSeries");
+              if (incParentChk && incParentChk.checked) val = "EpisodeIncludeSeries";
+            }
+            const op2 = selOp ? selOp.value : "";
+            const textMatchOp = selTextOp ? selTextOp.value : "";
+            const num = txtNum ? txtNum.value.trim() : "";
+            const userId = selUser ? selUser.value : "";
+            const finalOp = op2 || textMatchOp;
+            const finalVal = op2 ? num : val;
+            const notBtn = rule.querySelector(".btnNotToggle");
+            const isNot = notBtn && notBtn.dataset.not === "1";
+            const crit = buildCriterion(prop, finalOp, finalVal, userId);
+            if (crit) criteria.push(isNot ? "!" + crit : crit);
+          });
+          if (criteria.length > 0) miFilters.push({ Operator: operator, Criteria: criteria, GroupOperator: groupOp });
+        });
+        const plTab2 = rowEl.querySelector(".playlist-tab");
+        let plUserIds2;
+        if (plTab2 && plTab2.dataset.plLoaded === "1") {
+          plUserIds2 = Array.from(plTab2.querySelectorAll(".chkPlaylistUser:checked")).map((c) => c.value);
+        } else {
+          try {
+            plUserIds2 = JSON.parse(decodeURIComponent(plTab2 && plTab2.dataset.plUserids || "%5B%5D"));
+          } catch {
+            plUserIds2 = [];
+          }
+        }
+        const hseTab = rowEl.querySelector(".homescreen-tab");
+        const enableHse = hseTab ? !!hseTab.querySelector(".chkEnableHomeSection")?.checked : false;
+        let hseLibraryId;
+        if (hseTab && hseTab.dataset.hseLoaded === "1") {
+          hseLibraryId = hseTab.querySelector(".selHseLibrary")?.value || "auto";
+        } else {
+          hseLibraryId = decodeURIComponent(hseTab && hseTab.dataset.hseLibraryid || "auto");
+        }
+        let hseUserIds;
+        if (hseTab && hseTab.dataset.hseLoaded === "1") {
+          hseUserIds = Array.from(hseTab.querySelectorAll(".chkHseUser:checked")).map((c) => c.value);
+        } else {
+          try {
+            hseUserIds = JSON.parse(decodeURIComponent(hseTab && hseTab.dataset.hseUserids || "%5B%5D"));
+          } catch {
+            hseUserIds = [];
+          }
+        }
+        let hseSettings = {};
+        if (hseTab && hseTab.dataset.hseLoaded === "1") {
+          hseTab.querySelectorAll("[data-field]").forEach((el) => {
+            const f = el.dataset.field;
+            if (!f) return;
+            const inputEl = el;
+            const v = inputEl.type === "checkbox" ? String(inputEl.checked) : inputEl.value;
+            hseSettings[f] = v;
+          });
+          const itemTypesVal = hseTab.querySelector(".selHseItemTypes")?.value || "Movie,Series";
+          hseSettings["ItemTypes"] = JSON.stringify(itemTypesVal.split(","));
+          const excludedLibIds = Array.from(hseTab.querySelectorAll(".chkHseLibrary:not(:checked)")).map((c) => c.value);
+          if (excludedLibIds.length > 0) {
+            hseSettings["_queryExcludeViewIds"] = excludedLibIds.join(",");
+            hseSettings["ExcludedFolders"] = excludedLibIds.join(",");
+          } else {
+            delete hseSettings["_queryExcludeViewIds"];
+            delete hseSettings["ExcludedFolders"];
+          }
+        } else {
+          try {
+            hseSettings = JSON.parse(decodeURIComponent(hseTab && hseTab.dataset.hseSettings || "%7B%7D"));
+          } catch {
+            hseSettings = {};
+          }
+        }
+        let hseTracked;
+        try {
+          hseTracked = JSON.parse(decodeURIComponent(hseTab && hseTab.dataset.hseTracked || "%5B%5D"));
+        } catch {
+          hseTracked = [];
+        }
+        const baseTag = {
+          Name: entryLabel,
+          Tag: name,
+          Active: active,
+          Blacklist: bl,
+          ActiveIntervals: intervals,
+          EnableTag: enableTagChk,
+          EnableCollection: enableColl,
+          CollectionName: collName,
+          CollectionDescription: collDescription,
+          CollectionPosterPath: collPoster,
+          OnlyCollection: false,
+          OverrideWhenActive: overrideWhenActive,
+          LastModified: currentLastMod,
+          SourceType: st,
+          MediaInfoFilters: miFilters,
+          MediaInfoConditions: [],
+          TagTargetEpisode: !!rowEl.querySelector(".chkTagTargetEpisode")?.checked,
+          TagTargetSeason: !!rowEl.querySelector(".chkTagTargetSeason")?.checked,
+          TagTargetSeries: !!rowEl.querySelector(".chkTagTargetSeries")?.checked,
+          CollectionTargetEpisode: !!rowEl.querySelector(".chkCollTargetEpisode")?.checked,
+          CollectionTargetSeason: !!rowEl.querySelector(".chkCollTargetSeason")?.checked,
+          CollectionTargetSeries: !!rowEl.querySelector(".chkCollTargetSeries")?.checked,
+          MediaInfoTargetEpisode: false,
+          MediaInfoTargetSeason: false,
+          MediaInfoTargetSeries: false,
+          MediaInfoTargetType: "",
+          MediaInfoSeasonMode: false,
+          EnableHomeSection: enableHse,
+          HomeSectionLibraryId: hseLibraryId,
+          HomeSectionUserIds: hseUserIds,
+          HomeSectionSettings: JSON.stringify(hseSettings),
+          HomeSectionTracked: hseTracked,
+          EnablePlaylist: !!rowEl.querySelector(".chkEnablePlaylist")?.checked,
+          PlaylistName: rowEl.querySelector(".txtPlaylistName")?.value || "",
+          PlaylistUserIds: plUserIds2,
+          PlaylistMappings: (() => {
+            try {
+              return JSON.parse(decodeURIComponent(plTab2 && plTab2.dataset.plMappings || "%5B%5D"));
+            } catch {
+              return [];
+            }
+          })()
+        };
+        if (st === "External") {
+          let pushedExternal = false;
+          rowEl.querySelectorAll(".url-row").forEach((uRow) => {
+            const urlVal = uRow.querySelector(".txtTagUrl").value.trim();
+            const limitVal = parseInt(uRow.querySelector(".txtUrlLimit").value, 10) || 0;
+            if (urlVal) {
+              flatTags.push(Object.assign({}, baseTag, { Url: urlVal, Limit: limitVal, LocalSourceId: "" }));
+              pushedExternal = true;
+            }
+          });
+          if (forComparison && !pushedExternal) {
+            flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: 0, LocalSourceId: "" }));
+          }
+        } else if (st === "LocalCollection" || st === "LocalPlaylist") {
+          let pushedLocal = false;
+          rowEl.querySelectorAll(".local-row").forEach((lRow) => {
+            const localVal = lRow.querySelector(".selLocalSource").value;
+            const limitVal = parseInt(lRow.querySelector(".txtLocalLimit").value, 10) || 0;
+            if (localVal) {
+              flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: limitVal, LocalSourceId: localVal }));
+              pushedLocal = true;
+            }
+          });
+          if (forComparison && !pushedLocal) {
+            flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: 0, LocalSourceId: "" }));
+          }
+        } else if (st === "AI") {
+          const aiLimitVal = parseInt(rowEl.querySelector(".txtAiLimit")?.value ?? "0", 10) || 0;
+          flatTags.push(Object.assign({}, baseTag, {
+            Url: "",
+            Limit: aiLimitVal,
+            LocalSourceId: "",
+            AiProvider: rowEl.querySelector(".selAiProvider")?.value || "OpenAI",
+            AiPrompt: rowEl.querySelector(".txtAiPrompt")?.value || "",
+            AiIncludeRecentlyWatched: !!rowEl.querySelector(".chkAiRecentlyWatched")?.checked,
+            AiRecentlyWatchedUserId: rowEl.querySelector(".selAiWatchedUser")?.value || "",
+            AiRecentlyWatchedCount: parseInt(rowEl.querySelector(".txtAiWatchedCount")?.value || "20", 10) || 20,
+            AiRefreshIntervalDays: parseInt(rowEl.querySelector(".txtAiRefreshInterval")?.value || "0", 10) || 0
+          }));
+        } else {
+          const miLimitVal = parseInt(rowEl.querySelector(".txtMediaInfoLimit")?.value ?? "0", 10) || 0;
+          flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: miLimitVal, LocalSourceId: "" }));
+        }
+      });
+      const hscEnabled = view.querySelector("#chkHscEnabled");
+      const hscSource = view.querySelector("#selHscSourceUser");
+      const hscLibraryOrder = view.querySelector("#chkHscLibraryOrder");
+      return {
+        TraktClientId: view.querySelector("#txtTraktClientId").value,
+        MdblistApiKey: view.querySelector("#txtMdblistApiKey").value,
+        TmdbApiKey: view.querySelector("#txtTmdbApiKey").value,
+        OpenAiApiKey: view.querySelector("#txtOpenAiApiKey")?.value || "",
+        OpenAiModel: view.querySelector("#txtOpenAiModel")?.value || "gpt-4o-mini",
+        GeminiApiKey: view.querySelector("#txtGeminiApiKey")?.value || "",
+        GeminiModel: view.querySelector("#txtGeminiModel")?.value || "gemini-2.5-flash-lite",
+        ClaudeApiKey: view.querySelector("#txtClaudeApiKey")?.value || "",
+        ClaudeModel: view.querySelector("#txtClaudeModel")?.value || "claude-haiku-4-5-20251001",
+        OllamaBaseUrl: view.querySelector("#txtOllamaBaseUrl")?.value || "http://localhost:11434",
+        OllamaModel: view.querySelector("#txtOllamaModel")?.value || "",
+        AiSystemPrompt: view.querySelector("#txtAiSystemPrompt")?.value || "",
+        ExtendedConsoleOutput: view.querySelector("#chkExtendedConsoleOutput").checked,
+        LogMissingItems: view.querySelector("#chkLogMissingItems").checked,
+        DryRunMode: view.querySelector("#chkDryRunMode").checked,
+        PreserveTagsOnEmptyResult: view.querySelector("#chkPreserveTagsOnEmptyResult").checked,
+        Tags: flatTags,
+        SavedFilters: deps.savedFilters.filters,
+        HomeSyncEnabled: hscEnabled ? hscEnabled.checked : deps.hsc.config.HomeSyncEnabled || false,
+        HomeSyncLibraryOrder: hscLibraryOrder ? hscLibraryOrder.checked : deps.hsc.config.HomeSyncLibraryOrder || false,
+        HomeSyncSourceUserId: hscSource ? hscSource.value || "" : deps.hsc.config.HomeSyncSourceUserId || "",
+        HomeSyncTargetUserIds: hscEnabled ? Array.from(view.querySelectorAll(".hsc-target-chk:checked")).map((c) => c.value) : deps.hsc.config.HomeSyncTargetUserIds || []
+      };
+    }
+    function checkFormState(deps) {
+      const view = deps.view;
+      const originalConfigState = deps.originalConfigState.getOriginalConfigState();
+      if (!view || !originalConfigState) return;
+      let isDirty = false;
+      try {
+        const current = JSON.stringify(deps.getUiConfig(view, true, {
+          hsc: { config: {} },
+          savedFilters: { filters: [] },
+          miUsers: { users: null },
+          readRowAsConfig: () => ({})
+        }));
+        isDirty = current !== originalConfigState;
+      } catch {
+        isDirty = true;
+      }
+      const btnApplyManage = view.querySelector("#btnApplyManage");
+      if (btnApplyManage && !btnApplyManage.disabled) isDirty = true;
+      const tcContainer = view.querySelector("#tcManageContainer");
+      if (tcContainer && tcContainer._tcHasPending) isDirty = true;
+      const tlContainer = view.querySelector("#tlContainer");
+      if (tlContainer && tlContainer.querySelector('.tag-body[data-dirty="1"]')) isDirty = true;
+      const btnSave = view.querySelector(".btn-save");
+      if (btnSave) {
+        const span = btnSave.querySelector("span");
+        const isSyncRunning = !!(span && (span.textContent || "").includes("progress"));
+        if (isSyncRunning) {
+          btnSave.disabled = true;
+          btnSave.style.opacity = "0.5";
+        } else {
+          btnSave.disabled = !isDirty;
+          btnSave.style.opacity = isDirty ? "1" : "0.5";
+        }
+      }
+    }
+    function applyFilters(view) {
+      const container = view.querySelector("#tagListContainer");
+      if (!container) return;
+      const rows = container.querySelectorAll(".tag-row");
+      const searchTerm = (view.querySelector("#txtSearchTags")?.value || "").toLowerCase();
+      const fTag = view.querySelector("#chkFilterTag")?.checked;
+      const fColl = view.querySelector("#chkFilterCollection")?.checked;
+      const fSched = view.querySelector("#chkFilterSchedule")?.checked;
+      const fHome = view.querySelector("#chkFilterHomeScreen")?.checked;
+      const fSrcExt = view.querySelector("#chkFilterSrcExternal")?.checked;
+      const fSrcMI = view.querySelector("#chkFilterSrcMediaInfo")?.checked;
+      const fSrcColl = view.querySelector("#chkFilterSrcCollection")?.checked;
+      const fSrcPlay = view.querySelector("#chkFilterSrcPlaylist")?.checked;
+      const fSrcAI = view.querySelector("#chkFilterSrcAI")?.checked;
+      const fActive = view.querySelector("#chkFilterActive")?.checked;
+      const fInactive = view.querySelector("#chkFilterInactive")?.checked;
+      const anyFeature = !!(fTag || fColl || fSched || fHome);
+      const anySrc = !!(fSrcExt || fSrcMI || fSrcColl || fSrcPlay || fSrcAI);
+      const anyStatus = !!(fActive || fInactive);
+      const btn = view.querySelector("#btnFilterDropdown");
+      const lbl = view.querySelector("#filterDropdownLabel");
+      if (btn && lbl) {
+        const activeCount = [fTag, fColl, fSched, fHome, fSrcExt, fSrcMI, fSrcColl, fSrcPlay, fSrcAI, fActive, fInactive].filter(Boolean).length;
+        lbl.textContent = activeCount > 0 ? "Filter (" + activeCount + ")" : "Filter";
+        btn.classList.toggle("active", activeCount > 0);
+      }
+      rows.forEach((row) => {
+        const tagName = (row.querySelector(".txtTagName").value || "").toLowerCase();
+        const entryLbl = (row.querySelector(".txtEntryLabel").value || "").toLowerCase();
+        const matchesSearch = !searchTerm || tagName.includes(searchTerm) || entryLbl.includes(searchTerm);
+        let matchesFeature = true;
+        if (anyFeature) {
+          const hasTag = !!row.querySelector(".chkEnableTag")?.checked;
+          const hasColl = !!row.querySelector(".chkEnableCollection")?.checked;
+          const hasSched = row.querySelectorAll(".date-row").length > 0;
+          const hasHome = !!row.querySelector(".chkEnableHomeSection")?.checked;
+          matchesFeature = !!fTag && hasTag || !!fColl && hasColl || !!fSched && hasSched || !!fHome && hasHome;
+        }
+        let matchesSrc = true;
+        if (anySrc) {
+          const src = row.querySelector(".selSourceType")?.value || "";
+          matchesSrc = !!fSrcExt && src === "External" || !!fSrcMI && src === "MediaInfo" || !!fSrcColl && src === "LocalCollection" || !!fSrcPlay && src === "LocalPlaylist" || !!fSrcAI && src === "AI";
+        }
+        let matchesStatus = true;
+        if (anyStatus) {
+          const isActive = !!row.querySelector(".chkTagActive")?.checked;
+          matchesStatus = !!fActive && isActive || !!fInactive && !isActive;
+        }
+        row.style.display = matchesSearch && matchesFeature && matchesSrc && matchesStatus ? "" : "none";
+      });
+    }
+    function checkForUpdates(view, deps) {
+      deps.fetch(deps.getApiClient().getUrl("HomeScreenCompanion/Version")).then((r) => r.json()).then((result) => {
+        const currentVer = result.Version || "";
+        const footerVer = document.getElementById("footerVersionText");
+        if (footerVer && currentVer) {
+          const releaseUrl = "https://github.com/soderlund91/HomeScreenCompanion/releases/tag/v" + currentVer;
+          footerVer.innerHTML = '<a href="' + releaseUrl + '" target="_blank" style="color:inherit;text-decoration:none;">v' + currentVer + "</a>";
+        }
+        if (!currentVer) return;
+        return deps.fetch("https://api.github.com/repos/soderlund91/HomeScreenCompanion/releases/latest").then((r) => r.json()).then((release) => {
+          const latestTag = (release.tag_name || "").replace(/^v/i, "");
+          if (!latestTag) return;
+          const a = latestTag.split(".").map(Number);
+          const b = currentVer.split(".").map(Number);
+          let isNewer = false;
+          for (let i = 0; i < Math.max(a.length, b.length); i++) {
+            if ((a[i] || 0) > (b[i] || 0)) {
+              isNewer = true;
+              break;
+            }
+            if ((a[i] || 0) < (b[i] || 0)) break;
+          }
+          if (isNewer) {
+            const footerUpdate = document.getElementById("footerUpdateInfo");
+            if (footerUpdate) {
+              footerUpdate.innerHTML = '<a href="' + (release.html_url || "") + '" target="_blank" class="footer-update-link">Update available: v' + latestTag + "</a>";
+              const footerUpdateSep = document.getElementById("footerUpdateSep");
+              if (footerUpdateSep) footerUpdateSep.style.display = "";
+            }
+          }
+        }).catch(() => void 0);
+      }).catch(() => void 0);
+    }
+
+    const LUMA_THRESHOLD = 128;
+    const THEME_PROBE_SELECTORS = [
+      ".skinHeader",
+      ".mainDrawer",
+      ".contentScrollSlider",
+      "body"
+    ];
+    const DARK_THEME_VARS = {
+      "plugin-popup-bg": "#2a2a2a",
+      "plugin-popup-bg2": "#333333",
+      "plugin-popup-color": "#e8e8e8",
+      "plugin-popup-muted": "#aaaaaa",
+      "plugin-popup-border": "rgba(255,255,255,0.12)",
+      "plugin-popup-hover": "rgba(255,255,255,0.08)",
+      "plugin-popup-badge": "rgba(255,255,255,0.1)",
+      "plugin-input-border": "rgba(255,255,255,0.2)",
+      "plugin-input-bg": "rgba(255,255,255,0.08)",
+      "plugin-footer-bg": "#181818"
+    };
+    const DARK_THEME_DATASET_MODE = "dark";
+    const LIGHT_THEME_VARS = {
+      "plugin-popup-bg": "#f2f2f2",
+      "plugin-popup-bg2": "#e0e0e0",
+      "plugin-popup-color": "#1a1a1a",
+      "plugin-popup-muted": "#555555",
+      "plugin-popup-border": "rgba(0,0,0,0.15)",
+      "plugin-popup-hover": "rgba(0,0,0,0.08)",
+      "plugin-popup-badge": "rgba(0,0,0,0.1)",
+      "plugin-input-border": "rgba(0,0,0,0.28)",
+      "plugin-input-bg": "rgba(0,0,0,0.04)",
+      "plugin-footer-bg": "#c5cad1"
+    };
+    const LIGHT_THEME_DATASET_MODE = "light";
+    function readBackgroundColor(el, getComputedStyleFn) {
+      const gcs = ((target) => getComputedStyle(target));
+      return gcs(el).backgroundColor;
+    }
+    function isDarkBackground(bg) {
+      if (!bg) return true;
+      const m = bg.match(/\d+/g);
+      if (!m) return true;
+      const r = parseInt(m[0] ?? "0", 10);
+      const g = parseInt(m[1] ?? "0", 10);
+      const b = parseInt(m[2] ?? "0", 10);
+      return r * 0.299 + g * 0.587 + b * 0.114 < LUMA_THRESHOLD;
+    }
+    function applyPluginTheme(getComputedStyleFn) {
+      let bg = null;
+      for (const selector of THEME_PROBE_SELECTORS) {
+        const el = document.querySelector(selector);
+        if (!el) continue;
+        const c = readBackgroundColor(el);
+        if (c && c !== "transparent" && c !== "rgba(0, 0, 0, 0)") {
+          bg = c;
+          break;
+        }
+      }
+      const dark = isDarkBackground(bg);
+      const root = document.documentElement;
+      const vars = dark ? DARK_THEME_VARS : LIGHT_THEME_VARS;
+      for (const [key, value] of Object.entries(vars)) {
+        root.style.setProperty(`--${key}`, value);
+      }
+      root.dataset.pluginTheme = dark ? DARK_THEME_DATASET_MODE : LIGHT_THEME_DATASET_MODE;
+      const drawer = document.querySelector(".mainDrawer");
+      const drawerRight = drawer ? drawer.getBoundingClientRect().right : 0;
+      const footerLeft = drawerRight > 0 && drawerRight < window.innerWidth * 0.5 ? drawerRight : 0;
+      root.style.setProperty("--plugin-footer-left", footerLeft + "px");
+    }
 
     function updateSystemPromptResetBtn(view) {
-        var ta = view.querySelector('#txtAiSystemPrompt');
-        var btn = view.querySelector('#btnResetAiSystemPrompt');
-        if (!ta || !btn) return;
-        btn.style.display = ta.value.trim() !== DEFAULT_AI_SYSTEM_PROMPT.trim() ? '' : 'none';
+      const ta = view.querySelector("#txtAiSystemPrompt");
+      const btn = view.querySelector("#btnResetAiSystemPrompt");
+      if (!(ta instanceof HTMLTextAreaElement) || !(btn instanceof HTMLElement)) return;
+      btn.style.display = ta.value.trim() !== DEFAULT_AI_SYSTEM_PROMPT.trim() ? "" : "none";
     }
 
-    function applyPluginTheme() {
-        var candidates = ['.skinHeader', '.mainDrawer', '.contentScrollSlider', 'body'];
-        var bg = null;
-        for (var i = 0; i < candidates.length; i++) {
-            var el = document.querySelector(candidates[i]);
-            if (!el) continue;
-            var c = getComputedStyle(el).backgroundColor;
-            if (c && c !== 'transparent' && c !== 'rgba(0, 0, 0, 0)') { bg = c; break; }
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function getDragAfterElement(container, y, selector = ".tag-row:not(.dragging)") {
+      return findDragAfterElement(container, y, selector);
+    }
+    function getManDragAfterElement(container, y) {
+      return findDragAfterElement(container, y, ".man-section-row:not(.man-dragging)");
+    }
+    function findDragAfterElement(container, y, selector) {
+      const candidates = Array.from(
+        container.querySelectorAll(selector)
+      );
+      let bestOffset = Number.NEGATIVE_INFINITY;
+      let bestElement = null;
+      for (const child of candidates) {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > bestOffset) {
+          bestOffset = offset;
+          bestElement = child;
         }
-        var isDark = true;
-        if (bg) {
-            var m = bg.match(/\d+/g);
-            if (m) isDark = (parseInt(m[0]) * 0.299 + parseInt(m[1]) * 0.587 + parseInt(m[2]) * 0.114) < 128;
+      }
+      return bestElement;
+    }
+    function getUrlRowHtml(value, limit) {
+      const val = value || "";
+      const lim = limit !== void 0 ? limit : 0;
+      return `
+            <div class="url-row" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <div style="flex-grow:1;">
+                    <input is="emby-input" class="txtTagUrl" type="text" label="Trakt/MDBList/TMDb URL" value="${val}" />
+                </div>
+                <div style="width:110px;">
+                    <input is="emby-input" class="txtUrlLimit" type="number" label="Max (0=All)" value="${lim}" min="0" />
+                </div>
+                <button type="button" is="emby-button" class="raised button-submit btnTestUrl" style="min-width:60px; height:36px; padding:0 10px; font-size:0.8rem; margin-top:12px;" title="Test Source"><span>Test</span></button>
+                <button type="button" is="emby-button" class="raised btnRemoveUrl btn-row-remove" title="Remove URL"><i class="md-icon">remove_circle_outline</i></button>
+            </div>`;
+    }
+
+    function parseDateYMD(dateStr) {
+      if (!dateStr) return null;
+      const s = String(dateStr);
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+      if (m) return { year: +m[1], month: +m[2], day: +m[3] };
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+      }
+      return null;
+    }
+    function getMaxDays(month) {
+      return new Date(2001, month, 0).getDate();
+    }
+    const MONTH_NAMES = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ];
+    function getMonthOptions(selectedMonth) {
+      return MONTH_NAMES.map(
+        (m, i) => `<option value="${i + 1}" ${selectedMonth == i + 1 ? "selected" : ""}>${m}</option>`
+      ).join("");
+    }
+    function getDayOptions(selectedDay, maxDay) {
+      const cap = maxDay || 31;
+      let html = "";
+      for (let i = 1; i <= cap; i++) {
+        html += `<option value="${i}" ${selectedDay == i ? "selected" : ""}>${i}</option>`;
+      }
+      return html;
+    }
+    const WEEK_DAYS = [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday"
+    ];
+    const WEEK_DAYS_SHORT = [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat",
+      "Sun"
+    ];
+    function getWeekButtons(savedDays) {
+      const saved = (savedDays || "").toLowerCase();
+      return WEEK_DAYS.map((d, i) => {
+        const isActive = saved.includes(d.toLowerCase());
+        return `<button type="button" class="day-toggle ${isActive ? "active" : ""}" data-day="${d}">${WEEK_DAYS_SHORT[i]}</button>`;
+      }).join("");
+    }
+
+    function getLocalRowHtml(type, selectedName, limit, items = []) {
+      const optHtml = '<option value="">-- Select --</option>' + items.map((o) => `<option value="${o.Name}" ${selectedName === o.Name ? "selected" : ""}>${o.Name}</option>`).join("");
+      const lim = limit !== void 0 ? limit : 0;
+      return `
+            <div class="local-row" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                <div style="flex-grow:1;">
+                    <select is="emby-select" class="selLocalSource" style="width:100%;">
+                        ${optHtml}
+                    </select>
+                </div>
+                <div style="width:110px;">
+                    <input is="emby-input" class="txtLocalLimit" type="number" label="Max (0=All)" value="${lim}" min="0" />
+                </div>
+                <button type="button" is="emby-button" class="raised btnRemoveLocal btn-row-remove" title="Remove"><i class="md-icon">remove_circle_outline</i></button>
+            </div>`;
+    }
+    function getDateRowHtml(interval) {
+      const type = interval.Type || "SpecificDate";
+      if (type === "EveryYear") console.log("[HSC schedule] raw interval from server:", JSON.stringify(interval));
+      const sDate = interval.Start ? interval.Start.split("T")[0] : "";
+      const eDate = interval.End ? interval.End.split("T")[0] : "";
+      const sParts = parseDateYMD(interval.Start);
+      const eParts = parseDateYMD(interval.End);
+      const sMonth = sParts ? sParts.month : 12;
+      let sDay = sParts ? sParts.day : 1;
+      const eMonth = eParts ? eParts.month : 12;
+      let eDay = eParts ? eParts.day : 28;
+      const sMaxDay = getMaxDays(sMonth);
+      const eMaxDay = getMaxDays(eMonth);
+      sDay = Math.min(sDay, sMaxDay);
+      eDay = Math.min(eDay, eMaxDay);
+      const dayOfWeek = interval.DayOfWeek || "";
+      return `
+            <div class="date-row date-row-container" style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 15px;">
+                
+                <div style="width:160px;">
+                    <label class="selectLabel">Rule Type</label>
+                    <select is="emby-select" class="selDateType" style="width:100%;">
+                        <option value="SpecificDate" ${type === "SpecificDate" ? "selected" : ""}>Specific Date</option>
+                        <option value="EveryYear" ${type === "EveryYear" ? "selected" : ""}>Recurring</option>
+                        <option value="Weekly" ${type === "Weekly" ? "selected" : ""}>Week Days</option>
+                    </select>
+                </div>
+                
+                <div class="inputs-specific" style="display: ${type === "SpecificDate" ? "flex" : "none"}; gap: 8px; flex-grow: 1; align-items: center;">
+                    <div style="flex-grow:1;">
+                        <input is="emby-input" type="date" class="txtFullStartDate" label="Start Date" value="${sDate}" />
+                    </div>
+                    <span style="opacity:0.5; padding-top:15px;">to</span>
+                    <div style="flex-grow:1;">
+                        <input is="emby-input" type="date" class="txtFullEndDate" label="End Date" value="${eDate}" />
+                    </div>
+                </div>
+
+                <div class="inputs-annual" style="display: ${type === "EveryYear" ? "flex" : "none"}; gap: 8px; flex-grow: 1; align-items: flex-start;">
+                    
+                    <div style="display:flex; display:flex; gap:5px;">
+                        <div style="width:80px;">
+                            <label class="selectLabel">Start Month</label>
+                            <select is="emby-select" class="selStartMonth" style="width:100%;">${getMonthOptions(sMonth)}</select>
+                        </div>
+                        <div style="width:70px;">
+                            <label class="selectLabel">Day</label>
+                            <select is="emby-select" class="selStartDay" style="width:100%;">${getDayOptions(sDay, sMaxDay)}</select>
+                        </div>
+                    </div>
+
+                    <span style="opacity:0.5; padding-top:32px;">to</span>
+
+                    <div style="display:flex; display:flex; gap:5px;">
+                        <div style="width:80px;">
+                            <label class="selectLabel">End Month</label>
+                            <select is="emby-select" class="selEndMonth" style="width:100%;">${getMonthOptions(eMonth)}</select>
+                        </div>
+                        <div style="width:70px;">
+                            <label class="selectLabel">Day</label>
+                            <select is="emby-select" class="selEndDay" style="width:100%;">${getDayOptions(eDay, eMaxDay)}</select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="inputs-weekly" style="display: ${type === "Weekly" ? "flex" : "none"}; flex-grow: 1; align-items: center; gap: 5px; flex-wrap: wrap;">
+                    <div style="width:100%;">
+                        <label class="selectLabel">Active On Days</label>
+                        <div class="week-btn-container" style="display:flex; gap:5px; margin-top:2px;">
+                            ${getWeekButtons(dayOfWeek)}
+                        </div>
+                    </div>
+                </div>
+
+                <button type="button" is="emby-button" class="btnRemoveDate" style="background:transparent; color:#cc3333; min-width:40px; margin-top: 25px;" title="Remove Rule"><i class="md-icon">delete</i></button>
+            </div>`;
+    }
+    function readRowAsConfig(row) {
+      const entryLabel = row.querySelector(".txtEntryLabel").value;
+      const tagName = row.querySelector(".txtTagName").value || entryLabel;
+      const active = row.querySelector(".chkTagActive").checked;
+      const blInput = row.querySelector(".txtTagBlacklist");
+      const bl = blInput ? blInput.value.split(/[\n\r]+/).map((s) => s.trim()).filter((s) => s.length > 0) : [];
+      const enableTag = row.querySelector(".chkEnableTag").checked;
+      const enableColl = row.querySelector(".chkEnableCollection").checked;
+      const overrideWhenActive = !!row.querySelector(".chkOverrideWhenActive")?.checked;
+      const plTab = row.querySelector(".playlist-tab");
+      let plUserIds;
+      if (plTab && plTab.dataset.plLoaded === "1") {
+        plUserIds = Array.from(plTab.querySelectorAll(".chkPlaylistUser:checked")).map((c) => c.value);
+      } else {
+        try {
+          plUserIds = JSON.parse(decodeURIComponent(plTab && plTab.dataset.plUserids || "%5B%5D"));
+        } catch {
+          plUserIds = [];
         }
-        var root = document.documentElement;
-        if (isDark) {
-            root.style.setProperty('--plugin-popup-bg',     '#2a2a2a');
-            root.style.setProperty('--plugin-popup-bg2',    '#333333');
-            root.style.setProperty('--plugin-popup-color',  '#e8e8e8');
-            root.style.setProperty('--plugin-popup-muted',  '#aaaaaa');
-            root.style.setProperty('--plugin-popup-border', 'rgba(255,255,255,0.12)');
-            root.style.setProperty('--plugin-popup-hover',  'rgba(255,255,255,0.08)');
-            root.style.setProperty('--plugin-popup-badge',  'rgba(255,255,255,0.1)');
-            root.style.setProperty('--plugin-input-border', 'rgba(255,255,255,0.2)');
-            root.style.setProperty('--plugin-input-bg',     'rgba(255,255,255,0.08)');
-            root.style.setProperty('--plugin-footer-bg',    '#181818');
-            root.dataset.pluginTheme = 'dark';
+      }
+      const collName = row.querySelector(".txtCollectionName").value;
+      const collDesc = row.querySelector(".txtCollectionDescription") ? row.querySelector(".txtCollectionDescription").value : "";
+      const collPoster = row.querySelector(".hiddenPosterPath") ? row.querySelector(".hiddenPosterPath").value : "";
+      const st = row.querySelector(".selSourceType").value;
+      const intervals = [];
+      row.querySelectorAll(".date-row").forEach((dr) => {
+        const type = dr.querySelector(".selDateType").value;
+        let s = null;
+        let e = null;
+        let days = "";
+        if (type === "SpecificDate") {
+          s = dr.querySelector(".txtFullStartDate").value;
+          e = dr.querySelector(".txtFullEndDate").value;
+        } else if (type === "EveryYear") {
+          const sM = dr.querySelector(".selStartMonth").value;
+          const sD = dr.querySelector(".selStartDay").value;
+          const eM = dr.querySelector(".selEndMonth").value;
+          const eD = dr.querySelector(".selEndDay").value;
+          s = "2000-" + sM.padStart(2, "0") + "-" + sD.padStart(2, "0");
+          e = "2000-" + eM.padStart(2, "0") + "-" + eD.padStart(2, "0");
+        } else if (type === "Weekly") {
+          days = Array.from(dr.querySelectorAll(".day-toggle.active")).map((b) => b.dataset.day).join(",");
+        }
+        intervals.push({ Type: type, Start: s || null, End: e || null, DayOfWeek: days });
+      });
+      const miFilters = [];
+      row.querySelectorAll(".mediainfo-filter-group").forEach((group, gi) => {
+        const operator = group.dataset.op || "AND";
+        const groupOp = gi === 0 ? "AND" : group.dataset.groupOp || "AND";
+        const criteria = [];
+        group.querySelectorAll(".mi-rule").forEach((rule) => {
+          const prop = rule.querySelector(".selMiProperty")?.value || "";
+          const selVal = rule.querySelector(".selMiValue");
+          const txtVal = rule.querySelector(".txtMiValue");
+          const selOp = rule.querySelector(".selMiOp");
+          const txtNum = rule.querySelector(".txtMiNum");
+          const selUser = rule.querySelector(".selMiUser");
+          const selTextOp = rule.querySelector(".selMiTextOp");
+          let val = selVal ? selVal.value : txtVal ? txtVal.value.replace(/\r?\n/g, "\n").trim() : "";
+          if (prop === "MediaType" && val === "Episode") {
+            const incParentChk = rule.querySelector(".chkIncludeParentSeries");
+            if (incParentChk && incParentChk.checked) val = "EpisodeIncludeSeries";
+          }
+          const op2 = selOp ? selOp.value : "";
+          const textMatchOp = selTextOp ? selTextOp.value : "";
+          const num = txtNum ? txtNum.value.trim() : "";
+          const userId = selUser ? selUser.value : "";
+          const finalOp = op2 || textMatchOp;
+          const finalVal = op2 ? num : val;
+          const notBtn = rule.querySelector(".btnNotToggle");
+          const isNot = notBtn && notBtn.dataset.not === "1";
+          const crit = buildCriterion(prop, finalOp, finalVal, userId);
+          if (crit) criteria.push(isNot ? "!" + crit : crit);
+        });
+        if (criteria.length > 0) miFilters.push({ Operator: operator, Criteria: criteria, GroupOperator: groupOp });
+      });
+      const hseTab = row.querySelector(".homescreen-tab");
+      const enableHse = hseTab ? !!hseTab.querySelector(".chkEnableHomeSection")?.checked : false;
+      const hseLibraryId = hseTab && hseTab.dataset.hseLoaded === "1" ? hseTab.querySelector(".selHseLibrary")?.value || "auto" : decodeURIComponent(hseTab && hseTab.dataset.hseLibraryid || "auto");
+      let hseUserIds;
+      if (hseTab && hseTab.dataset.hseLoaded === "1") {
+        hseUserIds = Array.from(hseTab.querySelectorAll(".chkHseUser:checked")).map((c) => c.value);
+      } else {
+        try {
+          hseUserIds = JSON.parse(decodeURIComponent(hseTab && hseTab.dataset.hseUserids || "%5B%5D"));
+        } catch {
+          hseUserIds = [];
+        }
+      }
+      let hseSettings = {};
+      if (hseTab && hseTab.dataset.hseLoaded === "1") {
+        hseTab.querySelectorAll("[data-field]").forEach((el) => {
+          const f = el.dataset.field;
+          const input = el;
+          let v = input.type === "checkbox" ? String(input.checked) : input.value;
+          if (v === "" && input.placeholder) v = input.placeholder;
+          hseSettings[f] = v;
+        });
+        const hsePlaystate = hseSettings["_hsePlaystate"] || "";
+        delete hseSettings["_hsePlaystate"];
+        if (hsePlaystate === "played") {
+          hseSettings["_queryIsPlayed"] = "true";
+          hseSettings["_queryIsResumable"] = "";
+        } else if (hsePlaystate === "unplayed") {
+          hseSettings["_queryIsPlayed"] = "false";
+          hseSettings["_queryIsResumable"] = "";
+        } else if (hsePlaystate === "inprogress") {
+          hseSettings["_queryIsPlayed"] = "";
+          hseSettings["_queryIsResumable"] = "true";
         } else {
-            root.style.setProperty('--plugin-popup-bg',     '#f2f2f2');
-            root.style.setProperty('--plugin-popup-bg2',    '#e0e0e0');
-            root.style.setProperty('--plugin-popup-color',  '#1a1a1a');
-            root.style.setProperty('--plugin-popup-muted',  '#555555');
-            root.style.setProperty('--plugin-popup-border', 'rgba(0,0,0,0.15)');
-            root.style.setProperty('--plugin-popup-hover',  'rgba(0,0,0,0.08)');
-            root.style.setProperty('--plugin-popup-badge',  'rgba(0,0,0,0.1)');
-            root.style.setProperty('--plugin-input-border', 'rgba(0,0,0,0.28)');
-            root.style.setProperty('--plugin-input-bg',     'rgba(0,0,0,0.04)');
-            root.style.setProperty('--plugin-footer-bg',    '#c5cad1');
-            root.dataset.pluginTheme = 'light';
+          hseSettings["_queryIsPlayed"] = "";
+          hseSettings["_queryIsResumable"] = "";
         }
-        var drawer = document.querySelector('.mainDrawer');
-        var drawerRight = drawer ? drawer.getBoundingClientRect().right : 0;
-        var footerLeft = (drawerRight > 0 && drawerRight < window.innerWidth * 0.5) ? drawerRight : 0;
-        root.style.setProperty('--plugin-footer-left', footerLeft + 'px');
+        const itemTypesVal = hseTab.querySelector(".selHseItemTypes")?.value || "Movie,Series";
+        hseSettings["ItemTypes"] = JSON.stringify(itemTypesVal.split(","));
+        const excludedLibIds = Array.from(hseTab.querySelectorAll(".chkHseLibrary:not(:checked)")).map((c) => c.value);
+        if (excludedLibIds.length > 0) hseSettings["_queryExcludeViewIds"] = excludedLibIds.join(",");
+        else delete hseSettings["_queryExcludeViewIds"];
+      } else {
+        try {
+          hseSettings = JSON.parse(decodeURIComponent(hseTab && hseTab.dataset.hseSettings || "%7B%7D"));
+        } catch {
+        }
+        if (!hseSettings["CustomName"]) {
+          const hseDefaultName = row.querySelector(".txtEntryLabel")?.value || row.querySelector(".txtTagName")?.value || "";
+          if (hseDefaultName) hseSettings["CustomName"] = hseDefaultName;
+        }
+      }
+      const urls = [];
+      row.querySelectorAll(".url-row").forEach((uRow) => {
+        urls.push({
+          url: uRow.querySelector(".txtTagUrl").value.trim(),
+          limit: parseInt(uRow.querySelector(".txtUrlLimit").value, 10) || 0
+        });
+      });
+      if (urls.length === 0) urls.push({ url: "", limit: 0 });
+      const localSources = [];
+      row.querySelectorAll(".local-row").forEach((lRow) => {
+        localSources.push({
+          id: lRow.querySelector(".selLocalSource").value,
+          limit: parseInt(lRow.querySelector(".txtLocalLimit").value, 10) || 0
+        });
+      });
+      const miLimit = parseInt(row.querySelector(".txtMediaInfoLimit")?.value ?? "", 10) || 0;
+      const aiProvider = row.querySelector(".selAiProvider")?.value || "OpenAI";
+      const aiPrompt = row.querySelector(".txtAiPrompt")?.value || "";
+      const aiIncludeRecentlyWatched = !!row.querySelector(".chkAiRecentlyWatched")?.checked;
+      const aiRecentlyWatchedUserId = row.querySelector(".selAiWatchedUser")?.value || "";
+      const aiRecentlyWatchedCount = parseInt(row.querySelector(".txtAiWatchedCount")?.value ?? "", 10) || 20;
+      const aiRefreshIntervalDays = parseInt(row.querySelector(".txtAiRefreshInterval")?.value ?? "", 10) || 0;
+      let playlistMappings;
+      try {
+        playlistMappings = JSON.parse(decodeURIComponent(plTab && plTab.dataset.plMappings || "%5B%5D"));
+      } catch {
+        playlistMappings = [];
+      }
+      return {
+        Name: entryLabel,
+        Tag: tagName,
+        Active: active,
+        Blacklist: bl,
+        ActiveIntervals: intervals,
+        EnableTag: enableTag,
+        EnableCollection: enableColl,
+        CollectionName: collName,
+        CollectionDescription: collDesc,
+        CollectionPosterPath: collPoster,
+        OverrideWhenActive: overrideWhenActive,
+        SourceType: st,
+        Urls: urls,
+        LocalSources: localSources,
+        Limit: miLimit,
+        MediaInfoFilters: miFilters,
+        MediaInfoConditions: [],
+        EnableHomeSection: enableHse,
+        HomeSectionLibraryId: hseLibraryId,
+        HomeSectionUserIds: hseUserIds,
+        HomeSectionSettings: JSON.stringify(hseSettings),
+        HomeSectionTracked: [],
+        LastModified: (/* @__PURE__ */ new Date()).toISOString(),
+        AiProvider: aiProvider,
+        AiPrompt: aiPrompt,
+        AiIncludeRecentlyWatched: aiIncludeRecentlyWatched,
+        AiRecentlyWatchedUserId: aiRecentlyWatchedUserId,
+        AiRecentlyWatchedCount: aiRecentlyWatchedCount,
+        AiRefreshIntervalDays: aiRefreshIntervalDays,
+        TagTargetEpisode: !!row.querySelector(".chkTagTargetEpisode")?.checked,
+        TagTargetSeason: !!row.querySelector(".chkTagTargetSeason")?.checked,
+        TagTargetSeries: !!row.querySelector(".chkTagTargetSeries")?.checked,
+        CollectionTargetEpisode: !!row.querySelector(".chkCollTargetEpisode")?.checked,
+        CollectionTargetSeason: !!row.querySelector(".chkCollTargetSeason")?.checked,
+        CollectionTargetSeries: !!row.querySelector(".chkCollTargetSeries")?.checked,
+        EnablePlaylist: !!row.querySelector(".chkEnablePlaylist")?.checked,
+        PlaylistName: row.querySelector(".txtPlaylistName")?.value ?? "",
+        PlaylistUserIds: plUserIds,
+        PlaylistMappings: playlistMappings,
+        MediaInfoTargetEpisode: false,
+        MediaInfoTargetSeason: false,
+        MediaInfoTargetSeries: false,
+        MediaInfoTargetType: "",
+        MediaInfoSeasonMode: false
+      };
     }
 
-    var cachedCollections = [];
-    var cachedPlaylists = [];
-    var cachedTags = [];
-    var lastHscConfig = {};
-    var currentManageSections = [];
-    var savedFilters = [];
-    var _topListTagNames = new Set();
+    const MI_TEXT_MATCH_PROPS = [
+      "Tag",
+      "Title",
+      "EpisodeTitle",
+      "Overview",
+      "Studio",
+      "Genre",
+      "Actor",
+      "Director",
+      "Writer",
+      "ContentRating",
+      "AudioLanguage",
+      "Artist",
+      "Album",
+      "FolderPath",
+      "Country"
+    ];
+    const MI_DROPDOWN_OPTIONS = {
+      Resolution: [["8K", "8K (7680p+)"], ["4K", "4K / UHD"], ["1080p", "1080p / FHD"], ["720p", "720p / HD"], ["SD", "SD (<720p)"]],
+      VideoCodec: [["HEVC", "HEVC / H.265"], ["AV1", "AV1"], ["H264", "H.264 / AVC"]],
+      HDR: [["HDR", "HDR (any)"], ["DolbyVision", "Dolby Vision"], ["HDR10", "HDR10"]],
+      AudioFormat: [["Atmos", "Dolby Atmos"], ["TrueHD", "Dolby TrueHD"], ["DtsHdMa", "DTS-HD MA"], ["DTS", "DTS"], ["AC3", "Dolby Digital / AC3"], ["AAC", "AAC"]],
+      AudioChannels: [["7.1", "7.1+ Surround"], ["5.1", "5.1 Surround"], ["Stereo", "Stereo"], ["Mono", "Mono"]],
+      MediaType: [["Movie", "Movie"], ["Series", "Show / Series"], ["Episode", "Episode"], ["Audio", "Music Track (Audio)"], ["MusicVideo", "Music Video"], ["MusicAlbum", "Music Album"], ["MusicArtist", "Music Artist"]],
+      IsPlayed: [["Watched", "Watched"], ["Unwatched", "Unwatched"]],
+      InProgress: [["InProgress", "In progress (started, not finished)"]]
+    };
+    const MI_NUMERIC_PROPS = [
+      "CommunityRating",
+      "Year",
+      "Runtime",
+      "DateAdded",
+      "DateModified",
+      "FileSize",
+      "LastPlayed",
+      "PlayCount",
+      "BitRate",
+      "SampleRate",
+      "BitsPerSample",
+      "TrackNumber",
+      "DiscNumber",
+      "WatchedByCount"
+    ];
+    const MI_UNIT_LABELS = {
+      DateAdded: "days ago",
+      DateModified: "days ago",
+      LastPlayed: "days ago",
+      FileSize: "MB",
+      PlayCount: "plays",
+      BitRate: "kbps",
+      SampleRate: "Hz",
+      BitsPerSample: "bits",
+      WatchedByCount: "users"
+    };
+    const MI_USER_PROPS = ["IsPlayed", "LastPlayed", "PlayCount"];
+    const MI_TEXT_MATCH_DEFAULT = {
+      Title: "contains",
+      EpisodeTitle: "contains",
+      Overview: "contains",
+      Studio: "contains",
+      Genre: "contains",
+      Tag: "contains",
+      Actor: "exact",
+      Director: "exact",
+      Writer: "exact",
+      Artist: "contains",
+      Album: "contains",
+      ContentRating: "exact",
+      AudioLanguage: "exact",
+      FolderPath: "contains",
+      Country: "contains"
+    };
+    const MI_TEXT_PLACEHOLDERS = {
+      Title: "e.g. Batman, Dark Knight",
+      EpisodeTitle: "e.g. Pilot, Finale",
+      Overview: "e.g. heist, time travel",
+      Studio: "e.g. Warner, Netflix, HBO",
+      Genre: "e.g. Action, Thriller",
+      Actor: "e.g. Tom Hanks, Idris Elba",
+      Director: "e.g. Nolan, Tarantino",
+      Writer: "e.g. Tarantino, Nolan",
+      ContentRating: "e.g. PG-13, R",
+      AudioLanguage: "e.g. eng, swe",
+      ImdbId: "e.g. tt1234567, tt7654321",
+      TvdbId: "e.g. 121361",
+      FolderPath: "e.g. /movies/action",
+      Country: "e.g. United States",
+      Artist: "e.g. Radiohead, Pink Floyd",
+      Album: "e.g. OK Computer, Dark Side of the Moon"
+    };
+    const PROPERTY_GROUPS = [
+      { label: "Video", props: [["Resolution", "Resolution"], ["VideoCodec", "Video Codec"], ["HDR", "HDR"]] },
+      { label: "Audio", props: [["AudioFormat", "Audio Format"], ["AudioChannels", "Audio Channels"], ["AudioLanguage", "Audio Language"]] },
+      { label: "Content", props: [
+        ["MediaType", "Media Type"],
+        ["Tag", "Tag"],
+        ["Title", "Title"],
+        ["EpisodeTitle", "Title (Episode)"],
+        ["Overview", "Overview"],
+        ["Studio", "Studio"],
+        ["Genre", "Genre"],
+        ["Actor", "Actor / Cast"],
+        ["Director", "Director"],
+        ["Writer", "Writer"],
+        ["ContentRating", "Content Rating"],
+        ["ImdbId", "IMDB ID"],
+        ["TvdbId", "TVDB ID"],
+        ["Country", "Country"],
+        ["Collection", "In Collection"],
+        ["Playlist", "In Playlist"]
+      ] },
+      { label: "Music", props: [
+        ["Artist", "Artist"],
+        ["Album", "Album"],
+        ["BitRate", "Bit Rate (kbps)"],
+        ["SampleRate", "Sample Rate (Hz)"],
+        ["BitsPerSample", "Bit Depth"],
+        ["TrackNumber", "Track Number"],
+        ["DiscNumber", "Disc Number"]
+      ] },
+      { label: "Metrics", props: [
+        ["CommunityRating", "Community Rating"],
+        ["Year", "Year"],
+        ["Runtime", "Runtime (minutes)"],
+        ["DateAdded", "Date Added"],
+        ["DateModified", "Date Modified"],
+        ["FileSize", "File Size (MB)"],
+        ["FolderPath", "Folder Path"]
+      ] },
+      { label: "Activity", props: [
+        ["IsPlayed", "Watched / Unwatched"],
+        ["LastPlayed", "Last Played"],
+        ["PlayCount", "Play Count"],
+        ["InProgress", "In Progress (viewer)"],
+        ["WatchedByCount", "Watched by (user count)"]
+      ] }
+    ];
+    function propertyOptionsHtml(selected) {
+      return PROPERTY_GROUPS.map(
+        (g) => '<optgroup label="' + g.label + '">' + g.props.map(
+          (p) => '<option value="' + p[0] + '"' + (p[0] === selected ? " selected" : "") + ">" + p[1] + "</option>"
+        ).join("") + "</optgroup>"
+      ).join("");
+    }
+    function getMiHintHtml(prop) {
+      if (MI_TEXT_MATCH_PROPS.indexOf(prop) < 0 && prop !== "ImdbId" && prop !== "TvdbId") {
+        return '<div class="mi-rule-hint"></div>';
+      }
+      return '<div class="mi-rule-hint" style="font-size:0.75em; opacity:0.5; margin-top:2px; padding-right:32px; text-align:right;">One value per line &mdash; matches if <em>any</em> line matches (OR)</div>';
+    }
+    function escapeText(val) {
+      return val.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function textOpSelectHtml(selectedOp) {
+      return '<select class="selMiTextOp" is="emby-select" style="flex:0 0 100px;"><option value="contains"' + (selectedOp === "contains" ? " selected" : "") + '>Contains</option><option value="exact"' + (selectedOp === "exact" ? " selected" : "") + ">Exact</option></select>";
+    }
+    function textAreaHtml(placeholder, val) {
+      return '<textarea class="txtMiValue" placeholder="' + placeholder + '" rows="1" style="flex:1;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:32px;max-height:120px;overflow-y:auto;">' + escapeText(val) + "</textarea>";
+    }
+    function getMiValueHtml(prop, savedOp, savedVal, savedUserId, deps) {
+      let userHtml = "";
+      if (MI_USER_PROPS.indexOf(prop) >= 0) {
+        let specialOpts = '<option value="__any__"' + ("__any__" === savedUserId ? " selected" : "") + '>Any user</option><option value="__all__"' + ("__all__" === savedUserId ? " selected" : "") + ">All users</option>";
+        if (prop === "IsPlayed") {
+          specialOpts += '<option value="__current__"' + ("__current__" === savedUserId ? " selected" : "") + ">Current user (viewer)</option>";
+        }
+        const uOpts = specialOpts + (deps.users || []).map(function(u) {
+          return '<option value="' + u.Id + '"' + (u.Id === savedUserId ? " selected" : "") + ">" + u.Name + "</option>";
+        }).join("");
+        userHtml = '<select class="selMiUser" is="emby-select" style="flex:0 0 auto;min-width:110px;">' + uOpts + "</select>";
+      }
+      const unit = MI_UNIT_LABELS[prop];
+      const unitLabel = unit ? '<span style="margin-left:4px;opacity:.7;white-space:nowrap;">' + unit + "</span>" : "";
+      if (prop === "Collection" || prop === "Playlist") {
+        const cpList = prop === "Collection" ? deps.collections : deps.playlists;
+        const cpOpts = cpList.map(function(o) {
+          const n = o.Name || "";
+          return '<option value="' + n.replace(/"/g, "&quot;") + '"' + (n === savedVal ? " selected" : "") + ">" + n + "</option>";
+        }).join("");
+        return '<select class="selMiValue" is="emby-select" style="flex:1;"><option value="">-- Select --</option>' + cpOpts + "</select>";
+      }
+      if (prop === "Tag") {
+        const tagTextOp = savedOp || MI_TEXT_MATCH_DEFAULT["Tag"];
+        const tagTextOpHtml = textOpSelectHtml(tagTextOp);
+        if (deps.tags.length > 0) {
+          const tagOpts = deps.tags.map(function(t) {
+            return '<option value="' + t.replace(/"/g, "&quot;") + '"' + (t === savedVal ? " selected" : "") + ">" + t + "</option>";
+          }).join("");
+          return tagTextOpHtml + '<select class="selMiValue" is="emby-select" style="flex:1;"><option value="">-- Select tag --</option>' + tagOpts + "</select>";
+        }
+        return tagTextOpHtml + textAreaHtml("e.g. 4K", migrateCommaSeparated(savedVal || "") ?? "");
+      }
+      const dropdown = MI_DROPDOWN_OPTIONS[prop];
+      if (dropdown) {
+        if (prop === "MediaType") {
+          const dispVal = savedVal === "EpisodeIncludeSeries" ? "Episode" : savedVal || "";
+          const mtOpts = dropdown.map(function(pair) {
+            return '<option value="' + pair[0] + '"' + (pair[0] === dispVal ? " selected" : "") + ">" + pair[1] + "</option>";
+          }).join("");
+          const ipChecked = savedVal === "EpisodeIncludeSeries" ? "checked" : "";
+          const ipDisplay = dispVal === "Episode" ? "inline-flex" : "none";
+          return '<select class="selMiValue" is="emby-select" style="flex:1;">' + mtOpts + '</select><label class="mi-include-parent" style="display:' + ipDisplay + '; align-items:center; gap:6px; cursor:pointer; white-space:nowrap; font-size:0.85em; margin:0;"><input type="checkbox" class="chkIncludeParentSeries" ' + ipChecked + ' style="margin:0;"><span>Also include parent series</span></label>';
+        }
+        const opts = dropdown.map(function(pair) {
+          return '<option value="' + pair[0] + '"' + (pair[0] === savedVal ? " selected" : "") + ">" + pair[1] + "</option>";
+        }).join("");
+        return userHtml + '<select class="selMiValue" is="emby-select" style="flex:1;">' + opts + "</select>";
+      }
+      if (MI_NUMERIC_PROPS.indexOf(prop) >= 0) {
+        const ops = ["=", ">", ">=", "<", "<="];
+        const defaultOp = prop === "PlayCount" ? ">=" : "<=";
+        const opOpts = ops.map(function(o) {
+          return '<option value="' + o + '"' + (o === (savedOp || defaultOp) ? " selected" : "") + ">" + o + "</option>";
+        }).join("");
+        const infoTooltip = '<div class="mi-op-info"><div class="mi-op-info-icon">i</div><div class="mi-op-tooltip"><table><tr><td>=</td><td>Exactly equal</td></tr><tr><td>&gt;</td><td>Greater than</td></tr><tr><td>&gt;=</td><td>Greater than or equal</td></tr><tr><td>&lt;</td><td>Less than</td></tr><tr><td>&lt;=</td><td>Less than or equal</td></tr></table></div></div>';
+        const numStep = prop === "PlayCount" ? "1" : "0.01";
+        return userHtml + '<select class="selMiOp" is="emby-select" style="flex:0 0 64px;">' + opOpts + "</select>" + infoTooltip + '<input class="txtMiNum" is="emby-input" type="number" step="' + numStep + '" value="' + (savedVal || "") + '" style="flex:1;" />' + unitLabel;
+      }
+      if (MI_TEXT_MATCH_PROPS.indexOf(prop) >= 0) {
+        const textOp = savedOp || MI_TEXT_MATCH_DEFAULT[prop] || "contains";
+        const textOpHtml = textOpSelectHtml(textOp);
+        const ph2 = MI_TEXT_PLACEHOLDERS[prop] || "";
+        return textOpHtml + textAreaHtml(ph2, migrateCommaSeparated(savedVal || "") ?? "");
+      }
+      const ph = MI_TEXT_PLACEHOLDERS[prop] || "";
+      return textAreaHtml(ph, migrateCommaSeparated(savedVal || "") ?? "");
+    }
+    function getMediaInfoRuleHtml(criterion, deps) {
+      const parsed = parseCriterion(criterion || "");
+      const prop = parsed.prop || "Resolution";
+      const notActive = parsed.not;
+      const notBg = notActive ? "rgba(200,50,50,0.75)" : "transparent";
+      const notColor = notActive ? "#fff" : "";
+      const notBorder = notActive ? "1px solid rgba(200,50,50,0.6)" : "1px solid rgba(128,128,128,0.4)";
+      return '<div class="mi-rule" style="margin-bottom:6px;"><div style="display:flex; gap:6px; align-items:center;"><button type="button" class="btnNotToggle" data-not="' + (notActive ? "1" : "0") + '" style="border:' + notBorder + "; border-radius:10px; padding:3px 10px; font-size:0.78em; font-weight:bold; cursor:pointer; letter-spacing:0.5px; flex-shrink:0; background:" + notBg + "; color:" + notColor + ';" title="Negate this rule">NOT</button><select class="selMiProperty" is="emby-select" style="flex:0 0 155px;">' + propertyOptionsHtml(prop) + '</select><div class="mi-value-wrapper" style="flex:1; display:flex; gap:6px; align-items:center;">' + getMiValueHtml(prop, parsed.op, parsed.val, parsed.userId || "", deps) + '</div><button type="button" class="btnRemoveMiRule" style="background:transparent; border:none; color:#cc3333; cursor:pointer; padding:2px 8px; font-size:1em; flex-shrink:0;" title="Remove rule">\u2715</button></div>' + getMiHintHtml(prop) + "</div>";
+    }
+    function getMediaInfoFilterGroupHtml(filter, _i, isFirst, deps) {
+      const op = filter && filter.Operator || "AND";
+      const groupOp = filter && filter.GroupOperator || "AND";
+      const criteria = filter && filter.Criteria || [];
+      const connectorHtml = isFirst ? "" : '<div class="mi-group-connector" style="display:flex; align-items:center; gap:10px; margin:-12px -12px 14px; padding:8px 14px; background:rgba(0,0,0,0.12);"><div style="flex:1; height:1px; background:rgba(128,128,128,0.25);"></div><div style="display:flex; flex-direction:column; align-items:center; gap:4px;"><span style="font-size:0.7em; text-transform:uppercase; letter-spacing:1px; opacity:0.45;">Connect groups with</span><div style="display:flex; border-radius:14px; overflow:hidden; border:1px solid rgba(128,128,128,0.4);"><button type="button" class="btnGroupOpChoice" data-value="AND" style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px; background:' + (groupOp === "AND" ? "rgba(0,164,220,0.75)" : "transparent") + "; color:" + (groupOp === "AND" ? "#fff" : "inherit") + ';" title="Both filter groups must match">AND</button><div style="width:1px; background:rgba(128,128,128,0.4);"></div><button type="button" class="btnGroupOpChoice" data-value="OR" style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px; background:' + (groupOp === "OR" ? "rgba(220,120,0,0.75)" : "transparent") + "; color:" + (groupOp === "OR" ? "#fff" : "inherit") + ';" title="Either filter group is enough">OR</button></div><span class="group-op-desc" style="font-size:0.7em; opacity:0.55; white-space:nowrap;">' + (groupOp === "AND" ? "Both groups must match" : "Either group is enough") + '</span></div><div style="flex:1; height:1px; background:rgba(128,128,128,0.25);"></div></div>';
+      const rulesHtml = criteria.map(function(c) {
+        return getMediaInfoRuleHtml(c, deps);
+      }).join("");
+      return '<div class="mediainfo-filter-group" data-group-op="' + groupOp + '" data-op="' + op + '" style="border:1px solid rgba(128,128,128,0.3); border-radius:6px; padding:12px; margin-bottom:10px; background:rgba(128,128,128,0.03);">' + connectorHtml + '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;"><div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><span style="font-size:0.8em; font-weight:bold; text-transform:uppercase; letter-spacing:0.5px; opacity:0.6;">Match rules:</span><div style="display:flex; flex-direction:column; gap:3px;"><div style="display:flex; border-radius:14px; overflow:hidden; border:1px solid rgba(128,128,128,0.4);"><button type="button" class="btnGroupInnerOpChoice" data-value="AND" style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px; background:' + (op === "AND" ? "rgba(0,164,220,0.75)" : "transparent") + "; color:" + (op === "AND" ? "#fff" : "inherit") + ';" title="All rules in this group must match">ALL</button><div style="width:1px; background:rgba(128,128,128,0.4);"></div><button type="button" class="btnGroupInnerOpChoice" data-value="OR" style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px; background:' + (op === "OR" ? "rgba(220,120,0,0.75)" : "transparent") + "; color:" + (op === "OR" ? "#fff" : "inherit") + ';" title="Any rule in this group is enough">ANY</button></div><span class="inner-op-desc" style="font-size:0.7em; opacity:0.55;">' + (op === "AND" ? "All rules must match" : "Any rule is enough") + '</span></div></div><button type="button" class="btnRemoveFilterGroup" style="background:transparent; border:none; color:#cc3333; cursor:pointer; padding:2px 8px; font-size:0.85em; flex-shrink:0;">\u2715 Remove</button></div><div class="mi-rules-list">' + rulesHtml + '</div><button type="button" is="emby-button" class="btnAddMiRule raised btn-neutral" style="margin-top: 4px;">+ Add Rule</button></div>';
+    }
+    function readMiFiltersFromContainer(container) {
+      const miFilters = [];
+      container.querySelectorAll(".mediainfo-filter-group").forEach((group, gi) => {
+        const operator = group.dataset.op || "AND";
+        const groupOp = gi === 0 ? "AND" : group.dataset.groupOp || "AND";
+        const criteria = [];
+        group.querySelectorAll(".mi-rule").forEach((rule) => {
+          const propEl = rule.querySelector(".selMiProperty");
+          const prop = propEl ? propEl.value : "";
+          const selVal = rule.querySelector(".selMiValue");
+          const txtVal = rule.querySelector(".txtMiValue");
+          const selOp = rule.querySelector(".selMiOp");
+          const txtNum = rule.querySelector(".txtMiNum");
+          const selUser = rule.querySelector(".selMiUser");
+          const selTextOp = rule.querySelector(".selMiTextOp");
+          let val = selVal ? selVal.value : txtVal ? txtVal.value.replace(/\r?\n/g, "\n").trim() : "";
+          if (prop === "MediaType" && val === "Episode") {
+            const incParentChk = rule.querySelector(".chkIncludeParentSeries");
+            if (incParentChk && incParentChk.checked) val = "EpisodeIncludeSeries";
+          }
+          const op2 = selOp ? selOp.value : "";
+          const textMatchOp = selTextOp ? selTextOp.value : "";
+          const num = txtNum ? txtNum.value.trim() : "";
+          const userId = selUser ? selUser.value : "";
+          const finalOp = op2 || textMatchOp;
+          const finalVal = op2 ? num : val;
+          const notBtn = rule.querySelector(".btnNotToggle");
+          const isNot = notBtn !== null && notBtn.dataset.not === "1";
+          const crit = buildCriterion(prop, finalOp, finalVal, userId);
+          if (crit) criteria.push(isNot ? "!" + crit : crit);
+        });
+        if (criteria.length > 0) miFilters.push({ Operator: operator, Criteria: criteria, GroupOperator: groupOp });
+      });
+      return miFilters;
+    }
 
-    var customCss = `
+    function getMySavedFiltersPanelHtml(savedFilters) {
+      if (savedFilters.length === 0) {
+        return '<div style="font-size:0.82em; color:var(--theme-text-secondary); font-style:italic; margin-bottom:4px;">No saved filters yet.</div>';
+      }
+      return '<div style="display:flex; flex-wrap:wrap; gap:6px;">' + savedFilters.map(
+        (sf, i) => '<div style="display:flex; align-items:center; gap:0;"><button type="button" class="btnApplyMySavedFilter" data-index="' + i + '" style="border:1.5px solid #000; border-radius:14px 0 0 14px; padding:4px 10px; font-size:0.82em; cursor:pointer; background:transparent; color:var(--theme-text-primary);">' + escapeHtml(sf.Name) + '</button><button type="button" class="btnDeleteMySavedFilter" data-index="' + i + '" style="border:1.5px solid #000; border-left:none; border-radius:0 14px 14px 0; background:transparent; color:#cc3333; cursor:pointer; padding:4px 8px; font-size:0.82em; line-height:1;" title="Delete">\u2715</button></div>'
+      ).join("") + "</div>";
+    }
+    function refreshMySavedFiltersPanels(savedFilters) {
+      const v = document.querySelector("#HomeScreenCompanionConfigPage");
+      if (!v) return;
+      const html = getMySavedFiltersPanelHtml(savedFilters);
+      v.querySelectorAll(".mi-saved-panel-content").forEach((el) => {
+        el.innerHTML = html;
+      });
+    }
+    function saveSavedFiltersNow(deps) {
+      deps.getApiClient().getPluginConfiguration(deps.pluginId).then((currentConfig) => {
+        currentConfig.SavedFilters = deps.getSavedFilters();
+        return deps.getApiClient().updatePluginConfiguration(deps.pluginId, currentConfig);
+      }).then(() => {
+        const original = deps.getOriginalConfigState();
+        if (original) {
+          try {
+            const state = JSON.parse(original);
+            if (state === null) {
+            } else if (typeof state === "object") {
+              state.SavedFilters = deps.getSavedFilters();
+              deps.setOriginalConfigState(JSON.stringify(state));
+            } else {
+              deps.setOriginalConfigState(JSON.stringify(state));
+            }
+          } catch {
+          }
+        }
+        const view = document.querySelector("#HomeScreenCompanionConfigPage");
+        if (view) deps.checkFormState();
+      });
+    }
+
+    const MI_PRESETS = [
+      { label: "Resolution", presets: [
+        {
+          name: "Movies in 4K",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Movie", "4K"] }]
+        },
+        {
+          name: "Movies in 1080p",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Movie", "1080p"] }]
+        },
+        {
+          name: "Movies below HD (\u2264720p)",
+          build: () => [
+            { Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Movie"] },
+            { Operator: "OR", GroupOperator: "AND", Criteria: ["720p", "SD"] }
+          ]
+        }
+      ] },
+      { label: "Release Year", presets: [
+        {
+          name: "Movies from the 1990s",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Movie", "Year:>=:1990", "Year:<=:1999"] }]
+        },
+        {
+          name: "Movies released this year",
+          build: () => {
+            const y = (/* @__PURE__ */ new Date()).getFullYear();
+            return [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Movie", "Year:=:" + y] }];
+          }
+        },
+        {
+          name: "Movies released in the last 5 years",
+          build: () => {
+            const y = (/* @__PURE__ */ new Date()).getFullYear() - 5;
+            return [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Movie", "Year:>=:" + y] }];
+          }
+        }
+      ] },
+      { label: "Recently", presets: [
+        {
+          name: "Recently added (last 30 days)",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["DateAdded:<=:30"] }]
+        },
+        {
+          name: "Recently modified (last 7 days)",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["DateModified:<=:7"] }]
+        },
+        {
+          name: "Recently played (last 7 days)",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["LastPlayed:__any__:<=:7"] }]
+        }
+      ] },
+      { label: "Watch Status", presets: [
+        {
+          name: "Unwatched movies",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Movie", "IsPlayed:__any__:=:Unwatched"] }]
+        },
+        {
+          name: "Never played by anyone",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["IsPlayed:__all__:=:Unwatched"] }]
+        },
+        {
+          name: "Watched by at least 2 users",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["WatchedByCount:>=:2"] }]
+        },
+        {
+          name: "Unseen by everyone",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["WatchedByCount:=:0"] }]
+        },
+        {
+          name: "In progress by current user (home section)",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["InProgress"] }]
+        },
+        {
+          name: "Watched by current user (home section)",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["IsPlayed:__current__:=:Watched"] }]
+        }
+      ] },
+      { label: "Music", presets: [
+        {
+          name: "All music tracks",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Audio"] }]
+        },
+        {
+          name: "All music videos",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:MusicVideo"] }]
+        },
+        {
+          name: "Lossless audio (\u226524-bit)",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Audio", "BitsPerSample:>=:24"] }]
+        },
+        {
+          name: "Hi-res audio (\u226596 kHz)",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:Audio", "SampleRate:>=:96000"] }]
+        },
+        {
+          name: "Music videos in 4K",
+          build: () => [{ Operator: "AND", GroupOperator: "AND", Criteria: ["MediaType:MusicVideo", "4K"] }]
+        }
+      ] }
+    ];
+    const SOURCE_BADGE_MAP = {
+      "External": { icon: "language", title: "External List" },
+      "LocalCollection": { icon: "folder_special", title: "Local Collection" },
+      "LocalPlaylist": { icon: "playlist_play", title: "Local Playlist" },
+      "MediaInfo": { icon: "tune", title: "Smart Playlist" },
+      "AI": { icon: "auto_awesome", title: "AI created lists" }
+    };
+    function getSourceBadgeHtml(st) {
+      const e = SOURCE_BADGE_MAP[st];
+      if (!e) return "";
+      return `<span class="tag-indicator source" title="${e.title}"><i class="md-icon" style="font-size:1.1em;">${e.icon}</i></span>`;
+    }
+    function asTagConfig(tagConfig) {
+      return tagConfig && typeof tagConfig === "object" ? tagConfig : {};
+    }
+    function renderTagGroup(tagConfig, groupIndex, deps) {
+      const cfg = asTagConfig(tagConfig);
+      const isChecked = cfg.Active !== false ? "checked" : "";
+      const tagName = cfg.Tag || "";
+      const labelName = cfg.Name || "";
+      const urls = cfg.Urls || (cfg.Url ? [{ url: cfg.Url, limit: cfg.Limit !== void 0 ? cfg.Limit : 0 }] : [{ url: "", limit: 0 }]);
+      const blacklist = migrateCommaSeparated((cfg.Blacklist || []).join("\n")) || "";
+      const intervals = cfg.ActiveIntervals || [];
+      const idx = typeof groupIndex !== "undefined" ? groupIndex : 9999;
+      const lastMod = cfg.LastModified || (/* @__PURE__ */ new Date()).toISOString();
+      const enableTag = cfg.EnableTag !== false ? "checked" : "";
+      const enableColl = cfg.EnableCollection ? "checked" : "";
+      const enablePlaylist = cfg.EnablePlaylist ? "checked" : "";
+      const playlistName = cfg.PlaylistName || "";
+      const playlistUserIds = cfg.PlaylistUserIds || [];
+      const playlistUserIdsEnc = encodeURIComponent(JSON.stringify(playlistUserIds));
+      const playlistMappingsEnc = encodeURIComponent(JSON.stringify(cfg.PlaylistMappings || []));
+      const overrideChecked = cfg.OverrideWhenActive ? "checked" : "";
+      const collName = cfg.CollectionName || "";
+      const collDescription = cfg.CollectionDescription || "";
+      const collPosterPath = cfg.CollectionPosterPath || "";
+      const sourceType = cfg.SourceType || "";
+      let localSources = cfg.LocalSources || [];
+      if (localSources.length === 0) localSources = [{ id: "", limit: 0 }];
+      const mediaInfoLimit = cfg.Limit || 0;
+      const aiLimit = cfg.Limit || 0;
+      const _legacyTarget = cfg.MediaInfoTargetType || (cfg.MediaInfoSeasonMode ? "Season" : "");
+      const _tagAnySet = cfg.TagTargetEpisode || cfg.TagTargetSeason || cfg.TagTargetSeries || cfg.MediaInfoTargetEpisode || cfg.MediaInfoTargetSeason || cfg.MediaInfoTargetSeries || _legacyTarget !== "";
+      const _tagTargetEp = cfg.TagTargetEpisode || cfg.MediaInfoTargetEpisode || _legacyTarget === "Episode";
+      const _tagTargetSea = cfg.TagTargetSeason || cfg.MediaInfoTargetSeason || _legacyTarget === "Season";
+      const _tagTargetSer = cfg.TagTargetSeries || cfg.MediaInfoTargetSeries || _legacyTarget === "Series" || !_tagAnySet;
+      const _collAnySet = cfg.CollectionTargetEpisode || cfg.CollectionTargetSeason || cfg.CollectionTargetSeries || cfg.MediaInfoTargetEpisode || cfg.MediaInfoTargetSeason || cfg.MediaInfoTargetSeries || _legacyTarget !== "";
+      const _collTargetEp = cfg.CollectionTargetEpisode || cfg.MediaInfoTargetEpisode || _legacyTarget === "Episode";
+      const _collTargetSea = cfg.CollectionTargetSeason || cfg.MediaInfoTargetSeason || _legacyTarget === "Season";
+      const _collTargetSer = cfg.CollectionTargetSeries || cfg.MediaInfoTargetSeries || _legacyTarget === "Series" || !_collAnySet;
+      const enableHomeSection = cfg.EnableHomeSection ? "checked" : "";
+      const _hasViewerCriteria = deps.tagConfigHasViewerCriteria(cfg);
+      const _hseAllowedWithoutOutput = sourceType === "MediaInfo" && _hasViewerCriteria;
+      const disableHomeSection = cfg.EnableTag === false && !cfg.EnableCollection && !_hseAllowedWithoutOutput ? "disabled" : "";
+      const homeSectionLibraryId = encodeURIComponent(cfg.HomeSectionLibraryId || "auto");
+      const homeSectionUserIdsEnc = encodeURIComponent(JSON.stringify(cfg.HomeSectionUserIds || []));
+      const homeSectionSettingsEnc = encodeURIComponent(cfg.HomeSectionSettings || "{}");
+      const homeSectionTrackedEnc = encodeURIComponent(JSON.stringify(cfg.HomeSectionTracked || []));
+      const hsDefaultSectionType = cfg.EnableCollection ? "boxset" : cfg.EnableTag || _hseAllowedWithoutOutput ? "items" : "boxset";
+      const mediaFilters = cfg.MediaInfoFilters && cfg.MediaInfoFilters.length > 0 ? cfg.MediaInfoFilters : cfg.MediaInfoConditions && cfg.MediaInfoConditions.length > 0 ? [{ Operator: "AND", GroupOperator: "AND", Criteria: cfg.MediaInfoConditions }] : [];
+      const filterGroupsHtml = mediaFilters.map((f, i) => deps.getMediaInfoFilterGroupHtml(f, i, i === 0, deps.miFilterDeps)).join("");
+      const activeText = cfg.Active !== false ? "Active" : "Disabled";
+      const activeColor = cfg.Active !== false ? "#52B54B" : "var(--theme-text-secondary)";
+      const sourceBadgeHtml = getSourceBadgeHtml(sourceType);
+      let indicatorsHtml = "";
+      if (intervals.length > 0) {
+        const schedPriorityClass = cfg.OverrideWhenActive ? " priority-active" : "";
+        const schedText = cfg.OverrideWhenActive ? "Schedule priority" : "Schedule";
+        indicatorsHtml += `<span class="tag-indicator schedule${schedPriorityClass}"><i class="md-icon" style="font-size:1.1em;">calendar_today</i> ${schedText}</span>`;
+      }
+      if (cfg.EnableCollection) {
+        indicatorsHtml += `<span class="tag-indicator collection"><i class="md-icon" style="font-size:1.1em;">library_books</i> Collection</span>`;
+      }
+      if (cfg.EnableHomeSection) {
+        indicatorsHtml += `<span class="tag-indicator homescreen"><i class="md-icon" style="font-size:1.1em;">home</i> Home Section</span>`;
+      }
+      if (cfg.EnableTag) {
+        indicatorsHtml += `<span class="tag-indicator tag"><i class="md-icon" style="font-size:1.1em;">label</i> Tag</span>`;
+      }
+      if (cfg.EnablePlaylist) {
+        indicatorsHtml += `<span class="tag-indicator playlist"><i class="md-icon" style="font-size:1.1em;">queue_music</i> Playlist</span>`;
+      }
+      if (deps.topLists.tagNames.has(tagName.toLowerCase())) {
+        indicatorsHtml += `<span class="tag-indicator toplist"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Top-List</span>`;
+      }
+      const inactiveClass = cfg.Active === false ? "inactive" : "";
+      const newClass = "";
+      const html = `
+        <div class="tag-row ${inactiveClass} ${newClass}" data-index="${idx}" data-tag="${tagName.toLowerCase()}" data-last-modified="${lastMod}" data-dirty="false">
+            <div class="tag-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px; cursor:pointer;">
+                <div style="display:flex; align-items:center;">
+                    <div class="header-actions" style="margin-right:15px; display:flex; align-items:center;" onclick="event.stopPropagation()">
+                        <div class="drag-handle">
+                            <i class="md-icon">reorder</i>
+                        </div>
+                        <span class="lblActiveStatus" style="margin-right:8px; font-size:0.9em; font-weight:bold; color:${activeColor}; min-width:60px; text-align:right;">${activeText}</span>
+                        <label class="checkboxContainer" style="margin:0;">
+                            <input type="checkbox" is="emby-checkbox" class="chkTagActive" ${isChecked} />
+                            <span></span>
+                        </label>
+                    </div>
+                    <div class="tag-info" style="display:flex; align-items:center;">
+                        <span class="source-badge">${sourceBadgeHtml}</span>
+                        <span class="tag-title" style="font-weight:bold; font-size:1.1em;">${labelName || tagName || "New"}</span>
+                        <span class="badge-container" style="display:flex; align-items:center;">${indicatorsHtml}</span>
+                    </div>
+                </div>
+                <i class="md-icon expand-icon">expand_more</i>
+            </div>
+            <div class="tag-body" style="display:none; padding:15px; border-top:1px solid rgba(255,255,255,0.1);">
+                <div style="display:flex; justify-content:flex-end; margin-bottom:4px;">
+                    <button type="button" is="emby-button" class="btnDuplicateRow raised" style="background:transparent; color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0; box-shadow:none;" title="Duplicate this source"><i class="md-icon" style="font-size:1em; margin-right:4px;">content_copy</i><span>Duplicate</span></button>
+                </div>
+                <div class="tag-tabs" style="display: flex; gap: 20px; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <div class="tag-tab active" data-tab="general" style="padding: 8px 0; cursor: pointer; font-weight: bold; border-bottom: 2px solid #52B54B;">Source</div>
+                    <div class="tag-tab" data-tab="tag" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Tag</div>
+                    <div class="tag-tab" data-tab="collection" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Collection</div>
+                    <div class="tag-tab" data-tab="playlist" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Playlist</div>
+                    <div class="tag-tab" data-tab="schedule" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Schedule</div>
+                    <div class="tag-tab" data-tab="advanced" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Blacklist</div>
+                    <div class="tag-tab" data-tab="homescreen" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Home Screen</div>
+                </div>
+
+                <div class="tab-content general-tab">
+                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtEntryLabel" type="text" label="Display Name" value="${labelName}" /></div>
+
+                    <div style="margin-bottom: 15px;">
+                        <label class="selectLabel">Source Type</label>
+                        <select is="emby-select" class="selSourceType" style="width:100%;">
+                            <option value="" ${!sourceType ? "selected" : ""}>-- Select source type --</option>
+                            <option value="External" ${sourceType === "External" ? "selected" : ""}>External List (Trakt/MDBList/TMDb)</option>
+                            <option value="LocalCollection" ${sourceType === "LocalCollection" ? "selected" : ""}>Local Collection</option>
+                            <option value="LocalPlaylist" ${sourceType === "LocalPlaylist" ? "selected" : ""}>Local Playlist</option>
+                            <option value="MediaInfo" ${sourceType === "MediaInfo" ? "selected" : ""}>Local Media Information (Smart Playlist)</option>
+                            <option value="AI" ${sourceType === "AI" ? "selected" : ""}>AI created lists</option>
+                        </select>
+                        <p class="source-type-hint" style="margin:6px 0 0 0; font-size:1em; opacity:0.8; line-height:1.4;">${function(st) {
+    if (st === "External") return "Use an external list to tag, or create a collection, from the items that match your library.";
+    if (st === "LocalCollection") return "Every item in the selected collection(s) gets the configured tag or is added to a new collection. You can also use this to create a curated list of selected collections as a home screen section.";
+    if (st === "LocalPlaylist") return "Every item in the selected playlist(s) gets the configured tag or is added to a new collection.";
+    if (st === "MediaInfo") return "Filter your own library to select which movies or shows to tag or create a collection of. This is also known as a Smart Playlist.";
+    if (st === "AI") return "Use AI to create a list. Write your prompt and the AI will build a list based on it.";
+    return "";
+  }(sourceType)}</p>
+                    </div>
+
+                    <div class="source-external-container" style="display: ${sourceType === "External" ? "block" : "none"};">
+                        <div style="display:flex; align-items:baseline; gap:10px; margin:10px 0 10px 0;">
+                            <p style="margin:0; font-size:0.9em; font-weight:bold; opacity:0.7;">Source URLs</p>
+                            <span style="font-size:0.75em; opacity:0.5;">\u2014 Find lists: <a href="https://trakt.tv/discover" target="_blank" style="color:inherit; text-decoration:underline;">Trakt</a> &middot; <a href="https://mdblist.com/toplists/" target="_blank" style="color:inherit; text-decoration:underline;">MDBList</a> &middot; <a href="https://www.themoviedb.org/" target="_blank" style="color:inherit; text-decoration:underline;">TMDb</a> &middot; <a href="https://developer.themoviedb.org/reference/getting-started" target="_blank" style="color:inherit; text-decoration:underline;">TMDb API</a></span>
+                        </div>
+                        <div class="url-list-container">${urls.map((u) => deps.getUrlRowHtml(u.url, u.limit)).join("")}</div>
+                        <div style="margin-top:10px;"><button is="emby-button" type="button" class="raised btnAddUrl" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);"><i class="md-icon" style="margin-right:5px;">add</i>Add another URL</button></div>
+                    </div>
+
+                    <div class="source-local-container" style="display: ${sourceType === "LocalCollection" || sourceType === "LocalPlaylist" ? "block" : "none"};">
+                        <p style="margin:10px 0 10px 0; font-size:0.9em; font-weight:bold; opacity:0.7;" class="local-type-label">${sourceType === "LocalPlaylist" ? "Select Playlists" : "Select Collections"}</p>
+                        <div class="local-list-container">${localSources.map((ls) => deps.getLocalRowHtml(sourceType, ls.id, ls.limit)).join("")}</div>
+                        <div style="margin-top:10px;"><button is="emby-button" type="button" class="raised btnAddLocal" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);"><i class="md-icon" style="margin-right:5px;">add</i>Add another</button></div>
+                    </div>
+
+                    <div class="source-ai-container" style="display: ${sourceType === "AI" ? "block" : "none"};">
+                        <div style="margin-bottom: 15px;">
+                            <label class="selectLabel">AI Provider</label>
+                            <select is="emby-select" class="selAiProvider" style="width:100%;">
+                                <option value="OpenAI" ${(cfg.AiProvider || "OpenAI") === "OpenAI" ? "selected" : ""}>OpenAI (ChatGPT)</option>
+                                <option value="Gemini" ${(cfg.AiProvider || "OpenAI") === "Gemini" ? "selected" : ""}>Google Gemini</option>
+                                <option value="Claude" ${(cfg.AiProvider || "OpenAI") === "Claude" ? "selected" : ""}>Anthropic Claude</option>
+                                <option value="Ollama" ${(cfg.AiProvider || "OpenAI") === "Ollama" ? "selected" : ""}>Ollama (Local)</option>
+                            </select>
+                        </div>
+
+                        <div class="ollama-experimental-warning" style="display:${(cfg.AiProvider || "OpenAI") === "Ollama" ? "flex" : "none"}; align-items:flex-start; gap:8px; background:rgba(232,168,56,0.1); border:1px solid rgba(232,168,56,0.35); border-radius:4px; padding:10px 12px; margin-bottom:15px; font-size:0.85em; line-height:1.5;">
+                            <i class="md-icon" style="font-size:1.1em; color:#e8a838; flex-shrink:0; margin-top:1px;">warning</i>
+                            <span style="opacity:0.85;"><strong>Experimental:</strong> Ollama support is experimental. Local models may return inaccurate IMDB IDs \u2014 the plugin will fall back to title matching, but results <strong>WILL</strong> vary depending on the model used. Known limitations with local AI is the lack of new and updated information, and limited ability to research online. Cloud based models seems to be the best options for now. </span>
+                        </div>
+
+                        <div class="inputContainer" style="margin-bottom:15px;">
+                            <textarea is="emby-textarea" class="txtAiPrompt" rows="3"
+                                label="Prompt"
+                                style="width:100%; resize:vertical; box-sizing:border-box;"
+                                placeholder="e.g. Give me the best thriller movies from the 2000s">${cfg.AiPrompt || ""}</textarea>
+                            <div class="fieldDescription">Write your intent. The system will automatically format the output as a structured movie/show list. You don't need to specify a format.</div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:12px;">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" class="chkAiRecentlyWatched" ${cfg.AiIncludeRecentlyWatched ? "checked" : ""} />
+                                <span>Include recently watched for personalization</span>
+                            </label>
+                            <div class="fieldDescription">Prepends the selected user's watch history to the AI prompt, enabling "Recommended for you" style lists.</div>
+                        </div>
+
+                        <div class="ai-recently-watched-options" style="display: ${cfg.AiIncludeRecentlyWatched ? "block" : "none"}; margin-top:10px; padding-left:10px; border-left:2px solid rgba(128,128,128,0.3);">
+                            <div style="margin-bottom:10px;">
+                                <label class="selectLabel">User for watch history</label>
+                                <select is="emby-select" class="selAiWatchedUser" style="width:100%;">
+                                    <option value="">-- Select user --</option>
+                                    ${(deps.miUsers.users || []).map((u) => '<option value="' + u.Id + '"' + (u.Id === (cfg.AiRecentlyWatchedUserId || "") ? " selected" : "") + ">" + u.Name + "</option>").join("")}
+                                </select>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <label style="font-size:0.9em; white-space:nowrap; margin:0;">Recent items to include</label>
+                                <input is="emby-input" class="txtAiWatchedCount" type="number" value="${cfg.AiRecentlyWatchedCount || 20}" min="5" max="100" style="width:80px;" />
+                            </div>
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:12px; margin-top:15px; margin-bottom:15px;">
+                            <label style="font-size:0.9em; white-space:nowrap; margin:0;">Max items</label>
+                            <input is="emby-input" class="txtAiLimit" type="number" value="${aiLimit}" min="0" style="width:90px;" />
+                            <span style="font-size:0.8em; opacity:0.5;">0 = no limit. Injected into the prompt automatically.</span>
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:12px; margin-top:0; margin-bottom:15px;">
+                            <label style="font-size:0.9em; white-space:nowrap; margin:0;">Refresh every</label>
+                            <input is="emby-input" class="txtAiRefreshInterval" type="number" value="${cfg.AiRefreshIntervalDays || 0}" min="0" style="width:90px;" />
+                            <span style="font-size:0.8em; opacity:0.5;">days &nbsp;(0 = run on every full sync)</span>
+                        </div>
+
+                        <div style="margin-top:0;">
+                            <button type="button" is="emby-button" class="raised btnTestAiSource btn-neutral" style="background:transparent; border:1px solid rgba(128,128,128,0.4); color:var(--theme-text-secondary);">
+                                <i class="md-icon" style="margin-right:5px;">science</i>Test AI Source
+                            </button>
+                            <span class="ai-test-result" style="margin-left:10px; font-size:0.85em; opacity:0.7;"></span>
+                        </div>
+                    </div>
+
+                    <div class="source-mediainfo-container" style="display: ${sourceType && sourceType !== "" ? "block" : "none"};">
+                        <div class="mi-limit-row" style="display:${sourceType === "MediaInfo" ? "flex" : "none"}; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+                            <label style="font-size:0.9em; white-space:nowrap; margin:0;">Max items</label>
+                            <input is="emby-input" class="txtMediaInfoLimit" type="number" value="${mediaInfoLimit}" min="0" style="width:90px;" />
+                            <button type="button" is="emby-button" class="btnMiHelp raised" style="margin-left:auto; background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to (filter guide)</span></button>
+                        </div>
+                        <div class="mi-toggle-row" style="display:${sourceType === "MediaInfo" || mediaFilters.length > 0 ? "none" : "block"}; padding-top:14px; border-top:1px solid var(--line-color);">
+                            <button type="button" is="emby-button" class="btnToggleAdditionalFilters raised" style="background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.85em;"><i class="md-icon" style="font-size:1em; margin-right:4px;">filter_list</i><span>Add filters (optional)</span></button>
+                        </div>
+                        <div class="mi-filter-body" style="display:${sourceType === "MediaInfo" || mediaFilters.length > 0 ? "block" : "none"};">
+                            <div class="mi-help-btn-row" style="display:${sourceType === "MediaInfo" ? "none" : "flex"}; margin-bottom:14px; padding-top:14px; border-top:1px solid var(--line-color);">
+                                <button type="button" is="emby-button" class="btnMiHelp raised" style="margin-left:auto; background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to (filter guide)</span></button>
+                            </div>
+                            <div class="mediainfo-filter-list">${filterGroupsHtml}</div>
+                            <div style="display:flex; gap:8px; margin-top:8px;">
+                                <button type="button" is="emby-button" class="btnAddMediaInfoFilter raised" style="flex:1; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);"><i class="md-icon" style="margin-right:5px;">add</i>Add Filter Group</button>
+                                <button type="button" is="emby-button" class="btnClearAllFilters raised" style="background:transparent; border:2px dashed rgba(204,51,51,0.4); color:#cc3333; padding:0 14px; min-width:0;" title="Clear all filters"><i class="md-icon" style="font-size:1em;">delete_sweep</i></button>
+                            </div>
+                            <div class="mi-presets-section" style="margin-top:30px; border-top:1px solid var(--line-color); padding-top:1px; display:${sourceType === "MediaInfo" ? "block" : "none"};">
+                            ${`
+                                <button type="button" is="emby-button" class="btnPremadeFilters raised btn-neutral" style="width:100%; margin-bottom:6px; background:transparent; border:1px solid var(--line-color); color:var(--theme-text-secondary); display:flex; align-items:center; justify-content:space-between;"><span><i class="md-icon" style="margin-right:5px;">auto_awesome</i>Premade filters</span><i class="md-icon mi-expand-icon" style="transition:transform 0.2s; font-size:1.2em;">expand_more</i></button>
+                                <div class="mi-preset-panel" style="display:none; border:1px solid var(--line-color); border-radius:6px; padding:10px 12px; margin-bottom:8px; background:rgba(128,128,128,0.06);">
+                                    <div style="font-size:0.8em; color:var(--theme-text-secondary); margin-bottom:10px;">Select a preset to replace the current filters:</div>
+                                    ${MI_PRESETS.map(
+    (cat, ci) => '<div style="margin-bottom:10px;"><div style="font-size:0.72em; text-transform:uppercase; letter-spacing:1px; color:var(--theme-text-secondary); margin-bottom:5px;">' + cat.label + '</div><div style="display:flex; flex-wrap:wrap; gap:6px;">' + cat.presets.map(
+      (p, pi) => '<button type="button" class="btnApplyMiPreset" data-preset="' + ci + "," + pi + '" style="border:1.5px solid #000; border-radius:14px; padding:4px 12px; font-size:0.82em; cursor:pointer; background:transparent; color:var(--theme-text-primary);">' + p.name + "</button>"
+    ).join("") + "</div></div>"
+  ).join("")}
+                                </div>
+                                <button type="button" is="emby-button" class="btnMySavedFilters raised btn-neutral" style="width:100%; margin-bottom:6px; background:transparent; border:1px solid var(--line-color); color:var(--theme-text-secondary); display:flex; align-items:center; justify-content:space-between;"><span><i class="md-icon" style="margin-right:5px;">bookmarks</i>My saved filters</span><i class="md-icon mi-expand-icon" style="transition:transform 0.2s; font-size:1.2em;">expand_more</i></button>
+                                <div class="mi-saved-panel" style="display:none; border:1px solid var(--line-color); border-radius:6px; padding:10px 12px; margin-bottom:8px; background:rgba(128,128,128,0.06);">
+                                    <div style="font-size:0.8em; color:var(--theme-text-secondary); margin-bottom:10px;">Select a saved filter to replace the current filters:</div>
+                                    <div class="mi-saved-panel-content">${deps.getMySavedFiltersPanelHtml(deps.savedFilters)}</div>
+                                    <div style="border-top:1px solid var(--line-color); margin:12px 0 10px;"></div>
+                                    <div style="font-size:0.8em; color:var(--theme-text-secondary); margin-bottom:6px;">Save current filter as:</div>
+                                    <div class="mi-saveas-bar" style="display:flex; gap:6px; align-items:flex-start;">
+                                        <input type="text" class="txtSaveFilterName emby-input" placeholder="Filter name..." style="flex:1; padding:4px 8px; font-size:0.85em;" />
+                                        <button type="button" is="emby-button" class="btnConfirmSaveFilter raised" style="background:var(--button-background); color:var(--button-foreground); flex-shrink:0;">Save</button>
+                                    </div>
+                                </div>
+                            ` }
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            <div class="tab-content tagname-tab" style="display:none;">
+                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtTagName" type="text" label="Tag Name" value="${tagName}" placeholder="${labelName}" /></div>
+                    <div class="tag-tab-controls" style="margin-top:10px;">
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" class="chkEnableTag" ${enableTag} />
+                                <span>Apply Tag</span>
+                            </label>
+                            <div class="fieldDescription">Automatically tag matched items in Emby.</div>
+                        </div>
+                        <div class="tag-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${cfg.EnableTag !== false ? "block" : "none"};">
+                            <div class="mi-tag-target-section" style="margin-top:4px;">
+                                <div style="font-size:0.85em; opacity:0.6; margin-bottom:6px; display:flex; align-items:center; gap:8px;">
+                                    <span>For TV shows, choose what level to tag:</span>
+                                    <button type="button" is="emby-button" class="btnTagTargetHelp raised" style="background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to use</span></button>
+                                </div>
+                                <div style="display:flex; flex-direction:row; align-items:center; gap:20px;">
+                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
+                                        <input type="checkbox" is="emby-checkbox" class="chkTagTargetSeries" ${_tagTargetSer ? "checked" : ""} />
+                                        <span>Series</span>
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
+                                        <input type="checkbox" is="emby-checkbox" class="chkTagTargetSeason" ${_tagTargetSea ? "checked" : ""} />
+                                        <span>Season</span>
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
+                                        <input type="checkbox" is="emby-checkbox" class="chkTagTargetEpisode" ${_tagTargetEp ? "checked" : ""} />
+                                        <span>Episode</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+            </div>
+
+                <div class="tab-content schedule-tab" style="display:none;">
+                    <p style="margin:0 0 15px 0; font-size:0.9em; opacity:0.8;">Define when this tag should be active. If empty, it's always active.</p>
+                    <div class="date-list-container">${intervals.map((i) => deps.getDateRowHtml(i)).join("")}</div>
+                    <button is="emby-button" type="button" class="btnAddDate" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary); margin-top:10px;"><i class="md-icon" style="margin-right:5px;">event</i>Add Schedule Rule</button>
+                    <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:16px; ${intervals.length === 0 ? "opacity:0.4;" : ""}">
+                        <label>
+                            <input is="emby-checkbox" type="checkbox" class="chkOverrideWhenActive" ${overrideChecked} ${intervals.length === 0 ? "disabled" : ""} />
+                            <span>Priority override when active</span>
+                        </label>
+                        <div class="fieldDescription">When this entry is in schedule, all other entries sharing the same tag or collection are suppressed \u2014 only this entry's items keep the tag and collection.</div>
+                    </div>
+                </div>
+
+                <div class="tab-content collection-tab" style="display:none;">
+                    <div class="collection-tab-controls">
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input is="emby-checkbox" type="checkbox" class="chkEnableCollection" ${enableColl} />
+                            <span>Create Collection</span>
+                        </label>
+                        <div class="fieldDescription">Automatically create and maintain an Emby Collection from these items.</div>
+                    </div>
+
+                    <div class="collection-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${cfg.EnableCollection ? "block" : "none"};">
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" class="txtCollectionName" label="Collection Name" value="${collName}" placeholder="${labelName}" />
+                            <div class="fieldDescription">Leave empty to use Display Name.</div>
+                        </div>
+
+                        <div class="mi-coll-target-section" style="margin-top:10px;">
+                            <div style="font-size:0.85em; opacity:0.6; margin-bottom:6px; display:flex; align-items:center; gap:8px;">
+                                <span>For TV shows, choose what level to add to collection:</span>
+                                <button type="button" is="emby-button" class="btnCollTargetHelp raised" style="background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to use</span></button>
+                            </div>
+                            <div style="display:flex; flex-direction:row; align-items:center; gap:20px;">
+                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
+                                    <input type="checkbox" is="emby-checkbox" class="chkCollTargetSeries" ${_collTargetSer ? "checked" : ""} />
+                                    <span>Series</span>
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
+                                        <input type="checkbox" is="emby-checkbox" class="chkCollTargetSeason" ${_collTargetSea ? "checked" : ""} />
+                                        <span>Season</span>
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
+                                        <input type="checkbox" is="emby-checkbox" class="chkCollTargetEpisode" ${_collTargetEp ? "checked" : ""} />
+                                        <span>Episode</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="inputContainer" style="margin-top:15px;">
+                                <textarea is="emby-textarea" class="txtCollectionDescription" rows="3"
+                                    label="Description"
+                                    placeholder="Optional description for this collection..."
+                                    style="width:100%; resize:vertical; box-sizing:border-box;">${collDescription}</textarea>
+                            </div>
+
+                            <div style="margin-top:15px;">
+                                <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Collection Poster</p>
+                                <div class="poster-preview-container" style="margin-bottom:8px; display:${collPosterPath ? "block" : "none"};">
+                                    <span class="poster-filename" style="font-size:0.85em; opacity:0.7;">${collPosterPath ? collPosterPath.split(/[\\\\/]/).pop() : ""}</span>
+                                    <button type="button" class="btnRemovePoster" style="margin-left:10px; font-size:0.8em; background:transparent; border:none; color:#e55; cursor:pointer; vertical-align:middle;">\u2715 Remove</button>
+                                </div>
+                                <img class="poster-preview-img" src="" alt="" style="max-width:120px; max-height:180px; border-radius:4px; display:none; margin-bottom:8px;" />
+                                <input type="file" class="inputPosterFile" accept="image/*" style="display:none;" />
+                                <input type="hidden" class="hiddenPosterPath" value="${collPosterPath}" />
+                                <button type="button" is="emby-button" class="btnChoosePoster raised" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);">
+                                    <i class="md-icon" style="margin-right:5px;">image</i>Choose Poster Image
+                                </button>
+                                <div style="display:flex; align-items:center; gap:6px; margin-top:8px; opacity:0.45;">
+                                    <div style="flex:1; height:1px; background:currentColor;"></div>
+                                    <span style="font-size:0.75em;">or</span>
+                                    <div style="flex:1; height:1px; background:currentColor;"></div>
+                                </div>
+                                <div style="display:flex; gap:6px; margin-top:6px;">
+                                    <input class="txtPosterUrl" is="emby-input" type="url" placeholder="https://example.com/poster.jpg" style="flex:1;" />
+                                    <button type="button" is="emby-button" class="btnLoadPosterUrl raised btn-neutral">Load</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content playlist-tab" style="display:none;"
+                    data-pl-userids="${playlistUserIdsEnc}"
+                    data-pl-mappings="${playlistMappingsEnc}"
+                    data-pl-loaded="0">
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input is="emby-checkbox" type="checkbox" class="chkEnablePlaylist" ${enablePlaylist} />
+                            <span>Create Playlist</span>
+                        </label>
+                        <div class="fieldDescription">Automatically create and maintain an individual Emby Playlist for each selected user.</div>
+                    </div>
+                    <div class="playlist-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${cfg.EnablePlaylist ? "block" : "none"};">
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" class="txtPlaylistName" label="Playlist Name" value="${playlistName}" placeholder="${labelName}" />
+                            <div class="fieldDescription">Leave empty to use Display Name.</div>
+                        </div>
+                        <div style="margin-top:12px;">
+                            <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Target Users</p>
+                            <div class="playlist-user-list"><em style="opacity:0.5">Loading users...</em></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content advanced-tab" style="display:none;">
+                    <div class="inputContainer">
+                        <p style="margin:0 0 5px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Blacklist / Ignore (IMDB IDs)</p>
+                        <textarea class="txtTagBlacklist" rows="2" placeholder="tt1234567&#10;tt9876543" style="width:100%;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:44px;max-height:120px;overflow-y:auto;">${blacklist}</textarea>
+                        <div class="fieldDescription">Items with these IDs will never be tagged or added to collection.</div>
+                    </div>
+                </div>
+
+                <div class="tab-content homescreen-tab" style="display:none;"
+                    data-hse-libraryid="${homeSectionLibraryId}"
+                    data-hse-userids="${homeSectionUserIdsEnc}"
+                    data-hse-settings="${homeSectionSettingsEnc}"
+                    data-hse-tracked="${homeSectionTrackedEnc}"
+                    data-hse-default-type="${hsDefaultSectionType}"
+                    data-hse-loaded="0">
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label>
+                            <input is="emby-checkbox" class="chkEnableHomeSection" type="checkbox" ${enableHomeSection} ${disableHomeSection}/>
+                            <span>Add as home screen section</span>
+                        </label>
+                        <div class="fieldDescription">A home screen section will be managed for selected users each time sync runs.</div>
+                        <div class="hse-disabled-hint" style="font-size:0.9em; color:#e07070; margin-top:4px; display:${cfg.EnableTag === false && !cfg.EnableCollection && !_hseAllowedWithoutOutput ? "block" : "none"};">Requires <strong>Apply Tag</strong>, <strong>Create Collection</strong>, or a current-user filter (Smart playlist) to be enabled.</div>
+                    </div>
+                    <div class="hse-details" style="display:${enableHomeSection ? "block" : "none"}; margin-top:15px;">
+                        <div style="margin-bottom:15px;">
+                            <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Target Users</p>
+                            <div class="hse-user-list-inner"><em style="opacity:0.5">Loading users...</em></div>
+                        </div>
+                        <div>
+                            <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Section Settings</p>
+                            <div class="hse-fields-inner"><em style="opacity:0.5">Loading settings...</em></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:20px; border-top:1px solid var(--line-color); padding-top:10px;">
+                    <button is="emby-button" type="button" class="raised button-submit btnRunEntry" style="background:#0099d5 !important; color:#fff !important;"><i class="md-icon" style="margin-right:5px;">play_arrow</i><span class="btnRunEntryLabel">Run Group</span></button>
+                    <button is="emby-button" type="button" class="raised btnRemoveGroup" style="background:#cc3333 !important; color:#fff;"><i class="md-icon" style="margin-right:5px;">delete</i>Remove Group</button>
+                </div>
+            </div>
+        </div>`;
+      return html;
+    }
+    function refreshTopListBadges(topListTagNames) {
+      document.querySelectorAll(".tag-row").forEach((row) => {
+        const container = row.querySelector(".badge-container");
+        if (!container) return;
+        const tagName = (row.dataset.tag || "").toLowerCase();
+        const existing = container.querySelector(".tag-indicator.toplist");
+        if (topListTagNames.has(tagName)) {
+          if (!existing) {
+            const span = document.createElement("span");
+            span.className = "tag-indicator toplist";
+            span.innerHTML = '<i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Top-List';
+            container.appendChild(span);
+          }
+        } else if (existing) {
+          existing.remove();
+        }
+      });
+    }
+
+    function buildHomeSectionFormHtml(savedSettings, defaultSectionType, defaultName, tagEnabled, collEnabled, libraryOptions, savedLibraryId, allLibraries, viewerOnly) {
+      const s = savedSettings || {};
+      let html = "";
+      const st = s.SectionType || defaultSectionType;
+      html += '<div style="margin-bottom:12px;"><label class="selectLabel">Section Type</label>';
+      html += '<select is="emby-select" class="selHseSectionType hse-field-str" data-field="SectionType" style="width:100%;">';
+      const sectionTypeOptions = [];
+      if (collEnabled) sectionTypeOptions.push(["boxset", "Single Collection"]);
+      if (tagEnabled) sectionTypeOptions.push(["items", "Dynamic Media (tag)"]);
+      else if (viewerOnly) sectionTypeOptions.push(["items", "Dynamic Media (per user)"]);
+      sectionTypeOptions.forEach((o) => {
+        html += '<option value="' + o[0] + '"' + (st === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      });
+      html += "</select></div>";
+      const displayModeVal = s.DisplayMode || "";
+      html += '<div style="margin-bottom:12px;"><label class="selectLabel">Show this section</label>';
+      html += '<select is="emby-select" class="hse-field-str" data-field="DisplayMode" style="width:100%;">';
+      html += '<option value=""' + (displayModeVal === "" ? " selected" : "") + ">Always</option>";
+      html += '<option value="tv"' + (displayModeVal === "tv" ? " selected" : "") + ">When TV Display Mode is on</option>";
+      html += '<option value="mobile,desktop"' + (displayModeVal === "mobile,desktop" ? " selected" : "") + ">When TV Display Mode is off</option>";
+      html += "</select></div>";
+      let savedItemTypes = [];
+      try {
+        savedItemTypes = JSON.parse(s.ItemTypes || "[]");
+      } catch {
+      }
+      const savedItemTypesStr = savedItemTypes.length > 0 ? savedItemTypes.join(",") : "Movie,Series";
+      html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">Media Type</label>';
+      html += '<select is="emby-select" class="selHseItemTypes" style="width:100%;">';
+      const itemTypeOptions = [
+        ["Movie", "Movies"],
+        ["Series", "Shows"],
+        ["Movie,Series", "Movies & Shows"],
+        ["Episode", "Episodes"],
+        ["BoxSet", "Collections"],
+        ["MusicVideo", "Music Videos"],
+        ["Video", "Videos"],
+        ["Photo", "Photos"],
+        ["Program", "Programs"],
+        ["TvChannel", "Live TV Channels"],
+        ["MusicAlbum", "Music Albums"],
+        ["MusicArtist", "Artists"],
+        ["Audio", "Songs"],
+        ["AudioBook", "Audiobooks"],
+        ["Trailer", "Trailers"],
+        ["Game", "Games"],
+        ["Book", "Books"]
+      ];
+      itemTypeOptions.forEach((o) => {
+        html += '<option value="' + o[0] + '"' + (savedItemTypesStr === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      });
+      html += "</select></div>";
+      const customName = (s.CustomName || "").replace(/"/g, "&quot;");
+      const customNamePlaceholder = (defaultName || "").replace(/"/g, "&quot;");
+      html += '<div style="margin-bottom:12px;"><input is="emby-input" type="text" class="hse-field-str" data-field="CustomName" label="Custom Title" value="' + customName + '" placeholder="' + customNamePlaceholder + '"/></div>';
+      const viewTypeVal = (s.ViewType === "cards" ? "" : s.ViewType) || "";
+      html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">View Type</label>';
+      html += '<select is="emby-select" class="selHseViewType hse-field-str" data-field="ViewType" style="width:100%;">';
+      [["", "Cards (default)"], ["spotlight", "Spotlight"]].forEach((o) => {
+        html += '<option value="' + o[0] + '"' + (viewTypeVal === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      });
+      html += "</select></div>";
+      const imgTypeVal = s.ImageType || "";
+      const imgTypeDisabled = viewTypeVal === "spotlight";
+      html += '<div style="margin-bottom:12px;"><label class="selectLabel">Image Type</label>';
+      html += '<select is="emby-select" class="selHseImageType hse-field-str" data-field="ImageType" style="width:100%;"' + (imgTypeDisabled ? " disabled" : "") + '><option value=""' + (imgTypeVal === "" ? " selected" : "") + ">Auto</option>";
+      ["Primary", "Thumb"].forEach((o) => {
+        html += '<option value="' + o + '"' + (imgTypeVal === o ? " selected" : "") + ">" + o + "</option>";
+      });
+      html += "</select></div>";
+      const sortByVal = s.SortBy || "";
+      html += '<div style="margin-bottom:12px;"><label class="selectLabel">Sort By</label>';
+      html += '<select is="emby-select" class="hse-field-str" data-field="SortBy" style="width:100%;">';
+      html += '<option value=""' + (sortByVal === "" ? " selected" : "") + ">(Default)</option>";
+      [
+        ["CommunityRating,SortName", "Rating"],
+        ["DateCreated,SortName", "Date Added"],
+        ["SortName", "Name"],
+        ["Runtime,SortName", "Runtime"],
+        ["ProductionYear,PremiereDate,SortName", "Release Date"],
+        ["ProductionYear,SortName", "Year"],
+        ["DatePlayed,SortName", "Last Played (per user)"],
+        ["Random", "Random"]
+      ].forEach((o) => {
+        html += '<option value="' + o[0] + '"' + (sortByVal === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      });
+      html += "</select></div>";
+      const sortOrderVal = s.SortOrder || "";
+      html += '<div style="margin-bottom:12px;"><label class="selectLabel">Sort Order</label>';
+      html += '<select is="emby-select" class="hse-field-str" data-field="SortOrder" style="width:100%;">';
+      html += '<option value=""' + (sortOrderVal === "" ? " selected" : "") + ">(Default)</option>";
+      [["Ascending", "Ascending"], ["Descending", "Descending"]].forEach((o) => {
+        html += '<option value="' + o[0] + '"' + (sortOrderVal === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      });
+      html += "</select></div>";
+      const dispModeVal = s.ScrollDirection || "";
+      html += '<div style="margin-bottom:12px;"><label class="selectLabel">Scroll Direction</label>';
+      html += '<select is="emby-select" class="hse-field-str" data-field="ScrollDirection" style="width:100%;"><option value="">(Auto)</option>';
+      [["Horizontal", "Horizontal"], ["Vertical", "Vertical"]].forEach((o) => {
+        html += '<option value="' + o[0] + '"' + (dispModeVal === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      });
+      html += "</select></div>";
+      let playstateVal = "";
+      if (s._queryIsResumable === "true") playstateVal = "inprogress";
+      else if (s._queryIsPlayed === "true") playstateVal = "played";
+      else if (s._queryIsPlayed === "false") playstateVal = "unplayed";
+      html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">Playstate (per user)</label>';
+      html += '<select is="emby-select" class="hse-field-str" data-field="_hsePlaystate" style="width:100%;">';
+      html += '<option value=""' + (playstateVal === "" ? " selected" : "") + ">Any</option>";
+      [["played", "Played"], ["unplayed", "Unplayed"], ["inprogress", "In progress (started, not finished)"]].forEach((o) => {
+        html += '<option value="' + o[0] + '"' + (playstateVal === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
+      });
+      html += "</select></div>";
+      const curLibId = savedLibraryId || "auto";
+      html += '<select class="selHseLibrary" style="display:none;">';
+      html += '<option value="auto"' + (curLibId === "auto" ? " selected" : "") + ">auto</option>";
+      (libraryOptions || []).forEach((lib) => {
+        html += '<option value="' + lib.id + '"' + (curLibId === lib.id ? " selected" : "") + ">" + lib.name + "</option>";
+      });
+      html += "</select>";
+      if (st !== "boxset" && (allLibraries || []).length > 0) {
+        const excludedIds = /* @__PURE__ */ new Set();
+        try {
+          const raw = (s._queryExcludeViewIds || "").split(",").map((x) => x.trim()).filter((x) => x.length > 0);
+          raw.forEach((id) => {
+            excludedIds.add(id);
+          });
+        } catch {
+        }
+        if (excludedIds.size === 0) {
+          (allLibraries || []).forEach((lib) => {
+            if (lib.isTopList) excludedIds.add(lib.id);
+          });
+        }
+        html += '<div style="display:none;">';
+        (allLibraries || []).forEach((lib) => {
+          const isChecked = !excludedIds.has(lib.id);
+          html += '<input type="checkbox" class="chkHseLibrary" value="' + lib.id + '"' + (isChecked ? " checked" : "") + "/>";
+        });
+        html += "</div>";
+      }
+      return html;
+    }
+    function updateHseItemsOnlyVisibility(tab) {
+      const stSel = tab.querySelector(".selHseSectionType");
+      const isItems = !stSel || stSel.value !== "boxset";
+      tab.querySelectorAll(".hse-items-only").forEach((el) => {
+        el.style.display = isItems ? "" : "none";
+      });
+    }
+    function updateHseImageTypeState(tab) {
+      const stSel = tab.querySelector(".selHseSectionType");
+      const vtSel = tab.querySelector(".selHseViewType");
+      const imgSel = tab.querySelector(".selHseImageType");
+      if (!imgSel) return;
+      const isItems = !stSel || stSel.value !== "boxset";
+      const isCards = !vtSel || vtSel.value === "" || vtSel.value === "cards";
+      imgSel.disabled = isItems && !isCards;
+    }
+    function wireHomeSectionTypeChange(tab) {
+      const stSel = tab.querySelector(".selHseSectionType");
+      if (!stSel) return;
+      updateHseItemsOnlyVisibility(tab);
+      updateHseImageTypeState(tab);
+      stSel.addEventListener("change", () => {
+        updateHseItemsOnlyVisibility(tab);
+        updateHseImageTypeState(tab);
+      });
+      const vtSel = tab.querySelector(".selHseViewType");
+      if (vtSel) {
+        vtSel.addEventListener("change", () => {
+          updateHseImageTypeState(tab);
+        });
+      }
+    }
+    function tagConfigHasViewerCriteria(tagConfig) {
+      if (!tagConfig) return false;
+      const filters = tagConfig.MediaInfoFilters && tagConfig.MediaInfoFilters.length > 0 ? tagConfig.MediaInfoFilters : tagConfig.MediaInfoConditions && tagConfig.MediaInfoConditions.length > 0 ? [{ Criteria: tagConfig.MediaInfoConditions }] : [];
+      let found = false;
+      filters.forEach((f) => {
+        (f.Criteria || []).forEach((c) => {
+          const raw = String(c);
+          const s = raw.charAt(0) === "!" ? raw.slice(1) : raw;
+          if (s === "InProgress" || s.indexOf(":__current__:") >= 0) found = true;
+        });
+      });
+      return found;
+    }
+    function rowHasViewerCriteria(row) {
+      let found = false;
+      row.querySelectorAll(".mi-rule").forEach((rule) => {
+        const propEl = rule.querySelector(".selMiProperty");
+        const prop = propEl?.value || "";
+        const selUserEl = rule.querySelector(".selMiUser");
+        if (prop === "InProgress" || selUserEl && selUserEl.value === "__current__") found = true;
+      });
+      return found;
+    }
+    function syncHomeSectionFromEmby(tab, deps) {
+      const tracked = [];
+      try {
+        tracked.push(...JSON.parse(decodeURIComponent(tab.dataset.hseTracked || "%5B%5D")));
+      } catch {
+      }
+      const entry = tracked.find((t) => t.SectionId && !t.SectionId.startsWith("hsc__"));
+      if (!entry || !entry.UserId) return Promise.resolve();
+      const syncHeaders = {};
+      const syncToken = deps.getApiClient().accessToken();
+      if (syncToken) syncHeaders["X-Emby-Token"] = syncToken;
+      const syncUrl = deps.getApiClient().getUrl("HomeScreenCompanion/Hsc/UserSections", { UserId: entry.UserId });
+      return deps.fetch(syncUrl, { headers: syncHeaders }).then((r) => r.json()).then((data) => {
+        const payload = data && typeof data === "object" ? data : null;
+        const sections = payload?.Sections || [];
+        const section = sections.find((s) => s && s["Id"] === entry.SectionId);
+        if (!section) return;
+        const query = section["Query"] && typeof section["Query"] === "object" ? section["Query"] : null;
+        const sd = section["ScrollDirection"];
+        const fieldMap = {
+          SectionType: String(section["SectionType"] || ""),
+          CustomName: String(section["CustomName"] || ""),
+          DisplayMode: String(section["DisplayMode"] || ""),
+          ViewType: String(section["ViewType"] || ""),
+          ImageType: String(section["ImageType"] || ""),
+          SortBy: String(section["SortBy"] || ""),
+          SortOrder: String(section["SortOrder"] || ""),
+          ScrollDirection: sd === null || sd === void 0 ? "" : typeof sd === "number" ? sd === 0 ? "Horizontal" : sd === 1 ? "Vertical" : "" : String(sd),
+          _hsePlaystate: query?.IsResumable === true ? "inprogress" : query?.IsPlayed === true ? "played" : query?.IsUnplayed === true || query?.IsPlayed === false ? "unplayed" : ""
+        };
+        Object.keys(fieldMap).forEach((field) => {
+          const el = tab.querySelector(`[data-field="${field}"]`);
+          if (!el) return;
+          const val = fieldMap[field];
+          if (el.tagName === "SELECT") {
+            const sel = el;
+            for (let i = 0; i < sel.options.length; i++) {
+              if (sel.options[i].value === val) {
+                sel.selectedIndex = i;
+                break;
+              }
+            }
+          } else {
+            el.value = val;
+          }
+        });
+        const itemTypesSel = tab.querySelector(".selHseItemTypes");
+        if (itemTypesSel && Array.isArray(section["ItemTypes"]) && section["ItemTypes"].length > 0) {
+          const itemTypesStr = section["ItemTypes"].map(String).join(",");
+          for (let i = 0; i < itemTypesSel.options.length; i++) {
+            if (itemTypesSel.options[i].value === itemTypesStr) {
+              itemTypesSel.options[i].selected = true;
+              break;
+            }
+          }
+        }
+        if (Array.isArray(section["ExcludedFolders"])) {
+          const embyExcluded = new Set(section["ExcludedFolders"].map((id) => String(id)));
+          tab.querySelectorAll(".chkHseLibrary").forEach((chk) => {
+            chk.checked = !embyExcluded.has(chk.value);
+          });
+        }
+        updateHseItemsOnlyVisibility(tab);
+        updateHseImageTypeState(tab);
+      }).catch(() => void 0);
+    }
+    function initPlaylistTab(row, deps) {
+      const tab = row.querySelector(".playlist-tab");
+      if (!tab || tab.dataset.plLoaded === "1") return;
+      tab.dataset.plLoaded = "1";
+      let savedUserIds = [];
+      try {
+        savedUserIds = JSON.parse(decodeURIComponent(tab.dataset.plUserids || "%5B%5D"));
+      } catch {
+      }
+      deps.getHseUsers().then((users) => {
+        const listEl = tab.querySelector(".playlist-user-list");
+        if (!listEl) return;
+        listEl.innerHTML = deps.buildUserMultiSelectHtml(users, savedUserIds, "chkPlaylistUser");
+        deps.wireUserMultiSelect(listEl);
+      });
+    }
+    function initHomeSectionTab(row, deps) {
+      const tab = row.querySelector(".homescreen-tab");
+      if (!tab || tab.dataset.hseLoaded === "1") return;
+      tab.dataset.hseLoaded = "loading";
+      let savedUserIds = [];
+      let savedSettings = {};
+      try {
+        savedUserIds = JSON.parse(decodeURIComponent(tab.dataset.hseUserids || "%5B%5D"));
+      } catch {
+      }
+      try {
+        savedSettings = JSON.parse(decodeURIComponent(tab.dataset.hseSettings || "%7B%7D"));
+      } catch {
+      }
+      const defaultSectionType = tab.dataset.hseDefaultType || "items";
+      const savedLibraryId = decodeURIComponent(tab.dataset.hseLibraryid || "auto");
+      Promise.all([deps.getHseUsers(), deps.preFetchLibraryData()]).then((results) => {
+        const users = results[0];
+        const libData = results[1] && typeof results[1] === "object" ? results[1] : { topListFolderNames: /* @__PURE__ */ new Set(), virtualFolders: [] };
+        const topListFolderNames = libData.topListFolderNames;
+        const virtualFolders = libData.virtualFolders || [];
+        const libraryOptions = virtualFolders.filter((f) => !(f.Locations || []).some((loc) => {
+          const parts = loc.replace(/\\/g, "/").split("/");
+          const folderName = parts[parts.length - 1] || parts[parts.length - 2] || "";
+          return topListFolderNames.has(folderName.toLowerCase());
+        })).map((f) => ({ id: f.ItemId, name: f.Name }));
+        const allLibraries = virtualFolders.map((f) => {
+          const isTopList = (f.Locations || []).some((loc) => {
+            const parts = loc.replace(/\\/g, "/").split("/");
+            const folderName = parts[parts.length - 1] || parts[parts.length - 2] || "";
+            return topListFolderNames.has(folderName.toLowerCase());
+          });
+          return { id: f.ItemId, name: f.Name, isTopList };
+        });
+        const userListEl = tab.querySelector(".hse-user-list-inner");
+        if (userListEl) {
+          userListEl.innerHTML = deps.buildUserMultiSelectHtml(users, savedUserIds, "chkHseUser");
+          deps.wireUserMultiSelect(userListEl);
+        }
+        const entryLabelEl = row.querySelector(".txtEntryLabel");
+        const tagNameEl = row.querySelector(".txtTagName");
+        const defaultTagName = entryLabelEl?.value || tagNameEl?.value || "";
+        const tagEnabled = !!row.querySelector(".chkEnableTag")?.checked;
+        const collEnabled = !!row.querySelector(".chkEnableCollection")?.checked;
+        const selSourceType = row.querySelector(".selSourceType");
+        const viewerOnly = (selSourceType?.value || "") === "MediaInfo" && rowHasViewerCriteria(row);
+        const hseView = document.querySelector("#HomeScreenCompanionConfigPage");
+        const originalSnapshot = deps.originalConfigState.getOriginalConfigState();
+        let wasAlreadyDirty = false;
+        if (hseView && originalSnapshot) {
+          try {
+            wasAlreadyDirty = JSON.stringify(deps.getUiConfig(hseView, true)) !== originalSnapshot;
+          } catch {
+          }
+        }
+        const fieldsEl = tab.querySelector(".hse-fields-inner");
+        if (fieldsEl) {
+          fieldsEl.innerHTML = buildHomeSectionFormHtml(
+            savedSettings,
+            defaultSectionType,
+            defaultTagName,
+            tagEnabled,
+            collEnabled,
+            libraryOptions,
+            savedLibraryId,
+            allLibraries,
+            viewerOnly
+          );
+        }
+        wireHomeSectionTypeChange(tab);
+        tab.dataset.hseLoaded = "1";
+        deps.syncHomeSectionFromEmby(tab, {
+          fetch: typeof fetch !== "undefined" ? fetch.bind(globalThis) : () => Promise.reject(new Error("fetch unavailable")),
+          getApiClient: () => {
+            const ac = typeof window !== "undefined" ? window.ApiClient : void 0;
+            if (ac) return ac;
+            return {
+              accessToken: () => "",
+              getUrl: (_name, _params) => "",
+              getJSON: () => Promise.resolve({})
+            };
+          }
+        }).then(() => {
+          if (!wasAlreadyDirty && hseView && deps.originalConfigState.getOriginalConfigState()) {
+            try {
+              deps.originalConfigState.setOriginalConfigState(
+                JSON.stringify(deps.getUiConfig(hseView, true))
+              );
+            } catch {
+            }
+          }
+          setTimeout(deps.checkFormState, 0);
+        });
+      }).catch((e) => {
+        const fieldsEl = tab.querySelector(".hse-fields-inner");
+        if (fieldsEl) {
+          const message = e instanceof Error ? e.message : String(e);
+          fieldsEl.innerHTML = '<em style="color:#cc4444">Failed to load: ' + message + "</em>";
+        }
+        tab.dataset.hseLoaded = "0";
+      });
+    }
+    function updateHseSectionAvailability(row, deps) {
+      const tagEnabled = !!row.querySelector(".chkEnableTag")?.checked;
+      const collEnabled = !!row.querySelector(".chkEnableCollection")?.checked;
+      const selSourceType = row.querySelector(".selSourceType");
+      const isMediaInfo = (selSourceType?.value || "") === "MediaInfo";
+      const viewerOnly = isMediaInfo && deps.rowHasViewerCriteria(row);
+      const allowed = tagEnabled || collEnabled || viewerOnly;
+      const hseCbx = row.querySelector(".chkEnableHomeSection");
+      if (!hseCbx) return;
+      const hint = row.querySelector(".hse-disabled-hint");
+      if (!allowed) {
+        hseCbx.disabled = true;
+        hseCbx.checked = false;
+        if (hint) hint.style.display = "block";
+        const hseDetails = row.querySelector(".hse-details");
+        if (hseDetails) hseDetails.style.display = "none";
+        deps.updateBadges(row);
+      } else {
+        hseCbx.disabled = false;
+        if (hint) hint.style.display = "none";
+      }
+      const tab = row.querySelector(".homescreen-tab");
+      if (tab && tab.dataset.hseLoaded === "1") {
+        deps.refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled, viewerOnly);
+      }
+    }
+
+    function fetchManageSections(view, userId, state, deps) {
+      const container = view.querySelector("#hscManageContainer");
+      if (!container) return;
+      const listEl = container.querySelector("#manSectionList");
+      if (!listEl) return;
+      listEl.innerHTML = '<p class="textMuted" style="padding:10px 0;">Loading sections...</p>';
+      const btnApply = container.querySelector("#btnApplyManage");
+      btnApply.disabled = true;
+      const headers = {};
+      const token = deps.getApiClient().accessToken();
+      if (token) headers["X-Emby-Token"] = token;
+      deps.fetchFn(deps.getApiClient().getUrl("HomeScreenCompanion/Hsc/UserSections", { userId }), { headers }).then((r) => r.json()).then((result) => {
+        const payload = result;
+        state.sections = payload.Sections || [];
+        deps.renderSections(view, state, deps);
+      }).catch(() => {
+        listEl.innerHTML = '<p class="textMuted" style="padding:10px 0;color:#cc3333;">Failed to load sections.</p>';
+      });
+    }
+    function renderManageSections(view, state, deps) {
+      const container = view.querySelector("#hscManageContainer");
+      if (!container) return;
+      const listEl = container.querySelector("#manSectionList");
+      if (!listEl) return;
+      const con = container;
+      const list = listEl;
+      if (state.sections.length === 0) {
+        list.innerHTML = '<p class="textMuted" style="padding:10px 0;">No sections found for this user.</p>';
+        return;
+      }
+      list.innerHTML = state.sections.map((s, i) => {
+        const name = s.CustomName || s.Name || s.SectionType || "Section " + (i + 1);
+        return [
+          '<div class="man-section-row" draggable="false" data-section-index="' + i + '">',
+          '<span class="drag-handle"><i class="md-icon">drag_indicator</i></span>',
+          '<span style="flex-grow:1;">' + name + "</span>",
+          '<button type="button" is="emby-button" class="man-btn-delete raised" data-section-index="' + i + '" title="Remove section">',
+          '<i class="md-icon">delete</i>',
+          "</button>"
+        ].join("") + "</div>";
+      }).join("");
+      function applyDomOrder() {
+        const domRows = Array.from(list.querySelectorAll(".man-section-row"));
+        if (domRows.length > 0) {
+          const snapshot = state.sections.slice();
+          state.sections = domRows.map(
+            (r) => snapshot[parseInt(r.dataset.sectionIndex ?? "", 10)]
+          );
+          domRows.forEach((r, pos) => {
+            r.dataset.sectionIndex = String(pos);
+            const delBtn = r.querySelector(".man-btn-delete");
+            if (delBtn) delBtn.dataset.sectionIndex = String(pos);
+          });
+          const btnApply = con.querySelector("#btnApplyManage");
+          if (btnApply) {
+            btnApply.disabled = false;
+            deps.checkFormState();
+          }
+        }
+      }
+      list.querySelectorAll(".man-section-row").forEach((row) => {
+        const handle = row.querySelector(".drag-handle");
+        handle.addEventListener("mousedown", () => {
+          row.setAttribute("draggable", "true");
+        });
+        handle.addEventListener("mouseup", () => {
+          row.setAttribute("draggable", "false");
+        });
+        handle.addEventListener(
+          "touchstart",
+          (e) => {
+            e.preventDefault();
+            row.classList.add("man-dragging");
+            function onTouchMove(ev) {
+              ev.preventDefault();
+              const touch = ev.touches[0];
+              const afterEl = deps.getManDragAfterElement(list, touch.clientY);
+              let ph = list.querySelector(".sort-placeholder");
+              if (!ph) {
+                ph = document.createElement("div");
+                ph.className = "sort-placeholder";
+              }
+              if (afterEl == null) {
+                if (ph.nextElementSibling !== null) list.appendChild(ph);
+              } else {
+                if (ph.nextElementSibling !== afterEl) list.insertBefore(ph, afterEl);
+              }
+            }
+            function onTouchEnd() {
+              document.removeEventListener("touchmove", onTouchMove);
+              document.removeEventListener("touchend", onTouchEnd);
+              document.removeEventListener("touchcancel", onTouchCancel);
+              row.classList.remove("man-dragging");
+              const ph = list.querySelector(".sort-placeholder");
+              if (ph) {
+                list.insertBefore(row, ph);
+                ph.remove();
+              }
+              applyDomOrder();
+            }
+            function onTouchCancel() {
+              document.removeEventListener("touchmove", onTouchMove);
+              document.removeEventListener("touchend", onTouchEnd);
+              document.removeEventListener("touchcancel", onTouchCancel);
+              row.classList.remove("man-dragging");
+              const ph = list.querySelector(".sort-placeholder");
+              if (ph) ph.remove();
+            }
+            document.addEventListener("touchmove", onTouchMove, { passive: false });
+            document.addEventListener("touchend", onTouchEnd);
+            document.addEventListener("touchcancel", onTouchCancel);
+          },
+          { passive: false }
+        );
+        row.addEventListener("dragstart", (e) => {
+          row.classList.add("man-dragging");
+          const dt = e.dataTransfer;
+          dt.effectAllowed = "move";
+          dt.setData("text/plain", "");
+          setTimeout(() => {
+            row.style.display = "none";
+          }, 0);
+        });
+        row.addEventListener("dragend", () => {
+          row.style.display = "";
+          row.classList.remove("man-dragging");
+          row.setAttribute("draggable", "false");
+          const ph = list.querySelector(".sort-placeholder");
+          if (ph) ph.remove();
+          applyDomOrder();
+        });
+        const delBtn = row.querySelector(".man-btn-delete");
+        delBtn.addEventListener("click", () => {
+          state.sections.splice(parseInt(delBtn.dataset.sectionIndex ?? "", 10), 1);
+          renderManageSections(view, state, deps);
+          const btnApply = con.querySelector("#btnApplyManage");
+          if (btnApply) {
+            btnApply.disabled = false;
+            deps.checkFormState();
+          }
+        });
+      });
+    }
+    function applyManageSections(view, state, deps) {
+      const container = view.querySelector("#hscManageContainer");
+      if (!container) return;
+      const selUser = container.querySelector("#selManageUser");
+      const btnApply = container.querySelector("#btnApplyManage");
+      if (!selUser || !selUser.value) return;
+      btnApply.disabled = true;
+      const btnSpan = btnApply.querySelector("span");
+      const origText = btnSpan ? btnSpan.textContent : "";
+      if (btnSpan) btnSpan.textContent = "Applying\u2026";
+      const headers = { "Content-Type": "application/json" };
+      const token = deps.getApiClient().accessToken();
+      if (token) headers["X-Emby-Token"] = token;
+      deps.fetchFn(deps.getApiClient().getUrl("HomeScreenCompanion/Hsc/UserSections"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ UserId: selUser.value, Sections: state.sections })
+      }).then((r) => r.json()).then((result) => {
+        if (btnSpan) btnSpan.textContent = origText;
+        const payload = result;
+        if (payload.Success) {
+          deps.alert("Home screen layout saved successfully!");
+        } else {
+          deps.alert("Failed to save: " + (payload.Message || "Unknown error"));
+          btnApply.disabled = false;
+        }
+      }).catch(() => {
+        if (btnSpan) btnSpan.textContent = origText;
+        deps.alert("Error applying changes. Check server logs.");
+        btnApply.disabled = false;
+      });
+    }
+    function loadHscManageTab(view, state, deps) {
+      const container = view.querySelector("#hscManageContainer");
+      if (!container) return;
+      const selUser = container.querySelector("#hscManageUserSelect");
+      const btnAdd = container.querySelector("#btnAddManSection");
+      const btnApply = container.querySelector("#btnApplyManSections");
+      const btnRefresh = container.querySelector("#btnRefreshManSections");
+      if (!selUser || !btnAdd || !btnApply || !btnRefresh) return;
+      const fetchSections = deps.fetchSections ?? fetchManageSections;
+      const applySections = deps.applySections ?? applyManageSections;
+      void deps.getHseUsers().then((raw) => {
+        const users = (raw || []).slice();
+        const userOptions = users.map((u) => '<option value="' + u.Id + '">' + u.Name + "</option>").join("");
+        selUser.innerHTML = userOptions;
+        selUser.dataset.originalOptions = JSON.stringify(users);
+        selUser.addEventListener("change", () => {
+          if (selUser.value) fetchSections(view, selUser.value, state, deps);
+        });
+        deps.renderSections(view, state, deps);
+        btnAdd.addEventListener("click", () => {
+          const name = deps.prompt("Section name:", "");
+          if (name && name.trim()) {
+            state.sections.push({ CustomName: name.trim(), SectionType: "Movies" });
+            deps.renderSections(view, state, deps);
+          }
+        });
+        btnApply.addEventListener("click", () => {
+          applySections(view, state, deps);
+        });
+        btnRefresh.addEventListener("click", () => {
+          if (selUser.value) fetchSections(view, selUser.value, state, deps);
+        });
+      });
+    }
+
+    function loadHscUsers(view, deps) {
+      const container = view.querySelector("#hscContainer");
+      if (!container) return;
+      const apiClient = typeof window !== "undefined" ? window.ApiClient : void 0;
+      if (!apiClient) {
+        container.innerHTML = '<p class="textMuted" style="padding:20px;">Failed to load users. ApiClient unavailable.</p>';
+        return;
+      }
+      apiClient.getJSON(apiClient.getUrl("Users", { IsDisabled: false })).then((raw) => {
+        const users = normalizeUsers(raw);
+        deps.renderTab(container, deps.getConfig(), users);
+        deps.enforceConflict(container);
+        const enableChk = container.querySelector("#chkHscEnabled");
+        if (enableChk) {
+          enableChk.addEventListener("change", function() {
+            const show = this.checked;
+            const syncConfig = container.querySelector("#hscSyncConfig");
+            const syncToCard = container.querySelector("#hscSyncToCard");
+            if (syncConfig) syncConfig.style.display = show ? "" : "none";
+            if (syncToCard) syncToCard.style.display = show ? "" : "none";
+            setTimeout(deps.notifyFormChanged, 0);
+          });
+        }
+        const sourceSelect = container.querySelector("#selHscSourceUser");
+        if (sourceSelect) {
+          sourceSelect.addEventListener("change", () => {
+            deps.enforceConflict(container);
+            setTimeout(deps.notifyFormChanged, 0);
+          });
+        }
+        container.querySelectorAll(".hsc-target-chk").forEach((chk) => {
+          chk.addEventListener("change", () => {
+            deps.enforceConflict(container);
+            setTimeout(deps.notifyFormChanged, 0);
+          });
+        });
+        container.querySelectorAll("input:not(.hsc-target-chk), select:not(#selHscSourceUser)").forEach((el) => {
+          el.addEventListener("change", () => setTimeout(deps.notifyFormChanged, 0));
+          el.addEventListener("input", () => setTimeout(deps.notifyFormChanged, 0));
+        });
+      }).catch(() => {
+        container.innerHTML = '<p class="textMuted" style="padding:20px;">Failed to load users. Check server connection.</p>';
+      });
+    }
+    function normalizeUsers(raw) {
+      if (Array.isArray(raw)) {
+        return raw.filter(isUserLike);
+      }
+      if (raw && typeof raw === "object" && Array.isArray(raw.Items)) {
+        return raw.Items.filter(isUserLike);
+      }
+      return [];
+    }
+    function isUserLike(v) {
+      return typeof v === "object" && v !== null && typeof v.Id === "string" && typeof v.Name === "string";
+    }
+
+    function getHseUsers(deps) {
+      if (deps.cache.users) return Promise.resolve(deps.cache.users);
+      return deps.getApiClient().getJSON("Users", { IsDisabled: false }).then((resp) => {
+        const raw = resp || [];
+        const list = raw.map((u) => ({ Id: u.Id, Name: u.Name }));
+        deps.cache.users = list;
+        return list;
+      });
+    }
+    function preFetchLibraryData(deps) {
+      if (deps.cache.libraryPromise) return deps.cache.libraryPromise;
+      const apiClient = deps.getApiClient();
+      const token = apiClient.accessToken();
+      const headers = { "X-MediaBrowser-Token": token };
+      deps.cache.libraryPromise = Promise.all([
+        fetch(apiClient.getUrl("HomeScreenCompanion/TopList/List"), { headers }).then((r) => r.json()).catch(() => ({ FolderNames: [] })),
+        fetch(apiClient.getUrl("Library/VirtualFolders"), { headers }).then((r) => r.json()).catch(() => [])
+      ]).then((results) => {
+        const first = results[0];
+        const second = results[1];
+        return {
+          topListFolderNames: new Set((first?.FolderNames || []).map((n) => n.toLowerCase())),
+          virtualFolders: second || []
+        };
+      }).catch(() => {
+        deps.cache.libraryPromise = null;
+        return { topListFolderNames: /* @__PURE__ */ new Set(), virtualFolders: [] };
+      });
+      return deps.cache.libraryPromise;
+    }
+    function escAttr$1(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    }
+    function escHtml$1(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function buildUserMultiSelectHtml(users, selectedIds, checkboxClass) {
+      if (!users || users.length === 0) {
+        return '<em style="opacity:0.5">No users found</em>';
+      }
+      const sel = selectedIds || [];
+      const rows = users.map((u) => {
+        const chk = sel.indexOf(u.Id) !== -1 ? " checked" : "";
+        return '<div class="checkboxContainer" style="margin:2px 0;"><label><input type="checkbox" is="emby-checkbox" class="' + escAttr$1(checkboxClass) + '" value="' + escAttr$1(u.Id) + '" data-name="' + escAttr$1(u.Name) + '"' + chk + "><span>" + escHtml$1(u.Name) + "</span></label></div>";
+      }).join("");
+      const checkedNames = users.filter((u) => sel.indexOf(u.Id) !== -1).map((u) => u.Name);
+      const lbl = checkedNames.length === 0 ? "No users selected" : checkedNames.length === users.length ? "All users" : checkedNames.join(", ");
+      const btnStyle = "display:flex;align-items:center;width:100%;padding:6px 10px;background:var(--plugin-input-bg,rgba(128,128,128,0.08));border:1px solid var(--plugin-input-border,var(--line-color));border-radius:4px;font-size:0.9em;color:inherit;cursor:pointer;box-sizing:border-box;text-align:left;";
+      return '<div class="filter-dropdown-wrapper hsc-user-dropdown" style="width:100%;"><button type="button" class="hsc-user-dropdown-btn" style="' + btnStyle + '"><span class="hsc-user-dropdown-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml$1(lbl) + '</span><i class="md-icon hsc-user-dropdown-caret" style="font-size:1em;margin-left:6px;flex-shrink:0;">expand_more</i></button><div class="filter-dropdown-panel" style="min-width:220px;width:100%;box-sizing:border-box;">' + rows + "</div></div>";
+    }
+    function wireUserMultiSelect(container) {
+      const wrapper = container && container.querySelector(".hsc-user-dropdown");
+      if (!wrapper) return;
+      const btn = wrapper.querySelector(".hsc-user-dropdown-btn");
+      const panel = wrapper.querySelector(".filter-dropdown-panel");
+      const lbl = wrapper.querySelector(".hsc-user-dropdown-label");
+      const caret = wrapper.querySelector(".hsc-user-dropdown-caret");
+      if (!btn || !panel || !lbl || !caret) return;
+      function updateLabel() {
+        const allBoxes = panel.querySelectorAll('input[type="checkbox"]');
+        const checkedBoxes = panel.querySelectorAll('input[type="checkbox"]:checked');
+        if (checkedBoxes.length === 0) {
+          lbl.textContent = "No users selected";
+        } else if (checkedBoxes.length === allBoxes.length) {
+          lbl.textContent = "All users";
+        } else {
+          lbl.textContent = Array.from(checkedBoxes).map((cb) => cb.dataset.name || "").join(", ");
+        }
+      }
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = panel.classList.toggle("open");
+        caret.textContent = open ? "expand_less" : "expand_more";
+      });
+      panel.querySelectorAll('input[type="checkbox"]').forEach((chk) => {
+        chk.addEventListener("change", updateLabel);
+      });
+      document.addEventListener("click", function closeUserDrop(e) {
+        if (!wrapper.isConnected) {
+          document.removeEventListener("click", closeUserDrop);
+          return;
+        }
+        const target = e.target;
+        if (!target) return;
+        if (!panel.contains(target) && target !== btn) {
+          panel.classList.remove("open");
+          caret.textContent = "expand_more";
+        }
+      });
+    }
+
+    const TIMESTAMP_PREFIX_RE = /^\[(\d{2}:\d{2}:\d{2})\] ?/;
+    const DEBUG_PREFIX_RE = /^\[DEBUG\] ?/;
+    const RULE_LINE_RE = /^=+$/;
+    const SKIP_PREFIX_RE = /^\s{1,3}– /;
+    const HEAD_PREFIX_RE = /^(»|Results$|Summary$|\[Cleanup\]$|\[\d+\/\d+\] |Home Screen (Companion|Sync) )/;
+    function classifyLogLine(raw) {
+      if (DEBUG_PREFIX_RE.test(raw)) return "log-debug";
+      if (raw.trim() === "") return "log-blank";
+      if (RULE_LINE_RE.test(raw.trim())) return "log-rule";
+      if (raw.indexOf("\u2716") >= 0) return "log-err";
+      if (raw.indexOf("\u26A0") >= 0) return "log-warn";
+      if (raw.indexOf("\u2714") >= 0) return "log-ok";
+      if (SKIP_PREFIX_RE.test(raw)) return "log-skip";
+      if (HEAD_PREFIX_RE.test(raw)) return "log-head";
+      return "";
+    }
+    function appendLogLine(frag, src, ts, raw, cls, showSrc) {
+      const line = document.createElement("div");
+      line.className = "log-line" + (cls ? " " + cls : "");
+      if (cls !== "log-blank") {
+        const tsEl = document.createElement("span");
+        tsEl.className = "log-ts";
+        tsEl.textContent = ts;
+        line.appendChild(tsEl);
+        if (showSrc) {
+          const srcEl = document.createElement("span");
+          srcEl.className = "log-src";
+          srcEl.textContent = src;
+          line.appendChild(srcEl);
+        }
+        line.appendChild(document.createTextNode(raw));
+      } else {
+        line.textContent = " ";
+      }
+      frag.appendChild(line);
+    }
+    function renderLogLines(container, entries, isRunning) {
+      const stickToBottom = isRunning && container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+      const wasEmpty = container.childElementCount === 0;
+      if (!entries.length) {
+        container.textContent = "(no logs yet)";
+        return;
+      }
+      const srcCount = {};
+      for (const e of entries) srcCount[e.src] = 1;
+      const showSrc = Object.keys(srcCount).length > 1;
+      const frag = document.createDocumentFragment();
+      for (const e of entries) {
+        let raw = e.text || "";
+        let ts = "";
+        const m = raw.match(TIMESTAMP_PREFIX_RE);
+        if (m) {
+          ts = m[1] ?? "";
+          raw = raw.substring(m[0].length);
+        }
+        let cls = "";
+        if (DEBUG_PREFIX_RE.test(raw)) {
+          cls = "log-debug";
+          raw = raw.replace(DEBUG_PREFIX_RE, "");
+        } else {
+          cls = classifyLogLine(raw);
+        }
+        appendLogLine(frag, e.src, ts, raw, cls, showSrc);
+      }
+      container.textContent = "";
+      container.appendChild(frag);
+      if (stickToBottom || wasEmpty) container.scrollTop = container.scrollHeight;
+    }
+    const SORT_ROW_SELECTOR = ".tag-row";
+    function sortRows(container, criteria) {
+      const rows = Array.from(container.querySelectorAll(SORT_ROW_SELECTOR));
+      rows.sort((a, b) => {
+        if (criteria === "Name") {
+          const aInput = a.querySelector(".txtEntryLabel") ?? a.querySelector(".txtTagName");
+          const bInput = b.querySelector(".txtEntryLabel") ?? b.querySelector(".txtTagName");
+          const na = (aInput?.value ?? "").toLowerCase();
+          const nb = (bInput?.value ?? "").toLowerCase();
+          return na.localeCompare(nb);
+        }
+        if (criteria === "Active") {
+          const aa = a.querySelector(".chkTagActive")?.checked ? 1 : 0;
+          const bb = b.querySelector(".chkTagActive")?.checked ? 1 : 0;
+          return bb - aa;
+        }
+        if (criteria === "LatestEdited") {
+          const da = new Date(a.dataset.lastModified || "0").getTime();
+          const db = new Date(b.dataset.lastModified || "0").getTime();
+          return db - da;
+        }
+        return parseInt(a.dataset.index ?? "0", 10) - parseInt(b.dataset.index ?? "0", 10);
+      });
+      for (const row of rows) container.appendChild(row);
+      if (criteria !== "Manual") container.classList.add("sort-hidden");
+      else container.classList.remove("sort-hidden");
+    }
+    function renderLogModal(view, deps) {
+      const content = view.querySelector("#logContent");
+      const tabs = view.querySelectorAll("#logTabs .log-tab");
+      if (!content) return;
+      const keys = ["sync", "hsc", "tl"];
+      const ls = deps.state.lastStatus;
+      function startedMs(k) {
+        const s = ls[k];
+        const t = s && s.StartedUtc ? Date.parse(s.StartedUtc) : NaN;
+        return isNaN(t) ? 0 : t;
+      }
+      function running(k) {
+        const s = ls[k];
+        return !!(s && s.IsRunning);
+      }
+      function logs(k) {
+        const s = ls[k];
+        return s && s.Logs || [];
+      }
+      let selected = deps.state.logTab;
+      if (!selected) {
+        const runningKey = keys.find((k) => running(k));
+        if (runningKey) {
+          selected = runningKey;
+        } else {
+          let best = 0;
+          keys.forEach((k) => {
+            const ms = startedMs(k);
+            if (ms > best) {
+              best = ms;
+              selected = k;
+            }
+          });
+        }
+        if (!selected) selected = "sync";
+      }
+      const finalSelected = selected;
+      tabs.forEach((tab) => {
+        const k = tab.getAttribute("data-log") ?? "";
+        tab.classList.toggle("active", k === finalSelected);
+        tab.classList.toggle("empty", logs(k).length === 0 && !running(k));
+        const dot = tab.querySelector(".status-dot");
+        if (dot) {
+          dot.className = "status-dot";
+          if (running(k)) dot.classList.add("running");
+          dot.style.visibility = running(k) || logs(k).length ? "visible" : "hidden";
+        }
+        const timeEl = tab.querySelector(".log-tab-time");
+        if (timeEl) {
+          const ms = startedMs(k);
+          timeEl.textContent = ms ? new Date(ms).toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+        }
+      });
+      const rawLogs = logs(finalSelected);
+      const entries = rawLogs.map((l) => ({ src: finalSelected, text: String(l) }));
+      if (!entries.length) {
+        content.textContent = "(no runs yet)";
+        return;
+      }
+      renderLogLines(content, entries, running(finalSelected));
+    }
+    function refreshStatus(view, deps) {
+      const myId = ++deps.state.statusRequestId;
+      const api = deps.getApiClient();
+      Promise.all([
+        api.getJSON("HomeScreenCompanion/Status"),
+        api.getJSON("HomeScreenCompanion/Hsc/Status").catch(() => null),
+        api.getJSON("HomeScreenCompanion/TopList/Status").catch(() => null)
+      ]).then((results) => {
+        if (myId !== deps.state.statusRequestId) return;
+        const result = results[0];
+        const hscResult = results[1];
+        const tlResult = results[2];
+        const label = view.querySelector("#lastRunStatusLabel");
+        const dot = view.querySelector("#dotStatus");
+        const content = view.querySelector("#logContent");
+        const btnSave = view.querySelector(".btn-save");
+        const btnRun = view.querySelector("#btnRunSync");
+        const eitherRunning = !!(result && result.IsRunning) || !!(hscResult && hscResult.IsRunning);
+        if (eitherRunning) {
+          if (btnSave) {
+            btnSave.disabled = true;
+            btnSave.style.opacity = "0.5";
+            const span = btnSave.querySelector("span");
+            if (span) span.textContent = "Sync in progress...";
+          }
+          if (btnRun) btnRun.disabled = true;
+        } else {
+          if (btnRun) btnRun.disabled = false;
+          if (btnSave) {
+            const span = btnSave.querySelector("span");
+            if (span) span.textContent = "Save Settings";
+            deps.checkFormState();
+          }
+        }
+        if (label) label.textContent = result && result.LastRunStatus || "Never";
+        if (dot) {
+          dot.className = "status-dot";
+          const st = result && result.LastRunStatus || "";
+          if (st.includes("Running")) dot.classList.add("running");
+          else if (/failed|error/i.test(st)) dot.classList.add("failed");
+          else if (/warning/i.test(st)) dot.classList.add("warn");
+        }
+        deps.state.lastStatus = { sync: result, hsc: hscResult, tl: tlResult };
+        if (content) renderLogModal(view, deps);
+      }).catch(() => {
+        if (myId !== deps.state.statusRequestId) return;
+      });
+    }
+
+    function executeTopListCreationSteps(tagName, displayName, selectedUserIds, displayMode, customName, imageType, maxItems, prepareResult, ui, onSuccess, deps) {
+      const saveBtn = ui.saveBtn;
+      const errEl = ui.errEl;
+      const modal = ui.modal;
+      const badgeStyle = ui.badgeStyle || "neutral";
+      const tok = deps.getAccessToken();
+      let snapshotId = null;
+      let pendingLibraryId = null;
+      saveBtn.innerHTML = 'Creating library <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+      return deps.fetch(deps.getUrl("HomeScreenCompanion/TopList/SnapshotPolicies"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Emby-Token": tok },
+        body: JSON.stringify({})
+      }).then(function(r) {
+        return r.json();
+      }).then(function(result) {
+        const snapshotResult = result;
+        if (snapshotResult && snapshotResult.SnapshotId) {
+          snapshotId = snapshotResult.SnapshotId;
+          console.log("[HSC] Policy snapshot taken:", snapshotResult.UserCount, "users, id:", snapshotId);
+        }
+      }).catch(function() {
+      }).then(function() {
+        return deps.fetch(deps.getUrl("Library/VirtualFolders"), {
+          headers: { "X-MediaBrowser-Token": tok }
+        }).then(function(r) {
+          return r.json();
+        }).then(function(existingFoldersRaw) {
+          function normLibPath(p) {
+            return (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+          }
+          const existingFolders = existingFoldersRaw;
+          const targetPath = normLibPath(prepareResult.FolderPath);
+          const preCreationIds = new Set((existingFolders || []).map(function(f) {
+            return f.ItemId;
+          }).filter((id) => Boolean(id)));
+          const alreadyExists = (existingFolders || []).some(function(f) {
+            return (f.Locations || []).some(function(loc) {
+              return normLibPath(loc) === targetPath;
+            });
+          });
+          if (alreadyExists) {
+            return { folders: existingFolders, preCreationIds: /* @__PURE__ */ new Set() };
+          }
+          return deps.fetch(deps.getUrl("Library/VirtualFolders"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Emby-Token": tok },
+            body: JSON.stringify({
+              Name: customName,
+              CollectionType: "movies",
+              RefreshLibrary: false,
+              Paths: [prepareResult.FolderPath],
+              LibraryOptions: {
+                EnableInternetProviders: true,
+                TypeOptions: [{
+                  Type: "Movie",
+                  MetadataFetchers: ["Nfo", "TheMovieDb", "TheTVDB"],
+                  MetadataFetcherOrder: ["Nfo", "TheMovieDb", "TheTVDB"],
+                  ImageFetchers: ["TheMovieDb", "TheTVDB"],
+                  ImageFetcherOrder: ["TheMovieDb", "TheTVDB"]
+                }]
+              }
+            })
+          }).catch(function() {
+          }).then(function() {
+            return deps.fetch(deps.getUrl("Library/VirtualFolders"), {
+              headers: { "X-MediaBrowser-Token": tok }
+            }).then(function(r) {
+              return r.json();
+            });
+          }).then(function(newFoldersRaw) {
+            return { folders: newFoldersRaw, preCreationIds };
+          });
+        }).then(function(result) {
+          saveBtn.innerHTML = 'Saving settings <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+          const folders = result.folders;
+          const preCreationIds = result.preCreationIds;
+          function normLibPath2(p) {
+            return (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+          }
+          const match = (folders || []).find(function(f) {
+            return (f.Locations || []).some(function(loc) {
+              return normLibPath2(loc) === normLibPath2(prepareResult.FolderPath);
+            });
+          });
+          let newLibId = match && match.ItemId ? match.ItemId : null;
+          if (!newLibId && preCreationIds.size > 0) {
+            const diffMatch = (folders || []).find(function(f) {
+              return f.ItemId && !preCreationIds.has(f.ItemId);
+            });
+            if (diffMatch && diffMatch.ItemId) newLibId = diffMatch.ItemId;
+          }
+          const userId = selectedUserIds[0];
+          const viewsPromise = userId ? deps.fetch(deps.getUrl("Users/" + userId + "/Views"), { headers: { "X-MediaBrowser-Token": tok } }).then(function(r) {
+            return r.json();
+          }).catch(function() {
+            return { Items: [] };
+          }) : Promise.resolve({ Items: [] });
+          return viewsPromise.then(function(viewsResultRaw) {
+            const viewsResult = viewsResultRaw;
+            const allViewIds = /* @__PURE__ */ new Set();
+            (folders || []).forEach(function(f) {
+              if (f.ItemId) allViewIds.add(f.ItemId);
+            });
+            (viewsResult && viewsResult.Items || []).forEach(function(v) {
+              if (v.Id) allViewIds.add(v.Id);
+            });
+            const excludedViewIds = Array.from(allViewIds).filter(function(id) {
+              return !newLibId || id !== newLibId;
+            }).join(",");
+            return { prepareResult, libraryItemId: newLibId, excludedViewIds };
+          });
+        }).then(function(ctx) {
+          return deps.getPluginConfiguration().then(function(config) {
+            const topLists = config.TopLists || [];
+            const existing = topLists.find(function(t) {
+              return (t.TagName || "").toLowerCase() === tagName.toLowerCase();
+            });
+            const hseSettings = JSON.stringify({
+              SectionType: "items",
+              DisplayMode: displayMode,
+              CustomName: customName,
+              MaxItems: String(maxItems),
+              ViewType: "",
+              ImageType: imageType,
+              BadgeStyle: badgeStyle,
+              SortBy: "SortName",
+              SortOrder: "Ascending",
+              ScrollDirection: "",
+              ItemTypes: JSON.stringify(["Movie"]),
+              _queryIsPlayed: "",
+              _queryExcludeViewIds: ctx.excludedViewIds,
+              ExcludedFolders: ctx.excludedViewIds
+            });
+            if (existing) {
+              existing.HomeSectionUserIds = selectedUserIds;
+              existing.HomeSectionLibraryId = ctx.libraryItemId || "auto";
+              existing.HomeSectionSettings = hseSettings;
+              existing.HomeSectionTracked = existing.HomeSectionTracked || [];
+              existing.MaxItems = maxItems;
+            } else {
+              topLists.push({
+                TagName: tagName,
+                MaxItems: maxItems,
+                HomeSectionUserIds: selectedUserIds,
+                HomeSectionLibraryId: ctx.libraryItemId || "auto",
+                HomeSectionSettings: hseSettings,
+                HomeSectionTracked: []
+              });
+            }
+            config.TopLists = topLists;
+            return deps.updatePluginConfiguration(config).then(function() {
+              return { prepareResult: ctx.prepareResult, libraryItemId: ctx.libraryItemId };
+            });
+          });
+        }).then(function(ctx2) {
+          if (ctx2.libraryItemId) pendingLibraryId = ctx2.libraryItemId;
+          return ctx2;
+        }).then(function(ctx2) {
+          saveBtn.innerHTML = 'Creating home sections <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+          const tok5 = deps.getAccessToken();
+          return deps.fetch(deps.getUrl("HomeScreenCompanion/TopList/SyncHomeSections"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Emby-Token": tok5 },
+            body: JSON.stringify({ TagName: tagName })
+          }).then(function(r) {
+            return r.json();
+          }).then(function(syncResultRaw) {
+            const syncResult = syncResultRaw;
+            if (!syncResult.Success) throw new Error(syncResult.Message || "Failed to create home sections.");
+            return ctx2;
+          });
+        }).then(function(ctx2) {
+          if (ctx2.libraryItemId) {
+            saveBtn.innerHTML = 'Scanning library <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+            const tok6 = deps.getAccessToken();
+            return deps.fetch(deps.getUrl("Items/" + ctx2.libraryItemId + "/Refresh") + "?Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default", {
+              method: "POST",
+              headers: { "X-MediaBrowser-Token": tok6 }
+            }).catch(function() {
+            }).then(function() {
+              return ctx2.prepareResult;
+            });
+          }
+          return ctx2.prepareResult;
+        }).then(function(prepareResult2) {
+          const tok7 = deps.getAccessToken();
+          return deps.fetch(deps.getUrl("HomeScreenCompanion/TopList/SyncAllSections"), {
+            method: "POST",
+            headers: { "X-MediaBrowser-Token": tok7 }
+          }).catch(function() {
+          }).then(function() {
+            return prepareResult2;
+          });
+        }).then(function(prepareResult2) {
+          if (!pendingLibraryId) return prepareResult2;
+          const tok8 = deps.getAccessToken();
+          const libIdLower = pendingLibraryId.toLowerCase();
+          return deps.fetch(deps.getUrl("Users"), {
+            headers: { "X-MediaBrowser-Token": tok8 }
+          }).then(function(r) {
+            return r.json();
+          }).then(function(usersRaw) {
+            const users = usersRaw;
+            return Promise.all((users || []).map(function(u) {
+              if (u && u.Policy) return Promise.resolve(u);
+              return deps.fetch(deps.getUrl("Users/" + u.Id), {
+                headers: { "X-MediaBrowser-Token": tok8 }
+              }).then(function(r) {
+                return r.json();
+              }).catch(function() {
+                return u;
+              });
+            }));
+          }).then(function(users) {
+            const updates = (users || []).filter(function(u) {
+              return !!u && !!u.Policy && !u.Policy.EnableAllFolders && selectedUserIds.some(function(id) {
+                return id.toLowerCase() === (u.Id || "").toLowerCase();
+              }) && !(u.Policy.EnabledFolders || []).some(function(f) {
+                return (f || "").toLowerCase() === libIdLower;
+              });
+            }).map(function(u) {
+              const pol = JSON.parse(JSON.stringify(u.Policy));
+              pol.EnabledFolders = (u.Policy.EnabledFolders || []).concat([pendingLibraryId]);
+              return deps.fetch(deps.getUrl("Users/" + u.Id + "/Policy"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-MediaBrowser-Token": tok8 },
+                body: JSON.stringify(pol)
+              }).catch(function() {
+              });
+            });
+            return Promise.all(updates);
+          }).catch(function() {
+          }).then(function() {
+            return prepareResult2;
+          });
+        }).then(function(prepareResult2) {
+          deps.registerTopList(tagName.toLowerCase());
+          if (typeof ui.closeHandler === "function") {
+            ui.closeHandler();
+            return;
+          }
+          const innerBox = ui.innerBox || modal.querySelector("div");
+          innerBox.innerHTML = '<div style="text-align:center;padding:10px 0 20px;"><i class="md-icon" style="font-size:2.5em;color:#52B54B;display:block;margin-bottom:12px;">check_circle</i><p style="margin:0 0 6px;font-size:1.05em;font-weight:500;">Top-list created!</p><p style="margin:0;opacity:0.65;font-size:0.9em;">' + prepareResult2.FilesCreated + " movie" + (prepareResult2.FilesCreated !== 1 ? "s" : "") + ' included.</p><p style="margin:8px 0 0;opacity:0.5;font-size:0.82em;font-style:italic;">Finishing touches will continue in the background.</p></div><div style="display:flex;justify-content:center;padding-top:16px;border-top:1px solid var(--line-color);margin-top:20px;"><button type="button" class="btnTlmDone" style="cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:3px;padding:8px 22px;font-size:0.9em;font-weight:500;">Close</button></div>';
+          innerBox.querySelector(".btnTlmDone").addEventListener("click", function() {
+            if (typeof ui.closeHandler === "function") {
+              ui.closeHandler();
+            } else {
+              modal.remove();
+            }
+          });
+        }).catch(function(err) {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">check</i>Save and apply';
+          errEl.textContent = err.message || String(err);
+          throw err;
+        });
+      });
+    }
+
+    const BACKUP_SECTIONS = [
+      { key: "Settings", label: "General settings", desc: "AI models, system prompt, logging, dry run, preserve-on-empty." },
+      { key: "ApiKeys", label: "API keys", desc: "Trakt, MDBList, TMDB, OpenAI, Gemini, Claude. Stored in plain text in the file." },
+      { key: "Tags", label: "Tag & collection groups", desc: "All source groups incl. schedules, blacklists, filters, collection settings, home sections and playlists." },
+      { key: "SavedFilters", label: "Saved media-info filters", desc: "Your saved filter presets." },
+      { key: "TopLists", label: "Top lists", desc: "Top-list settings and the movie lists of manual top-lists." },
+      { key: "HomeSync", label: "Home screen sync", desc: "Source user, target users and library-order sync." }
+    ];
+    function buildBackupModalShell() {
+      const modal = document.createElement("div");
+      modal.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;";
+      modal.renderBox = function(content) {
+        modal.innerHTML = '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;padding:28px;max-width:560px;width:90%;max-height:85vh;overflow-y:auto;">' + content + "</div>";
+      };
+      function onEsc(e) {
+        if (e.key === "Escape") modal.close();
+      }
+      modal.close = function() {
+        modal.remove();
+        document.removeEventListener("keydown", onEsc);
+      };
+      document.addEventListener("keydown", onEsc);
+      modal.addEventListener("click", function(e) {
+        if (e.target === modal && !modal.dataset.busy) modal.close();
+      });
+      document.body.appendChild(modal);
+      return modal;
+    }
+    function buildBackupSectionsHtml(available, chkClass) {
+      return BACKUP_SECTIONS.map((s) => {
+        const present = !available || available.has(s.key);
+        const rowStyle = "display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-color,rgba(255,255,255,0.08));" + (present ? "" : "opacity:0.45;");
+        return '<label style="' + rowStyle + "cursor:" + (present ? "pointer" : "default") + ';"><input type="checkbox" class="' + chkClass + '" data-section="' + s.key + '"' + (present ? " checked" : " disabled") + ' style="margin-top:3px;" /><span style="flex:1;"><span style="display:block;font-weight:600;font-size:0.95em;">' + s.label + (present ? "" : ' <span style="font-weight:400;opacity:0.7;">(not in file)</span>') + '</span><span style="display:block;font-size:0.82em;opacity:0.65;margin-top:2px;">' + s.desc + "</span></span></label>";
+      }).join("");
+    }
+    function readBackupSectionFlags(modal, chkClass) {
+      const flags = {};
+      const boxes = modal.querySelectorAll("." + chkClass);
+      boxes.forEach((c) => {
+        flags[c.dataset.section ?? ""] = !c.disabled && c.checked;
+      });
+      return flags;
+    }
+    function detectBackupSections(parsed) {
+      const sections = /* @__PURE__ */ new Set();
+      const info = { legacy: false, sections, createdUtc: "", pluginVersion: "" };
+      if (parsed && typeof parsed === "object" && typeof parsed.BackupVersion === "number") {
+        const p2 = parsed;
+        (Array.isArray(p2.Sections) ? p2.Sections : []).forEach((s) => {
+          if (typeof s === "string") sections.add(s);
+        });
+        info.createdUtc = typeof p2.CreatedUtc === "string" ? p2.CreatedUtc : "";
+        info.pluginVersion = typeof p2.PluginVersion === "string" ? p2.PluginVersion : "";
+        return info;
+      }
+      info.legacy = true;
+      sections.add("Settings");
+      sections.add("ApiKeys");
+      const p = parsed && typeof parsed === "object" ? parsed : {};
+      if (Array.isArray(p.Tags)) sections.add("Tags");
+      if (Array.isArray(p.SavedFilters)) sections.add("SavedFilters");
+      return info;
+    }
+    const BACKUP_BTN_PRIMARY = "cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:4px;padding:10px 26px;font-size:0.95em;font-weight:600;";
+    const BACKUP_BTN_SECONDARY = "cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;";
+    const BACKUP_TITLE_STYLE = "margin:0 0 6px;font-size:1.15em;font-weight:600;";
+    const BACKUP_HINT_STYLE = "font-size:0.88em;opacity:0.7;margin:0 0 14px;line-height:1.45;";
+    function showBackupModal(deps) {
+      const modal = buildBackupModalShell();
+      modal.renderBox(
+        '<h3 style="' + BACKUP_TITLE_STYLE + '">Download Backup</h3><p style="' + BACKUP_HINT_STYLE + '">Choose what to include. Only configuration is saved \u2013 tags, collections, playlists, top-list files and images are recreated by the plugin on the next sync run.</p><div style="margin-bottom:16px;">' + buildBackupSectionsHtml(null, "chkBackupSection") + '</div><div class="backup-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:6px;"></div><div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;"><button type="button" class="btnBackupCancel" style="' + BACKUP_BTN_SECONDARY + '">Cancel</button><button type="button" class="btnBackupDownload" style="' + BACKUP_BTN_PRIMARY + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">download</i>Download</button></div>'
+      );
+      const cancelBtn = modal.querySelector(".btnBackupCancel");
+      const downloadBtn = modal.querySelector(".btnBackupDownload");
+      const errEl = modal.querySelector(".backup-error");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => {
+        modal.close();
+      });
+      if (downloadBtn) downloadBtn.addEventListener("click", function() {
+        const btn = this;
+        if (!errEl) return;
+        const flags = readBackupSectionFlags(modal, "chkBackupSection");
+        if (!Object.keys(flags).some((k) => flags[k])) {
+          errEl.textContent = "Select at least one section.";
+          return;
+        }
+        errEl.textContent = "";
+        btn.disabled = true;
+        btn.innerHTML = 'Preparing <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+        modal.dataset.busy = "1";
+        const api = deps.getApiClient();
+        const tok = api.accessToken();
+        deps.fetch(api.getUrl("HomeScreenCompanion/Backup/Export"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Emby-Token": tok },
+          body: JSON.stringify(flags)
+        }).then((r) => {
+          if (!r.ok) throw new Error("Server returned " + r.status);
+          return r.json();
+        }).then((backup) => {
+          const json = JSON.stringify(backup, null, 2);
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "HSC_Backup_" + (/* @__PURE__ */ new Date()).toISOString().split("T")[0] + ".json";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          modal.close();
+        }).catch((err) => {
+          delete modal.dataset.busy;
+          btn.disabled = false;
+          btn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">download</i>Download';
+          errEl.textContent = "Backup failed: " + (err.message || String(err));
+        });
+      });
+    }
+    function showRestoreModal(rawText, onRestored, deps) {
+      let parsed;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch (err) {
+        deps.alert("Failed to parse configuration file. The file may be corrupt or not a valid backup file. Error: " + err.message);
+        return;
+      }
+      if (!parsed || typeof parsed !== "object") {
+        deps.alert("The selected file is not a Home Screen Companion backup.");
+        return;
+      }
+      const info = detectBackupSections(parsed);
+      const fileInfo = info.legacy ? "Legacy backup (created by an older plugin version)" : "Created " + (info.createdUtc ? new Date(info.createdUtc).toLocaleString() : "unknown") + (info.pluginVersion ? " \xB7 plugin v" + escapeHtml(info.pluginVersion) : "");
+      const modal = buildBackupModalShell();
+      modal.renderBox(
+        '<h3 style="' + BACKUP_TITLE_STYLE + '">Restore Backup</h3><p style="' + BACKUP_HINT_STYLE + 'margin-bottom:6px;">' + fileInfo + '</p><p style="' + BACKUP_HINT_STYLE + '">Select what to restore. Each selected section <strong>replaces</strong> the current configuration on the server immediately. Sections you leave unchecked are not touched.</p><div style="margin-bottom:16px;">' + buildBackupSectionsHtml(info.sections, "chkRestoreSection") + '</div><div class="backup-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:6px;"></div><div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;"><button type="button" class="btnRestoreCancel" style="' + BACKUP_BTN_SECONDARY + '">Cancel</button><button type="button" class="btnRestoreApply" style="' + BACKUP_BTN_PRIMARY + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">upload</i>Restore</button></div>'
+      );
+      const cancelBtn = modal.querySelector(".btnRestoreCancel");
+      const applyBtn = modal.querySelector(".btnRestoreApply");
+      const errEl = modal.querySelector(".backup-error");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => {
+        modal.close();
+      });
+      if (applyBtn) applyBtn.addEventListener("click", function() {
+        const btn = this;
+        if (!errEl) return;
+        const flags = readBackupSectionFlags(modal, "chkRestoreSection");
+        if (!Object.keys(flags).some((k) => flags[k])) {
+          errEl.textContent = "Select at least one section.";
+          return;
+        }
+        errEl.textContent = "";
+        btn.disabled = true;
+        btn.innerHTML = 'Restoring <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+        modal.dataset.busy = "1";
+        const body = Object.assign({ BackupJson: rawText }, flags);
+        const api = deps.getApiClient();
+        const tok = api.accessToken();
+        deps.fetch(api.getUrl("HomeScreenCompanion/Backup/Import"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Emby-Token": tok },
+          body: JSON.stringify(body)
+        }).then((r) => {
+          if (!r.ok) throw new Error("Server returned " + r.status);
+          return r.json();
+        }).then((raw) => {
+          const result = raw && typeof raw === "object" ? raw : {};
+          if (!result.Success) throw new Error(result.Message || "Unknown error");
+          delete modal.dataset.busy;
+          if (typeof onRestored === "function") onRestored();
+          renderRestoreResult(modal, result, deps);
+        }).catch((err) => {
+          delete modal.dataset.busy;
+          btn.disabled = false;
+          btn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">upload</i>Restore';
+          errEl.textContent = "Restore failed: " + (err.message || String(err));
+        });
+      });
+    }
+    function renderRestoreResult(modal, result, deps) {
+      const pending = result.TopListsNeedingLibrary || [];
+      const listStyle = "margin:0 0 14px;padding-left:20px;font-size:0.9em;line-height:1.5;";
+      let html = '<div style="text-align:center;padding:4px 0 14px;"><i class="md-icon" style="font-size:2.5em;color:#52B54B;display:block;margin-bottom:8px;">check_circle</i><p style="margin:0;font-size:1.05em;font-weight:500;">Backup restored</p></div><span style="font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:4px;">Applied</span><ul style="' + listStyle + '">' + (result.Applied || []).map((a) => "<li>" + escapeHtml(a) + "</li>").join("") + "</ul>";
+      if ((result.Warnings || []).length > 0) {
+        html += '<span style="font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:#e0a030;display:block;margin-bottom:4px;">Warnings</span><ul style="' + listStyle + 'opacity:0.85;">' + (result.Warnings || []).map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul>";
+      }
+      if (pending.length > 0) {
+        html += '<div style="border:1px solid rgba(224,160,48,0.5);background:rgba(224,160,48,0.08);border-radius:6px;padding:12px 14px;margin-bottom:14px;font-size:0.9em;line-height:1.5;"><strong>' + pending.length + " top-list" + (pending.length !== 1 ? "s" : "") + " need" + (pending.length === 1 ? "s" : "") + " an Emby library:</strong> " + pending.map((p) => escapeHtml(p.CustomName || p.TagName || "")).join(", ") + '.<br/>Their settings and files are restored, but no library exists for them on this server yet. Create them now (this creates the libraries, home sections and access rights exactly like <em>+ Create New</em>), or later by opening each list in the Top Lists tab and clicking Save.<div class="restore-tl-progress" style="margin-top:8px;font-size:0.88em;opacity:0.8;"></div></div>';
+      }
+      html += '<p style="' + BACKUP_HINT_STYLE + '">Run a sync afterwards to rebuild tags, collections, playlists and home sections from the restored configuration.</p><div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;padding-top:14px;border-top:1px solid var(--line-color);">' + (pending.length > 0 ? '<button type="button" class="btnRestoreCreateLibs" style="' + BACKUP_BTN_PRIMARY + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">library_add</i>Create libraries now</button>' : "") + '<button type="button" class="btnRestoreDone" style="' + (pending.length > 0 ? BACKUP_BTN_SECONDARY : BACKUP_BTN_PRIMARY) + '">Close</button></div>';
+      modal.renderBox(html);
+      const doneBtn = modal.querySelector(".btnRestoreDone");
+      if (doneBtn) doneBtn.addEventListener("click", () => {
+        modal.close();
+      });
+      const createBtn = modal.querySelector(".btnRestoreCreateLibs");
+      if (createBtn) {
+        createBtn.addEventListener("click", function() {
+          const btn = this;
+          btn.disabled = true;
+          const doneBtn2 = modal.querySelector(".btnRestoreDone");
+          if (doneBtn2) doneBtn2.disabled = true;
+          modal.dataset.busy = "1";
+          const progressEl = modal.querySelector(".restore-tl-progress");
+          const failures = [];
+          const dummyBtn = document.createElement("button");
+          const dummyErr = document.createElement("div");
+          const dummyModal = document.createElement("div");
+          const tlDeps = buildTopListCreationDeps(deps);
+          pending.reduce((p, tl, idx) => {
+            return p.then(() => {
+              if (progressEl) progressEl.textContent = "Creating " + (idx + 1) + " of " + pending.length + ": " + (tl.CustomName || tl.TagName || "") + "\u2026";
+              return new Promise((resolve, reject) => {
+                executeTopListCreationSteps(
+                  tl.TagName || "",
+                  tl.CustomName || tl.TagName || "",
+                  tl.UserIds || [],
+                  tl.DisplayMode || "",
+                  tl.CustomName || tl.TagName || "",
+                  tl.ImageType || "",
+                  tl.MaxItems || 0,
+                  { FolderPath: tl.FolderPath || "", FilesCreated: 0 },
+                  { saveBtn: dummyBtn, errEl: dummyErr, modal: dummyModal, badgeStyle: tl.BadgeStyle || "neutral", silent: true, closeHandler: resolve },
+                  void 0,
+                  tlDeps
+                ).catch(reject);
+              }).catch((err) => {
+                failures.push((tl.CustomName || tl.TagName || "") + ": " + (err?.message || String(err)));
+              });
+            });
+          }, Promise.resolve()).then(() => {
+            delete modal.dataset.busy;
+            const doneBtn3 = modal.querySelector(".btnRestoreDone");
+            if (doneBtn3) doneBtn3.disabled = false;
+            if (!progressEl) return;
+            if (failures.length === 0) {
+              progressEl.style.color = "#52B54B";
+              progressEl.textContent = "All " + pending.length + " librar" + (pending.length === 1 ? "y" : "ies") + " created. Finishing touches continue in the background.";
+              btn.style.display = "none";
+            } else {
+              progressEl.style.color = "#cc3333";
+              progressEl.innerHTML = "Some libraries could not be created:<br/>" + failures.map(escapeHtml).join("<br/>");
+              btn.disabled = false;
+            }
+            const tlContainer = document.querySelector("#tlContainer");
+            if (tlContainer) tlContainer.dataset.loaded = "";
+          });
+        });
+      }
+    }
+    function buildTopListCreationDeps(deps) {
+      const api = deps.getApiClient();
+      return {
+        getUrl: (p) => api.getUrl(p),
+        getAccessToken: () => api.accessToken(),
+        getPluginConfiguration: () => api.getPluginConfiguration(deps.pluginId),
+        updatePluginConfiguration: (cfg) => api.updatePluginConfiguration(deps.pluginId, cfg),
+        fetch: deps.fetch,
+        registerTopList: (tagNameLower) => {
+          deps.state.topLists.tagNames.add(tagNameLower);
+        }
+      };
+    }
+
+    function loadTagManageTab(view, deps) {
+      const container = view.querySelector("#tcManageContainer");
+      if (!container) return;
+      container.innerHTML = '<div style="padding:20px;color:var(--theme-text-secondary);display:flex;align-items:center;gap:10px;">Loading <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>';
+      const apiClient = deps.getApiClient();
+      const token = apiClient.accessToken();
+      let pendingTagDeletes = {};
+      let pendingCollDeletes = {};
+      const reload = () => {
+        loadTagManageTab(view, deps);
+      };
+      Promise.all([
+        deps.fetch(apiClient.getUrl("HomeScreenCompanion/Manage/Tags"), { headers: { "X-MediaBrowser-Token": token } }).then(function(r) {
+          return r.json();
+        }),
+        deps.fetch(apiClient.getUrl("HomeScreenCompanion/Manage/Collections"), { headers: { "X-MediaBrowser-Token": token } }).then(function(r) {
+          return r.json();
+        }),
+        apiClient.getPluginConfiguration(deps.pluginId).catch(function() {
+          return { Tags: [] };
+        })
+      ]).then(function(results) {
+        const tagsData = results[0];
+        const collectionsData = results[1];
+        const pluginConfig = results[2];
+        const managedTagMap = {};
+        const managedCollMap = {};
+        const seenGroupByTag = {};
+        (pluginConfig.Tags || []).forEach(function(t, idx) {
+          if (!t.Tag) return;
+          const tName = t.Tag.trim();
+          const tKey = tName.toLowerCase();
+          if (seenGroupByTag[tKey]) return;
+          seenGroupByTag[tKey] = true;
+          const groupLabel = t.Name && t.Name.trim() && t.Name.trim().toLowerCase() !== tKey ? t.Name.trim() : tName;
+          const entry = { displayName: groupLabel, groupIndex: idx, groupActive: !!t.Active };
+          if (!managedTagMap[tKey]) managedTagMap[tKey] = [];
+          managedTagMap[tKey].push(entry);
+          if (t.EnableCollection) {
+            const cName = t.CollectionName && t.CollectionName.trim() ? t.CollectionName.trim() : tName;
+            const cKey = cName.toLowerCase();
+            if (!managedCollMap[cKey]) managedCollMap[cKey] = [];
+            managedCollMap[cKey].push(entry);
+          }
+        });
+        function escAttr(s) {
+          return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+        }
+        function escHtml(s) {
+          return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+        const btnStyle = "cursor:pointer;border:none;border-radius:3px;padding:4px 12px;font-size:0.82em;font-weight:500;";
+        function renderSection(title, items, isTagSection, headerExtra) {
+          const sectionId = isTagSection ? "tcTagSection" : "tcCollSection";
+          const rows = items.length === 0 ? '<div style="color:var(--theme-text-secondary);padding:8px 0;">No items found.</div>' : items.map(function(item) {
+            const it = item;
+            const id = it.Id || "";
+            const name = it.Name || "";
+            const count = it.ItemCount != null ? it.ItemCount : 0;
+            const managed = isTagSection ? managedTagMap[name.toLowerCase()] : managedCollMap[name.toLowerCase()];
+            const badge = managed && managed.length > 0 ? '<span style="font-size:0.75em;background:#52B54B22;color:#52B54B;border:1px solid #52B54B55;border-radius:4px;padding:1px 6px;margin-left:8px;white-space:nowrap;">Managed by HSC Plugin</span>' : "";
+            const typesVal = isTagSection ? (it.ItemTypes || []).map(function(t) {
+              return t.toLowerCase();
+            }).join(",") : "";
+            return '<tr class="tc-manage-row" data-rowname="' + escAttr(name.toLowerCase()) + '" data-managed="' + (managed && managed.length > 0 ? "1" : "0") + '" data-count="' + count + '" data-types="' + escAttr(typesVal) + '"><td style="padding:9px 4px;border-bottom:1px solid var(--line-color);width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (id ? '<a class="tc-item-name tc-nav-link" href="javascript:void(0)" data-navid="' + escAttr(id) + `" style="color:inherit;text-decoration:none;cursor:pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">` + escHtml(name) + "</a>" : '<span class="tc-item-name">' + escHtml(name) + "</span>") + badge + '</td><td style="padding:9px 4px 9px 16px;border-bottom:1px solid var(--line-color);white-space:nowrap;color:var(--theme-text-secondary);font-size:0.88em;">' + count + ' items</td><td style="padding:9px 4px 9px 8px;border-bottom:1px solid var(--line-color);white-space:nowrap;"><button type="button" class="btnTcMark" style="' + btnStyle + 'background:#cc3333;color:#fff;" data-id="' + escAttr(id) + '" data-name="' + escAttr(name) + '" data-count="' + count + '" data-type="' + (isTagSection ? "tag" : "coll") + '">Remove</button></td></tr>';
+          }).join("");
+          return '<div id="' + sectionId + '" style="flex:1 1 300px;min-width:0;"><div style="display:flex;align-items:center;gap:30px;margin-bottom:12px;"><h3 style="margin:0;font-size:1em;text-transform:uppercase;letter-spacing:1px;color:#52B54B;">' + escHtml(title) + "</h3>" + headerExtra + '<button type="button" class="btnTcRefresh" style="' + btnStyle + 'background:transparent;color:var(--theme-text-secondary);border:1px solid var(--line-color);margin-left:auto;"><i class="md-icon" style="font-size:1em;vertical-align:middle;">refresh</i></button></div><table class="tc-manage-list" style="width:100%;border-collapse:collapse;"><tbody>' + rows + "</tbody></table></div>";
+        }
+        const searchInputStyle = "background:rgba(128,128,128,0.08);border:1px solid var(--line-color);border-radius:4px;padding:5px 10px;font-size:0.9em;color:inherit;width:400px;max-width:100%;";
+        const tcTypeGroups = [
+          { label: "Movies", types: ["movie"] },
+          { label: "Series", types: ["series"] },
+          { label: "Episodes", types: ["episode"] },
+          { label: "Seasons", types: ["season"] },
+          { label: "Music", types: ["audio", "musicvideo", "musicalbum", "musicartist"] },
+          { label: "Books", types: ["book"] },
+          { label: "Games", types: ["game"] },
+          { label: "Trailers", types: ["trailer"] },
+          { label: "Theme songs", types: ["themesong"] },
+          { label: "Theme videos", types: ["themevideo", "video"] },
+          { label: "Extras", types: ["behindthescenes", "deletedscene", "interview", "scene", "clip", "featurette", "short"] },
+          { label: "People", types: ["person"] },
+          { label: "Collections", types: ["boxset"] },
+          { label: "Photos", types: ["photo", "photoalbum"] },
+          { label: "Playlists", types: ["playlist"] },
+          { label: "Recordings", types: ["recording"] },
+          { label: "Studios", types: ["studio"] }
+        ];
+        const tcExtraTypes = ["themesong", "themevideo", "trailer", "behindthescenes", "deletedscene", "interview", "scene", "clip", "featurette", "short"];
+        const presentGroups = tcTypeGroups.filter(function(g) {
+          return (tagsData.Tags || []).some(function(tag) {
+            return (tag.ItemTypes || []).some(function(t) {
+              return g.types.indexOf(t.toLowerCase()) !== -1;
+            });
+          });
+        });
+        const typeFilterDropdownHtml = presentGroups.length > 0 ? '<div class="filter-dropdown-wrapper" id="tcTypeFilterWrap"><div class="filter-dropdown-btn" id="tcTypeFilterBtn"><i class="md-icon" style="font-size:1.1em;">filter_list</i><span id="tcTypeFilterLabel">Filter tags</span><i class="md-icon" style="font-size:0.9em;opacity:0.6;" id="tcTypeFilterCaret">expand_more</i></div><div class="filter-dropdown-panel" id="tcTypeFilterDropdown"><div class="filter-dropdown-label">Media type</div>' + presentGroups.map(function(g) {
+          return '<label class="filter-chk-row"><input type="checkbox" class="cbTypeFilter" data-group="' + escAttr(g.label) + '"> <span>' + escHtml(g.label) + "</span></label>";
+        }).join("") + "</div></div>" : "";
+        const extrasCheckboxHtml = '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.9em;white-space:nowrap;opacity:0.8;"><input type="checkbox" id="cbIncludeExtras" style="cursor:pointer;margin:0;"><span>Include extras</span></label>';
+        container.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;"><input type="text" id="tcSearch" placeholder="Search\u2026" style="' + searchInputStyle + '" /><select is="emby-select" id="tcSort" style="color:inherit;background:rgba(128,128,128,0.08);border:1px solid var(--line-color);padding:5px;border-radius:4px;font-size:0.9em;cursor:pointer;"><option value="name-asc">Name A\u2013Z</option><option value="name-desc">Name Z\u2013A</option><option value="count-desc">Most items</option><option value="count-asc">Fewest items</option><option value="managed">Managed first</option></select></div><div id="tcSectionsWrap" style="display:flex;gap:40px;align-items:flex-start;">' + renderSection("Tags", tagsData.Tags || [], true, typeFilterDropdownHtml + extrasCheckboxHtml) + renderSection("Collections", collectionsData.Collections || [], false, "") + "</div>";
+        container.dataset.loaded = "1";
+        function getSelectedTypeGroups() {
+          return Array.from(container.querySelectorAll(".cbTypeFilter:checked")).map(function(cb) {
+            return cb.dataset.group || "";
+          });
+        }
+        function rowMatchesTypeFilter(row, selectedGroups) {
+          if (selectedGroups.length === 0) return true;
+          const rowTypes = (row.dataset.types || "").split(",").filter(Boolean);
+          return selectedGroups.some(function(groupLabel) {
+            const group = tcTypeGroups.find(function(g) {
+              return g.label === groupLabel;
+            });
+            if (!group) return false;
+            return rowTypes.some(function(t) {
+              return group.types.indexOf(t) !== -1;
+            });
+          });
+        }
+        function updateTypeFilterBtn() {
+          const btn = container.querySelector("#tcTypeFilterBtn");
+          const lbl = container.querySelector("#tcTypeFilterLabel");
+          if (!btn || !lbl) return;
+          const selected = getSelectedTypeGroups();
+          lbl.textContent = selected.length === 0 ? "Filter tags" : selected.length + " type" + (selected.length > 1 ? "s" : "");
+          if (selected.length > 0) btn.classList.add("active");
+          else btn.classList.remove("active");
+        }
+        function applySearchSort() {
+          const query = (container.querySelector("#tcSearch").value || "").toLowerCase();
+          const sort = container.querySelector("#tcSort").value;
+          const selectedGroups = getSelectedTypeGroups();
+          const includeExtras = !!(container.querySelector("#cbIncludeExtras") || { checked: false }).checked;
+          ["tcTagSection", "tcCollSection"].forEach(function(sectionId) {
+            const section = container.querySelector("#" + sectionId);
+            if (!section) return;
+            const rows = Array.from(section.querySelectorAll(".tc-manage-row"));
+            const isTagSection = sectionId === "tcTagSection";
+            rows.forEach(function(row) {
+              const rowName = row.dataset.rowname || "";
+              const nameMatch = !query || rowName.indexOf(query) !== -1;
+              const typeMatch = !isTagSection || rowMatchesTypeFilter(row, selectedGroups);
+              const extrasOk = !isTagSection || includeExtras || function() {
+                const types = (row.dataset.types || "").split(",").filter(Boolean);
+                return types.length === 0 || !types.every(function(t) {
+                  return tcExtraTypes.indexOf(t) !== -1;
+                });
+              }();
+              row.style.display = nameMatch && typeMatch && extrasOk ? "" : "none";
+            });
+            const list = section.querySelector(".tc-manage-list");
+            if (!list) return;
+            const visibleRows = rows.filter(function(r) {
+              return r.style.display !== "none";
+            });
+            visibleRows.sort(function(a, b) {
+              const nameA = a.dataset.rowname || "";
+              const nameB = b.dataset.rowname || "";
+              const countA = parseInt(a.dataset.count || "0", 10);
+              const countB = parseInt(b.dataset.count || "0", 10);
+              const managedA = a.dataset.managed === "1";
+              const managedB = b.dataset.managed === "1";
+              if (sort === "name-asc") return nameA.localeCompare(nameB);
+              if (sort === "name-desc") return nameB.localeCompare(nameA);
+              if (sort === "count-desc") return countB - countA;
+              if (sort === "count-asc") return countA - countB;
+              if (sort === "managed") return (managedB ? 1 : 0) - (managedA ? 1 : 0) || nameA.localeCompare(nameB);
+              return 0;
+            });
+            visibleRows.forEach(function(r) {
+              list.appendChild(r);
+            });
+          });
+        }
+        container.querySelector("#tcSearch").addEventListener("input", applySearchSort);
+        container.querySelector("#tcSort").addEventListener("change", applySearchSort);
+        const cbIncludeExtras = container.querySelector("#cbIncludeExtras");
+        if (cbIncludeExtras) cbIncludeExtras.addEventListener("change", applySearchSort);
+        const typeFilterBtn = container.querySelector("#tcTypeFilterBtn");
+        const typeFilterDropdown = container.querySelector("#tcTypeFilterDropdown");
+        const typeFilterCaret = container.querySelector("#tcTypeFilterCaret");
+        if (typeFilterBtn && typeFilterDropdown) {
+          typeFilterBtn.addEventListener("click", function(e) {
+            e.stopPropagation();
+            const open = typeFilterDropdown.classList.toggle("open");
+            if (typeFilterCaret) typeFilterCaret.textContent = open ? "expand_less" : "expand_more";
+          });
+          typeFilterDropdown.addEventListener("change", function(e) {
+            const t = e.target;
+            if (t && t.classList.contains("cbTypeFilter")) {
+              updateTypeFilterBtn();
+              applySearchSort();
+            }
+          });
+          document.addEventListener("click", function closeTypeFilter(e) {
+            const t = e.target;
+            if (t && !typeFilterDropdown.contains(t) && !typeFilterBtn.contains(t)) {
+              typeFilterDropdown.classList.remove("open");
+              if (typeFilterCaret) typeFilterCaret.textContent = "expand_more";
+            }
+            if (!container.isConnected) document.removeEventListener("click", closeTypeFilter);
+          });
+        }
+        applySearchSort();
+        const tcTooltip = document.createElement("div");
+        tcTooltip.style.cssText = "position:fixed;z-index:9999;pointer-events:none;display:none;background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#eee);border:1px solid var(--plugin-popup-border,#444);border-radius:6px;padding:8px 12px;font-size:0.82em;line-height:1.6;max-width:210px;box-shadow:0 4px 14px rgba(0,0,0,0.4);";
+        document.body.appendChild(tcTooltip);
+        const tcTooltipObserver = new MutationObserver(function() {
+          if (!container.isConnected) {
+            tcTooltip.remove();
+            tcTooltipObserver.disconnect();
+          }
+        });
+        if (container.parentNode) tcTooltipObserver.observe(container.parentNode, { childList: true });
+        function getTypeLabels(typesStr) {
+          const rawTypes = (typesStr || "").split(",").filter(Boolean);
+          if (!rawTypes.length) return null;
+          const seen = {};
+          const labels = [];
+          tcTypeGroups.forEach(function(g) {
+            if (!seen[g.label] && rawTypes.some(function(t) {
+              return g.types.indexOf(t) !== -1;
+            })) {
+              seen[g.label] = true;
+              labels.push(g.label);
+            }
+          });
+          return labels.length ? labels : null;
+        }
+        const tcTagSection = container.querySelector("#tcTagSection");
+        if (tcTagSection) {
+          tcTagSection.addEventListener("mouseover", function(e) {
+            const t = e.target;
+            if (!t) {
+              tcTooltip.style.display = "none";
+              return;
+            }
+            const nameEl = t.closest(".tc-item-name");
+            if (!nameEl) {
+              tcTooltip.style.display = "none";
+              return;
+            }
+            const row = nameEl.closest(".tc-manage-row");
+            if (!row) return;
+            const labels = getTypeLabels(row.dataset.types || "");
+            if (!labels) {
+              tcTooltip.style.display = "none";
+              return;
+            }
+            tcTooltip.innerHTML = '<div style="font-weight:600;opacity:0.55;font-size:0.85em;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:5px;">Found in</div>' + labels.map(function(l) {
+              return '<div style="display:flex;align-items:center;gap:6px;"><i class="md-icon" style="font-size:0.95em;opacity:0.7;">label</i>' + escHtml(l) + "</div>";
+            }).join("");
+            tcTooltip.style.display = "block";
+          });
+          tcTagSection.addEventListener("mousemove", function(e) {
+            const t = e.target;
+            if (!t) {
+              tcTooltip.style.display = "none";
+              return;
+            }
+            const nameEl = t.closest(".tc-item-name");
+            if (!nameEl) {
+              tcTooltip.style.display = "none";
+              return;
+            }
+            tcTooltip.style.left = e.clientX + 16 + "px";
+            tcTooltip.style.top = e.clientY + 12 + "px";
+            const rect = tcTooltip.getBoundingClientRect();
+            if (rect.right > window.innerWidth - 8) tcTooltip.style.left = e.clientX - rect.width - 16 + "px";
+            if (rect.bottom > window.innerHeight - 8) tcTooltip.style.top = e.clientY - rect.height - 12 + "px";
+          });
+          tcTagSection.addEventListener("mouseout", function(e) {
+            const t = e.target;
+            if (!t) return;
+            const nameEl = t.closest(".tc-item-name");
+            if (!nameEl) return;
+            const rt = e.relatedTarget;
+            if (rt && nameEl.contains(rt)) return;
+            tcTooltip.style.display = "none";
+          });
+        }
+        function updateSaveButton() {
+          const hasPending = Object.keys(pendingTagDeletes).length > 0 || Object.keys(pendingCollDeletes).length > 0;
+          container._tcHasPending = hasPending;
+          deps.checkFormState();
+        }
+        if (container._tcClickHandler) container.removeEventListener("click", container._tcClickHandler);
+        container._tcClickHandler = function(e) {
+          const target = e.target;
+          if (!target) return;
+          const navLink = target.closest(".tc-nav-link");
+          if (navLink) {
+            const navId = navLink.getAttribute("data-navid") || "";
+            const baseUrl = window.location.href.split("#")[0];
+            const serverId = window.ApiClient?.serverId ? window.ApiClient.serverId() : "";
+            const url = baseUrl + "#!/item?id=" + encodeURIComponent(navId) + (serverId ? "&serverId=" + encodeURIComponent(serverId) : "");
+            window.open(url, "_blank");
+            return;
+          }
+          const btn = target.closest("button");
+          if (!btn) return;
+          if (btn.classList.contains("btnTcMark")) {
+            const type = btn.dataset.type;
+            const id = btn.dataset.id || "";
+            const name = btn.dataset.name || "";
+            const count = parseInt(btn.dataset.count || "0", 10);
+            if (type === "tag") pendingTagDeletes[id.toLowerCase()] = { name, itemCount: count };
+            else pendingCollDeletes[id] = { id, name, itemCount: count };
+            const row = btn.closest(".tc-manage-row");
+            if (row) {
+              row.style.opacity = "0.45";
+              const nameEl = row.querySelector(".tc-item-name");
+              if (nameEl) nameEl.style.textDecoration = "line-through";
+              btn.textContent = "Undo";
+              btn.classList.remove("btnTcMark");
+              btn.classList.add("btnTcUndo");
+              btn.style.background = "#555";
+            }
+            updateSaveButton();
+            return;
+          }
+          if (btn.classList.contains("btnTcUndo")) {
+            const type = btn.dataset.type;
+            const id = btn.dataset.id || "";
+            if (type === "tag") delete pendingTagDeletes[id.toLowerCase()];
+            else delete pendingCollDeletes[id];
+            const row = btn.closest(".tc-manage-row");
+            if (row) {
+              row.style.opacity = "1";
+              const nameEl = row.querySelector(".tc-item-name");
+              if (nameEl) nameEl.style.textDecoration = "";
+              btn.textContent = "Remove";
+              btn.classList.remove("btnTcUndo");
+              btn.classList.add("btnTcMark");
+              btn.style.background = "#cc3333";
+            }
+            updateSaveButton();
+            return;
+          }
+          if (btn.classList.contains("btnTcRefresh")) {
+            container.dataset.loaded = "";
+            reload();
+            return;
+          }
+        };
+        container.addEventListener("click", container._tcClickHandler);
+        container._tcShowModal = function() {
+          showSummaryModal();
+        };
+        function showSummaryModal() {
+          const undoBtnStyle = "cursor:pointer;border:none;background:transparent;color:#cc2222;border-radius:3px;padding:2px 6px;font-size:1.1em;line-height:1;margin-right:8px;flex-shrink:0;";
+          function buildRows(items, isTag) {
+            return items.map(function(item) {
+              const name = item.name;
+              const key = isTag ? item.name.toLowerCase() : pendingCollDeletes[item.name.toLowerCase()]?.id ?? "";
+              const managed = isTag ? managedTagMap[name.toLowerCase()] : managedCollMap[name.toLowerCase()];
+              let warning = "";
+              const activeManaged = managed ? managed.filter(function(m) {
+                return m.groupActive;
+              }) : [];
+              if (activeManaged.length > 0) {
+                const what = isTag ? "recreate this tag" : "recreate this collection";
+                const warningText = activeManaged.length === 1 ? "Group <strong>" + escHtml(activeManaged[0].displayName) + "</strong> is active and may " + what + " on next sync." : activeManaged.length + " active groups may " + what + " on next sync.";
+                const checkboxes = activeManaged.map(function(m) {
+                  return '<label style="display:flex;align-items:center;gap:6px;margin-top:5px;cursor:pointer;"><input type="checkbox" class="cbInactivateGroup" data-group-indices="' + escAttr(JSON.stringify([m.groupIndex])) + '"> Deactivate <strong>' + escHtml(m.displayName) + "</strong></label>";
+                }).join("");
+                warning = '<div style="color:#f0a000;margin-top:6px;font-size:0.88em;"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:4px;">warning</i>' + warningText + checkboxes + "</div>";
+              }
+              const itemCount = isTag ? item.itemCount : pendingCollDeletes[item.name.toLowerCase()]?.itemCount ?? 0;
+              return '<div style="padding:10px 0;border-bottom:1px solid var(--line-color);display:flex;align-items:flex-start;"><button type="button" class="btnModalUndo" style="' + undoBtnStyle + '" data-key="' + escAttr(key) + '" data-type="' + (isTag ? "tag" : "coll") + '" title="Keep this one">\u2715</button><div style="flex:1;"><span style="font-weight:500;">' + escHtml(name) + '</span><span style="color:var(--theme-text-secondary);font-size:0.88em;margin-left:8px;">(' + itemCount + " items)</span>" + warning + "</div></div>";
+            }).join("");
+          }
+          function buildContent() {
+            const tagList = Object.values(pendingTagDeletes);
+            const collList = Object.values(pendingCollDeletes);
+            const tagSection = tagList.length > 0 ? '<div style="margin-bottom:20px;"><h4 style="margin:0 0 8px;color:#52B54B;">Tags to remove (' + tagList.length + ")</h4>" + buildRows(tagList, true) + "</div>" : "";
+            const collSection = collList.length > 0 ? '<div style="margin-bottom:20px;"><h4 style="margin:0 0 8px;color:#52B54B;">Collections to remove (' + collList.length + ")</h4>" + buildRows(collList, false) + "</div>" : "";
+            return tagSection + collSection;
+          }
+          const modal = document.createElement("div");
+          modal.dataset.tcModal = "summary";
+          modal.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;";
+          function renderModal() {
+            const tagList = Object.values(pendingTagDeletes);
+            const collList = Object.values(pendingCollDeletes);
+            if (tagList.length === 0 && collList.length === 0) {
+              modal.remove();
+              updateSaveButton();
+              return;
+            }
+            modal.innerHTML = '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;padding:28px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;"><h3 style="margin:0 0 20px;font-size:1.1em;color:#52B54B;">Summary \u2014 Pending changes</h3><div id="tcModalBody">' + buildContent() + '</div><div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;border-top:1px solid var(--line-color);padding-top:16px;"><button type="button" id="tcModalCancel" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;">Cancel</button><button type="button" id="tcModalConfirm" style="cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:3px;padding:8px 18px;font-size:0.9em;font-weight:500;"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:5px;">check</i>Confirm &amp; Save</button></div></div>';
+            modal.querySelector("#tcModalCancel").addEventListener("click", function() {
+              modal.remove();
+            });
+            modal.addEventListener("click", function(e) {
+              const target = e.target;
+              if (!target) return;
+              const undoBtn = target.closest(".btnModalUndo");
+              if (!undoBtn) return;
+              const ub = undoBtn;
+              const type = ub.dataset.type;
+              const key = ub.dataset.key || "";
+              if (type === "tag") delete pendingTagDeletes[key];
+              else delete pendingCollDeletes[key];
+              const keyLower = key.toLowerCase();
+              const mainBtn = Array.from(container.querySelectorAll(".btnTcUndo")).find(function(b) {
+                return (b.dataset.id || "").toLowerCase() === keyLower;
+              });
+              if (mainBtn) {
+                const row = mainBtn.closest(".tc-manage-row");
+                if (row) {
+                  row.style.opacity = "1";
+                  const nameEl = row.querySelector(".tc-item-name");
+                  if (nameEl) nameEl.style.textDecoration = "";
+                }
+                mainBtn.textContent = "Remove";
+                mainBtn.classList.remove("btnTcUndo");
+                mainBtn.classList.add("btnTcMark");
+                mainBtn.style.background = "#cc3333";
+              }
+              updateSaveButton();
+              renderModal();
+            });
+            modal.querySelector("#tcModalConfirm").addEventListener("click", function() {
+              const confirmBtn = modal.querySelector("#tcModalConfirm");
+              confirmBtn.disabled = true;
+              confirmBtn.innerHTML = 'Saving <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
+              const tagList2 = Object.values(pendingTagDeletes);
+              const collList2 = Object.values(pendingCollDeletes);
+              const groupsToInactivate = /* @__PURE__ */ new Set();
+              modal.querySelectorAll(".cbInactivateGroup:checked").forEach(function(cb) {
+                const raw = cb.dataset.groupIndices ? JSON.parse(cb.dataset.groupIndices) : [];
+                const indices = Array.isArray(raw) ? raw : [];
+                indices.forEach(function(idx) {
+                  if (typeof idx === "number") groupsToInactivate.add(idx);
+                });
+              });
+              const tok = apiClient.accessToken();
+              const tagBatchPromise = tagList2.length === 0 ? Promise.resolve() : deps.fetch(apiClient.getUrl("HomeScreenCompanion/Manage/DeleteTags"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-MediaBrowser-Token": tok },
+                body: JSON.stringify({ TagNames: tagList2.map(function(t) {
+                  return t.name;
+                }) })
+              }).then(function(r) {
+                return r.json();
+              });
+              const collOps = [];
+              collList2.forEach(function(c) {
+                collOps.push(function() {
+                  return deps.fetch(apiClient.getUrl("HomeScreenCompanion/Manage/DeleteCollection"), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-MediaBrowser-Token": tok },
+                    body: JSON.stringify({ CollectionId: c.id })
+                  }).then(function(r) {
+                    return r.json();
+                  });
+                });
+              });
+              tagBatchPromise.then(function() {
+                return collOps.reduce(function(chain, op) {
+                  return chain.then(op);
+                }, Promise.resolve());
+              }).then(function() {
+                if (groupsToInactivate.size === 0) return Promise.resolve();
+                return apiClient.getPluginConfiguration(deps.pluginId).then(function(cfgRaw) {
+                  const cfg = cfgRaw;
+                  const tagsToInactivate = /* @__PURE__ */ new Set();
+                  groupsToInactivate.forEach(function(idx) {
+                    const tagsArr = cfg.Tags;
+                    if (!tagsArr) return;
+                    const entry = tagsArr[idx];
+                    if (entry && entry.Tag) tagsToInactivate.add(entry.Tag.trim().toLowerCase());
+                  });
+                  (cfg.Tags || []).forEach(function(t) {
+                    if (t.Tag && tagsToInactivate.has(t.Tag.trim().toLowerCase()))
+                      t.Active = false;
+                  });
+                  return apiClient.updatePluginConfiguration(deps.pluginId, cfg);
+                });
+              }).then(function() {
+                modal.remove();
+                const inactivatedTagKeys = /* @__PURE__ */ new Set();
+                groupsToInactivate.forEach(function(idx) {
+                  const seedRow = view.querySelector('#tagListContainer .tag-row[data-index="' + idx + '"]');
+                  if (seedRow && seedRow.dataset.tag) inactivatedTagKeys.add(seedRow.dataset.tag.toLowerCase());
+                });
+                view.querySelectorAll("#tagListContainer .tag-row").forEach(function(sourceRow) {
+                  const rowTag = (sourceRow.dataset.tag || "").toLowerCase();
+                  if (!inactivatedTagKeys.has(rowTag)) return;
+                  const chk = sourceRow.querySelector(".chkTagActive");
+                  const lbl = sourceRow.querySelector(".lblActiveStatus");
+                  if (chk) chk.checked = false;
+                  if (lbl) {
+                    lbl.textContent = "Disabled";
+                    lbl.style.color = "var(--theme-text-secondary)";
+                  }
+                  sourceRow.classList.add("inactive");
+                  const runBtn = sourceRow.querySelector(".btnRunEntry");
+                  if (runBtn) {
+                    runBtn.disabled = true;
+                    runBtn.style.opacity = "0.4";
+                  }
+                });
+                pendingTagDeletes = {};
+                pendingCollDeletes = {};
+                const tc2 = container;
+                tc2._tcHasPending = false;
+                deps.checkFormState();
+                tc2.dataset.loaded = "";
+                reload();
+              }).catch(function(err) {
+                modal.remove();
+                deps.alert("Error saving: " + String(err));
+              });
+            });
+          }
+          renderModal();
+          document.body.appendChild(modal);
+        }
+      }).catch(function(err) {
+        container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + String(err) + "</div>";
+      });
+    }
+
+    function loadTopListsTab(view, deps) {
+      const container = view.querySelector("#tlContainer");
+      if (!container) return;
+      container.innerHTML = '<div style="padding:20px;color:var(--theme-text-secondary);display:flex;align-items:center;gap:10px;">Loading <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>';
+      const token = deps.getAccessToken();
+      Promise.all([
+        deps.fetch(deps.getUrl("HomeScreenCompanion/Manage/Tags"), { headers: { "X-MediaBrowser-Token": token } }).then(function(r) {
+          return r.json();
+        }),
+        deps.fetch(deps.getUrl("HomeScreenCompanion/Manage/Collections"), { headers: { "X-MediaBrowser-Token": token } }).then(function(r) {
+          return r.json();
+        }),
+        deps.getPluginConfiguration().catch(function() {
+          return { Tags: [] };
+        }),
+        deps.fetch(deps.getUrl("HomeScreenCompanion/TopList/List"), { headers: { "X-MediaBrowser-Token": token } }).then(function(r) {
+          return r.json();
+        }).catch(function() {
+          return { FolderNames: [] };
+        })
+      ]).then(function(results) {
+        const tagsData = results[0];
+        const topListListResult = results[3];
+        const pluginConfig = results[2];
+        const existingTopLists = new Set((topListListResult.FolderNames || []).map(function(n) {
+          return n.toLowerCase();
+        }));
+        function sanitizeTlName(name) {
+          const safe = (name || "unknown").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+|\.+$/g, "").trim();
+          return safe.length === 0 ? "unknown" : safe;
+        }
+        results[1];
+        (pluginConfig.TopLists || []).forEach(function(tl) {
+          if (!tl.TagName) return;
+          sanitizeTlName(tl.TagName).toLowerCase();
+          let settings = {};
+          try {
+            settings = JSON.parse(tl.HomeSectionSettings || "{}");
+          } catch (e) {
+          }
+          if (settings.CustomName) settings.CustomName;
+          if (tl.HomeSectionLibraryId && tl.HomeSectionLibraryId !== "auto")
+            tl.HomeSectionLibraryId;
+        });
+        const managedTagMap = {};
+        const managedCollMap = {};
+        const seenGroupByTag = {};
+        (pluginConfig.Tags || []).forEach(function(t, idx) {
+          if (!t.Tag) return;
+          const tName = t.Tag.trim();
+          const tKey = tName.toLowerCase();
+          if (seenGroupByTag[tKey]) return;
+          seenGroupByTag[tKey] = true;
+          const groupLabel = t.Name && t.Name.trim() && t.Name.trim().toLowerCase() !== tKey ? t.Name.trim() : tName;
+          const entry = { displayName: groupLabel, groupIndex: idx, groupActive: !!t.Active };
+          if (!managedTagMap[tKey]) managedTagMap[tKey] = [];
+          managedTagMap[tKey].push(entry);
+          if (t.EnableCollection) {
+            const cName = t.CollectionName && t.CollectionName.trim() ? t.CollectionName.trim() : tName;
+            const cKey = cName.toLowerCase();
+            if (!managedCollMap[cKey]) managedCollMap[cKey] = [];
+            managedCollMap[cKey].push(entry);
+          }
+        });
+        function escAttr(s) {
+          return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+        }
+        const searchInputStyle = "background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:5px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:400px;max-width:100%;";
+        const realTagNamesLower = new Set((tagsData.Tags || []).map(function(t) {
+          return (t.Name || "").toLowerCase();
+        }));
+        const allExistingTopLists = (pluginConfig.TopLists || []).filter(function(tl) {
+          return tl.TagName && existingTopLists.has(sanitizeTlName(tl.TagName).toLowerCase());
+        }).map(function(tl) {
+          const key = sanitizeTlName(tl.TagName || "").toLowerCase();
+          let settings = {};
+          try {
+            settings = JSON.parse(tl.HomeSectionSettings || "{}");
+          } catch (e) {
+          }
+          return {
+            tagName: tl.TagName || "",
+            displayName: settings.CustomName || tl.TagName || "",
+            isManual: !realTagNamesLower.has((tl.TagName || "").toLowerCase()),
+            count: (topListListResult.MovieCounts || {})[key] || 0,
+            userIds: tl.HomeSectionUserIds || [],
+            customName: settings.CustomName || "",
+            displayMode: settings.DisplayMode || "",
+            imageType: settings.ImageType || "",
+            badgeStyle: settings.BadgeStyle || "neutral",
+            maxItems: settings.MaxItems || 0
+          };
+        });
+        function renderTopListRows(items) {
+          if (items.length === 0) {
+            return '<div id="tlRowsList"><p style="color:var(--theme-text-secondary);font-size:0.9em;font-style:italic;padding:20px 0;">No top-lists created yet. Click <strong>+ Create New</strong> to get started.</p></div>';
+          }
+          const rows = items.map(function(item) {
+            const isManual = item.isManual;
+            const typeBadge = isManual ? '<span class="tag-indicator toplist" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Manual</span>' : '<span class="tag-indicator tag" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">label</i> ' + escapeHtml(item.tagName) + "</span>";
+            ({ "": "Always", "tv": "TV mode only", "mobile,desktop": "Non-TV only" })[item.displayMode] || "Always";
+            item.imageType || "Auto";
+            item.maxItems ? String(item.maxItems) : "0 (all)";
+            const editJson = escAttr(JSON.stringify({
+              tagName: item.tagName,
+              displayName: item.displayName,
+              isManual: item.isManual,
+              userIds: item.userIds,
+              customName: item.customName,
+              displayMode: item.displayMode,
+              imageType: item.imageType,
+              badgeStyle: item.badgeStyle,
+              maxItems: String(item.maxItems || "0")
+            }));
+            return '<div class="tag-row" data-tlname="' + escAttr(item.tagName.toLowerCase()) + '" data-ismanual="' + (isManual ? "1" : "0") + '" data-count="' + item.count + '" data-editjson="' + editJson + '"><div class="tl-row-header tag-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px;cursor:pointer;"><div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + typeBadge + '<span class="tag-title" style="font-weight:bold;font-size:1.1em;">' + escapeHtml(item.displayName) + '</span><span class="tag-indicator source" style="margin-left:8px;">' + item.count + ' movies</span></div><i class="md-icon expand-icon" style="flex-shrink:0;margin-left:12px;">expand_more</i></div><div class="tag-body" style="display:none;padding:15px;border-top:1px solid rgba(255,255,255,0.1);"></div></div>';
+          }).join("");
+          return '<div id="tlRowsList">' + rows + "</div>";
+        }
+        container.innerHTML = '<div style="max-width:900px;"><div class="sectionTitleContainer flex align-items-center" style="margin-bottom:1em;margin-top:2em;"><h2 class="sectionTitle" style="margin-bottom:0;">Top Lists</h2><button type="button" id="btnCreateNewTopList" is="emby-button" class="raised button-submit mb025" style="margin-left:auto;"><span>+ Create New</span></button></div><div style="margin-bottom:16px;font-size:0.9em;color:var(--theme-text-secondary);line-height:1.5;">Create a top-list home section from a tag managed by the plugin. Top-lists only work with movies.</div><div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;"><input type="text" id="tlSearch" placeholder="Search\u2026" style="' + searchInputStyle + '" /><select is="emby-select" id="tlFilter" style="color:var(--plugin-popup-color);background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);padding:5px;border-radius:4px;font-size:0.9em;cursor:pointer;"><option value="all">All</option><option value="manual">Manual</option><option value="bytag">By tag</option></select><select is="emby-select" id="tlSort" style="color:var(--plugin-popup-color);background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);padding:5px;border-radius:4px;font-size:0.9em;cursor:pointer;"><option value="name-asc">Name A\u2013Z</option><option value="name-desc">Name Z\u2013A</option><option value="count-desc">Most movies</option><option value="count-asc">Fewest movies</option></select><button type="button" class="btnTlRefresh" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-secondary);border-radius:3px;padding:5px 10px;font-size:0.9em;"><i class="md-icon" style="font-size:1em;vertical-align:middle;">refresh</i></button></div>' + renderTopListRows(allExistingTopLists) + "</div>";
+        container.dataset.loaded = "1";
+        const btnCreateNew = container.querySelector("#btnCreateNewTopList");
+        if (btnCreateNew) {
+          btnCreateNew.addEventListener("click", function() {
+            deps.showCreateTopListChooser(tagsData, existingTopLists, function() {
+              deps.reload();
+            });
+          });
+        }
+        function applySearchSort() {
+          const c = container;
+          const query = (c.querySelector("#tlSearch").value || "").toLowerCase();
+          const filter = c.querySelector("#tlFilter").value;
+          const sort = c.querySelector("#tlSort").value;
+          const rowsList = c.querySelector("#tlRowsList");
+          if (!rowsList) return;
+          const rows = Array.from(rowsList.querySelectorAll(".tag-row"));
+          rows.forEach(function(row) {
+            const tlName = row.dataset.tlname || "";
+            const isManual = row.dataset.ismanual === "1";
+            const matchSearch = !query || tlName.indexOf(query) !== -1;
+            let matchFilter = true;
+            if (filter === "manual") matchFilter = isManual;
+            if (filter === "bytag") matchFilter = !isManual;
+            row.style.display = matchSearch && matchFilter ? "" : "none";
+          });
+          const visibleRows = rows.filter(function(r) {
+            return r.style.display !== "none";
+          });
+          visibleRows.sort(function(a, b) {
+            const nameA = a.dataset.tlname || "";
+            const nameB = b.dataset.tlname || "";
+            const countA = parseInt(a.dataset.count || "0", 10);
+            const countB = parseInt(b.dataset.count || "0", 10);
+            if (sort === "name-asc") return nameA.localeCompare(nameB);
+            if (sort === "name-desc") return nameB.localeCompare(nameA);
+            if (sort === "count-desc") return countB - countA;
+            if (sort === "count-asc") return countA - countB;
+            return 0;
+          });
+          visibleRows.forEach(function(r) {
+            rowsList.appendChild(r);
+          });
+        }
+        container.querySelector("#tlSearch").addEventListener("input", applySearchSort);
+        container.querySelector("#tlFilter").addEventListener("change", applySearchSort);
+        container.querySelector("#tlSort").addEventListener("change", applySearchSort);
+        applySearchSort();
+        if (container._tlClickHandler) container.removeEventListener("click", container._tlClickHandler);
+        container._tlClickHandler = function(e) {
+          const target = e.target;
+          const rowHeader = target.closest(".tl-row-header");
+          if (rowHeader && !target.closest("button")) {
+            const row = rowHeader.closest(".tag-row");
+            const body = row && row.querySelector(".tag-body");
+            const icon = rowHeader.querySelector(".expand-icon");
+            if (row && body) {
+              const expanded = body.style.display !== "none";
+              body.style.display = expanded ? "none" : "block";
+              if (icon) icon.textContent = expanded ? "expand_more" : "expand_less";
+              if (!expanded && !body.dataset.formLoaded) {
+                body.dataset.formLoaded = "1";
+                deps.loadInlineEditForm(row, body, function() {
+                  deps.reload();
+                });
+              }
+            }
+            return;
+          }
+          const btn = target.closest("button");
+          if (!btn) return;
+          if (btn.classList.contains("btnTlDelete")) {
+            const deleteName = btn.dataset.name;
+            if (!deps.confirm('Delete top-list for "' + deleteName + '"?\n\nThis will remove the folder, all .strm files, and the virtual library.')) return;
+            const deleteBtn = btn;
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = "Deleting\u2026";
+            const deleteToken = deps.getAccessToken();
+            deps.fetch(deps.getUrl("HomeScreenCompanion/TopList/Delete"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-MediaBrowser-Token": deleteToken },
+              body: JSON.stringify({ TagName: deleteName })
+            }).then(function(r) {
+              return r.json();
+            }).then(function(delResultRaw) {
+              const delResult = delResultRaw;
+              if (!delResult.Success) throw new Error(delResult.Message || "Delete failed");
+              const folderPath = delResult.FolderPath;
+              return deps.fetch(deps.getUrl("Library/VirtualFolders"), {
+                headers: { "X-MediaBrowser-Token": deleteToken }
+              }).then(function(r) {
+                return r.json();
+              }).then(function(foldersRaw) {
+                const folders = foldersRaw;
+                function normDlp(p) {
+                  return (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+                }
+                const match = (folders || []).find(function(f) {
+                  return (f.Locations || []).some(function(loc) {
+                    return normDlp(loc) === normDlp(folderPath);
+                  });
+                });
+                if (match && match.ItemId) {
+                  return deps.fetch(deps.getUrl("Library/VirtualFolders") + "?Id=" + encodeURIComponent(match.ItemId) + "&RefreshLibrary=false", {
+                    method: "DELETE",
+                    headers: { "X-MediaBrowser-Token": deleteToken }
+                  });
+                }
+              });
+            }).then(function() {
+              deps.unregisterTopList(deleteName.toLowerCase());
+              deps.reload();
+            }).catch(function(err) {
+              deleteBtn.disabled = false;
+              deleteBtn.textContent = "Delete top-list";
+              deps.alert("Error deleting top-list: " + (err.message || err));
+            });
+            return;
+          }
+          if (btn.classList.contains("btnTlRefresh")) {
+            deps.reload();
+            return;
+          }
+        };
+        container.addEventListener("click", container._tlClickHandler);
+      }).catch(function(err) {
+        container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + String(err) + "</div>";
+      });
+    }
+
+    function sanitizeTlName(name) {
+      const safe = (name || "unknown").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+|\.+$/g, "").trim();
+      return safe.length === 0 ? "unknown" : safe;
+    }
+    function escAttr(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    }
+    function escHtml(s) {
+      return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function showCreateTopListChooser(tagsData, existingTopLists, onSuccess, deps) {
+      const innerStyle = "background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;padding:28px;max-width:480px;width:90%;max-height:85vh;overflow-y:auto;";
+      const modal = document.createElement("div");
+      modal.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;";
+      document.body.appendChild(modal);
+      function onEsc(e) {
+        if (e.key === "Escape") {
+          modal.remove();
+          document.removeEventListener("keydown", onEsc);
+        }
+      }
+      document.addEventListener("keydown", onEsc);
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+          modal.remove();
+          document.removeEventListener("keydown", onEsc);
+        }
+      });
+      function renderStep1() {
+        modal.innerHTML = '<div style="' + innerStyle + '"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;"><h3 style="margin:0;font-size:1.1em;color:#52B54B;">Create Top-List</h3><button type="button" class="btnChooserClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button></div><p style="margin:0 0 20px;font-size:0.9em;color:var(--theme-text-secondary);">How do you want to create this top-list?</p><div style="display:flex;gap:16px;"><button type="button" class="btnChooseManual" style="flex:1;cursor:pointer;background:var(--plugin-input-bg,rgba(255,255,255,0.05));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.12));border-radius:8px;padding:20px 16px;text-align:left;color:inherit;"><div style="font-size:1.4em;margin-bottom:10px;color:#52B54B;"><i class="md-icon">format_list_numbered</i></div><div style="font-weight:600;font-size:0.95em;margin-bottom:6px;">Manual</div><div style="font-size:0.82em;color:var(--theme-text-secondary);line-height:1.5;">Pick movies manually and build a custom list</div></button><button type="button" class="btnChooseByTag" style="flex:1;cursor:pointer;background:var(--plugin-input-bg,rgba(255,255,255,0.05));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.12));border-radius:8px;padding:20px 16px;text-align:left;color:inherit;"><div style="font-size:1.4em;margin-bottom:10px;color:#52B54B;"><i class="md-icon">label</i></div><div style="font-weight:600;font-size:0.95em;margin-bottom:6px;">By tag</div><div style="font-size:0.82em;color:var(--theme-text-secondary);line-height:1.5;">Create from an existing tag in your library</div></button></div></div>';
+        const closeBtn = modal.querySelector(".btnChooserClose");
+        if (closeBtn) closeBtn.addEventListener("click", () => {
+          modal.remove();
+          document.removeEventListener("keydown", onEsc);
+        });
+        const btnManualCard = modal.querySelector(".btnChooseManual");
+        const btnByTagCard = modal.querySelector(".btnChooseByTag");
+        [btnManualCard, btnByTagCard].forEach((btn) => {
+          if (!btn) return;
+          btn.addEventListener("mouseover", function() {
+            this.style.borderColor = "#52B54B";
+          });
+          btn.addEventListener("mouseout", function() {
+            this.style.borderColor = "var(--plugin-input-border,rgba(255,255,255,0.12))";
+          });
+        });
+        if (btnManualCard) {
+          btnManualCard.addEventListener("click", () => {
+            modal.remove();
+            document.removeEventListener("keydown", onEsc);
+            deps.showManualTopListModal(onSuccess, void 0, deps);
+          });
+        }
+        if (btnByTagCard) {
+          btnByTagCard.addEventListener("click", () => {
+            renderStep2();
+          });
+        }
+      }
+      function renderStep2() {
+        const inputStyle = "background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:6px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:100%;box-sizing:border-box;";
+        const tagRowsHtml = tagsData.length === 0 ? '<p style="padding:12px 4px;color:var(--theme-text-secondary);font-size:0.88em;font-style:italic;">No tags found.</p>' : tagsData.map((tag) => {
+          const name = tag.Name || "";
+          const count = tag.MovieCount != null ? tag.MovieCount : tag.ItemCount != null ? tag.ItemCount : 0;
+          const hasTopList = existingTopLists.has(sanitizeTlName(name).toLowerCase());
+          const badge = hasTopList ? '<span style="font-size:0.72em;background:rgba(180,140,50,0.18);color:#c9a84c;border-radius:3px;padding:1px 6px;margin-left:6px;white-space:nowrap;">top-list</span>' : "";
+          return '<button type="button" class="btnSelectTag" data-name="' + escAttr(name) + '" style="width:100%;cursor:pointer;background:transparent;border:none;border-bottom:1px solid var(--line-color);padding:10px 4px;display:flex;align-items:center;color:inherit;text-align:left;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(name) + badge + '</span><span style="margin-left:12px;white-space:nowrap;font-size:0.85em;color:var(--theme-text-secondary);">' + count + " movies</span></button>";
+        }).join("");
+        modal.innerHTML = '<div style="' + innerStyle + 'max-width:520px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><div style="display:flex;align-items:center;gap:10px;"><button type="button" class="btnChooserBack" style="background:transparent;border:none;color:var(--theme-text-secondary);cursor:pointer;padding:2px;line-height:1;opacity:0.7;"><i class="md-icon">arrow_back</i></button><h3 style="margin:0;font-size:1.1em;color:#52B54B;">Select Tag</h3></div><button type="button" class="btnChooserClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button></div><div style="margin-bottom:14px;"><input type="text" id="tlChooserSearch" placeholder="Search tags\u2026" style="' + inputStyle + '" /></div><div id="tlChooserTagList" style="max-height:50vh;overflow-y:auto;">' + tagRowsHtml + "</div></div>";
+        const closeBtn2 = modal.querySelector(".btnChooserClose");
+        const backBtn = modal.querySelector(".btnChooserBack");
+        if (closeBtn2) closeBtn2.addEventListener("click", () => {
+          modal.remove();
+          document.removeEventListener("keydown", onEsc);
+        });
+        if (backBtn) backBtn.addEventListener("click", () => {
+          renderStep1();
+        });
+        const searchInput = modal.querySelector("#tlChooserSearch");
+        if (searchInput) {
+          searchInput.addEventListener("input", function() {
+            const q = this.value.toLowerCase();
+            modal.querySelectorAll(".btnSelectTag").forEach((btn) => {
+              btn.style.display = !q || (btn.dataset.name || "").toLowerCase().indexOf(q) !== -1 ? "" : "none";
+            });
+          });
+        }
+        modal.querySelectorAll(".btnSelectTag").forEach((btn) => {
+          btn.addEventListener("mouseover", function() {
+            this.style.background = "rgba(82,181,75,0.08)";
+          });
+          btn.addEventListener("mouseout", function() {
+            this.style.background = "transparent";
+          });
+          btn.addEventListener("click", function() {
+            const tagName = this.dataset.name;
+            modal.remove();
+            document.removeEventListener("keydown", onEsc);
+            deps.showTopListModal(tagName || null, tagName || null, onSuccess, void 0, deps);
+          });
+        });
+      }
+      renderStep1();
+    }
+
+    function rowTagLower(row) {
+      return (row.dataset.tag || "").toLowerCase();
+    }
+    function buildScheduleBadgeHtml(row, deps) {
+      const overrideChk = row.querySelector(".chkOverrideWhenActive");
+      const hasSchedule = row.querySelectorAll(".date-row").length > 0;
+      const hasOverride = hasSchedule && !!overrideChk && overrideChk.checked;
+      const schedPriorityClass = hasOverride ? " priority-active" : "";
+      const schedActiveClass = deps.isScheduleCurrentlyActive(deps.readIntervalsFromRow(row)) ? " schedule-active" : "";
+      const schedText = hasOverride ? "Schedule priority" : "Schedule";
+      return '<span class="tag-indicator schedule' + schedPriorityClass + schedActiveClass + '"><i class="md-icon" style="font-size:1.1em;">calendar_today</i> ' + schedText + "</span>";
+    }
+    function setupRowEvents(row, deps) {
+      function updateBadges(r) {
+        const container = r.querySelector(".badge-container");
+        if (!container) return;
+        const hasSchedule = r.querySelectorAll(".date-row").length > 0;
+        const collChk = r.querySelector(".chkEnableCollection");
+        const hseChk = r.querySelector(".chkEnableHomeSection");
+        const tagChk = r.querySelector(".chkEnableTag");
+        const plChk = r.querySelector(".chkEnablePlaylist");
+        const hasCollection = !!collChk && collChk.checked;
+        const hasHomeSection = !!hseChk && hseChk.checked;
+        const hasTag = !!tagChk && tagChk.checked;
+        const hasPlaylist = !!plChk && plChk.checked;
+        const overrideChk = r.querySelector(".chkOverrideWhenActive");
+        if (overrideChk) {
+          overrideChk.disabled = !hasSchedule;
+          if (!hasSchedule) overrideChk.checked = false;
+          const overrideContainer = overrideChk.closest(".checkboxContainer");
+          if (overrideContainer) overrideContainer.style.opacity = hasSchedule ? "" : "0.4";
+        }
+        const sourceBadge = r.querySelector(".source-badge");
+        const sourceTypeEl = r.querySelector(".selSourceType");
+        if (sourceBadge && sourceTypeEl) {
+          sourceBadge.innerHTML = deps.getSourceBadgeHtml(sourceTypeEl.value);
+        }
+        let html = "";
+        if (hasSchedule) html += buildScheduleBadgeHtml(r, deps);
+        if (hasCollection) {
+          html += '<span class="tag-indicator collection"><i class="md-icon" style="font-size:1.1em;">library_books</i> Collection</span>';
+        }
+        if (hasHomeSection) {
+          html += '<span class="tag-indicator homescreen"><i class="md-icon" style="font-size:1.1em;">home</i> Home Section</span>';
+        }
+        if (hasTag) {
+          html += '<span class="tag-indicator tag"><i class="md-icon" style="font-size:1.1em;">label</i> Tag</span>';
+        }
+        if (hasPlaylist) {
+          html += '<span class="tag-indicator playlist"><i class="md-icon" style="font-size:1.1em;">queue_music</i> Playlist</span>';
+        }
+        if (deps.topLists.tagNames.has(rowTagLower(r))) {
+          html += '<span class="tag-indicator toplist"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Top-List</span>';
+        }
+        container.innerHTML = html;
+      }
+      function updateRunGroupBtn(_r) {
+        const runBtn = row.querySelector(".btnRunEntry");
+        if (!runBtn || !chk) return;
+        const active = chk.checked;
+        runBtn.disabled = !active;
+        runBtn.style.opacity = active ? "1" : "0.4";
+      }
+      function updateTagTitle(_r) {
+        const lbl = row.querySelector(".txtEntryLabel")?.value || "";
+        const tag = row.querySelector(".txtTagName")?.value || "";
+        const titleEl = row.querySelector(".tag-title");
+        if (titleEl) titleEl.textContent = lbl || tag || "New";
+        const tagNameEl = row.querySelector(".txtTagName");
+        if (tagNameEl) tagNameEl.setAttribute("placeholder", lbl);
+        const collNameEl = row.querySelector(".txtCollectionName");
+        if (collNameEl) collNameEl.setAttribute("placeholder", lbl);
+        const hseCustomTitle = row.querySelector('[data-field="CustomName"]');
+        if (hseCustomTitle) hseCustomTitle.setAttribute("placeholder", lbl);
+        updateBadges(row);
+      }
+      deps.updateBadges = updateBadges;
+      deps.updateRunGroupBtn = updateRunGroupBtn;
+      deps.updateTagTitle = updateTagTitle;
+      row.querySelectorAll(".tag-tab").forEach((tab) => {
+        tab.addEventListener("click", function() {
+          row.querySelectorAll(".tag-tab").forEach((t) => {
+            t.style.opacity = "0.6";
+            t.style.borderBottomColor = "transparent";
+          });
+          this.style.opacity = "1";
+          this.style.borderBottomColor = "#52B54B";
+          const target = this.getAttribute("data-tab") || "";
+          const generalTab = row.querySelector(".general-tab");
+          const tagTab = row.querySelector(".tagname-tab");
+          const schedTab = row.querySelector(".schedule-tab");
+          const collTab = row.querySelector(".collection-tab");
+          const advTab = row.querySelector(".advanced-tab");
+          const hseTab = row.querySelector(".homescreen-tab");
+          const plTab = row.querySelector(".playlist-tab");
+          if (generalTab) generalTab.style.display = target === "general" ? "block" : "none";
+          if (tagTab) tagTab.style.display = target === "tag" ? "block" : "none";
+          if (schedTab) schedTab.style.display = target === "schedule" ? "block" : "none";
+          if (collTab) collTab.style.display = target === "collection" ? "block" : "none";
+          if (advTab) advTab.style.display = target === "advanced" ? "block" : "none";
+          if (hseTab) hseTab.style.display = target === "homescreen" ? "block" : "none";
+          if (plTab) plTab.style.display = target === "playlist" ? "block" : "none";
+          if (target === "homescreen") deps.initHomeSectionTab(row);
+          if (target === "playlist") deps.initPlaylistTab(row);
+          const activeTabEl = row.querySelector("." + target + "-tab");
+          if (activeTabEl) {
+            activeTabEl.querySelectorAll("textarea.txtMiValue, textarea.txtTagBlacklist").forEach((ta) => {
+              ta.style.height = "auto";
+              ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+              ta.style.overflowY = ta.scrollHeight > 120 ? "auto" : "hidden";
+            });
+          }
+        });
+      });
+      row.addEventListener("change", (e) => {
+        const target = e.target;
+        if (!target || !target.classList) return;
+        const classes = target.classList;
+        if (classes.contains("selSourceType")) {
+          const type = target.value;
+          const extC = row.querySelector(".source-external-container");
+          const locC = row.querySelector(".source-local-container");
+          const miC = row.querySelector(".source-mediainfo-container");
+          const aiC = row.querySelector(".source-ai-container");
+          if (extC) extC.style.display = type === "External" ? "block" : "none";
+          if (locC) locC.style.display = type === "LocalCollection" || type === "LocalPlaylist" ? "block" : "none";
+          if (miC) miC.style.display = type && type !== "" ? "block" : "none";
+          if (aiC) aiC.style.display = type === "AI" ? "block" : "none";
+          const hint = row.querySelector(".source-type-hint");
+          if (hint) {
+            const hints = {
+              "External": "Use an external list to tag, or create a collection, from the items that match your library.",
+              "LocalCollection": "Every item in the selected collection(s) gets the configured tag or is added to a new collection. You can also use this to create a curated list of selected collections as a home screen section.",
+              "LocalPlaylist": "Every item in the selected playlist(s) gets the configured tag or is added to a new collection.",
+              "MediaInfo": "Filter your own library to select which movies or shows to tag or create a collection of. This is also known as a Smart Playlist.",
+              "AI": "Use AI to create a list. Write your prompt and the AI will build a list based on it."
+            };
+            hint.textContent = hints[type] || "";
+          }
+          const isMi = type === "MediaInfo";
+          const miLimitRow = row.querySelector(".mi-limit-row");
+          const miToggleRow = row.querySelector(".mi-toggle-row");
+          const miFilterBody = row.querySelector(".mi-filter-body");
+          const miHelpBtnRow = row.querySelector(".mi-help-btn-row");
+          const miPresetsSection = row.querySelector(".mi-presets-section");
+          if (miPresetsSection) miPresetsSection.style.display = isMi ? "block" : "none";
+          if (miLimitRow) miLimitRow.style.display = isMi ? "flex" : "none";
+          if (miHelpBtnRow) miHelpBtnRow.style.display = isMi ? "none" : "flex";
+          if (isMi) {
+            if (miToggleRow) miToggleRow.style.display = "none";
+            if (miFilterBody) miFilterBody.style.display = "block";
+          } else if (type) {
+            if (miToggleRow) miToggleRow.style.display = "block";
+            if (miFilterBody) miFilterBody.style.display = "none";
+          }
+          if (type) {
+            const miList = row.querySelector(".mediainfo-filter-list");
+            if (miList && isMi && miList.querySelectorAll(".mediainfo-filter-group").length === 0) {
+              miList.insertAdjacentHTML(
+                "beforeend",
+                getMediaInfoFilterGroupHtml({ Operator: "AND", Criteria: [], GroupOperator: "AND" }, 0, true, deps.miFilterDeps)
+              );
+            }
+          }
+          if (type === "LocalCollection" || type === "LocalPlaylist") {
+            const localListContainer = row.querySelector(".local-list-container");
+            const localTypeLabel = row.querySelector(".local-type-label");
+            if (localListContainer) {
+              localListContainer.innerHTML = getLocalRowHtml(type, "", 0);
+            }
+            if (localTypeLabel) {
+              localTypeLabel.textContent = type === "LocalPlaylist" ? "Select Playlists" : "Select Collections";
+            }
+          }
+          updateBadges(row);
+          deps.updateHseSectionAvailability(row);
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        if (classes.contains("selMiProperty")) {
+          const miRule = target.closest(".mi-rule");
+          if (miRule) {
+            const valueWrapper = miRule.querySelector(".mi-value-wrapper");
+            if (valueWrapper) {
+              valueWrapper.innerHTML = getMiValueHtml(
+                target.value,
+                "",
+                "",
+                "",
+                deps.miFilterDeps
+              );
+            }
+            const existingHint = miRule.querySelector(".mi-rule-hint");
+            if (existingHint) {
+              existingHint.outerHTML = getMiHintHtml(target.value);
+            }
+          }
+          deps.updateHseSectionAvailability(row);
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        if (classes.contains("selMiUser")) {
+          deps.updateHseSectionAvailability(row);
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        if (classes.contains("selMiValue")) {
+          const miRule = target.closest(".mi-rule");
+          if (miRule) {
+            const propEl = miRule.querySelector(".selMiProperty");
+            const prop = propEl?.value || "";
+            if (prop === "MediaType") {
+              const incParent = miRule.querySelector(".mi-include-parent");
+              if (incParent) {
+                incParent.style.display = target.value === "Episode" ? "inline-flex" : "none";
+              }
+            }
+          }
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        if (classes.contains("selDateType")) {
+          const dateRow = target.closest(".date-row");
+          if (dateRow) {
+            const type = target.value;
+            const specific = dateRow.querySelector(".inputs-specific");
+            const annual = dateRow.querySelector(".inputs-annual");
+            const weekly = dateRow.querySelector(".inputs-weekly");
+            if (specific) specific.style.display = type === "SpecificDate" ? "flex" : "none";
+            if (annual) annual.style.display = type === "EveryYear" ? "flex" : "none";
+            if (weekly) weekly.style.display = type === "Weekly" ? "flex" : "none";
+          }
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        if (classes.contains("selStartMonth") || classes.contains("selEndMonth")) {
+          const isStart = classes.contains("selStartMonth");
+          const dateRow = target.closest(".date-row");
+          if (dateRow) {
+            const month = parseInt(target.value, 10);
+            const maxDay = deps.getMaxDays(month);
+            const daySelect = dateRow.querySelector(isStart ? ".selStartDay" : ".selEndDay");
+            if (daySelect) {
+              const currentDay = Math.min(parseInt(daySelect.value, 10), maxDay);
+              daySelect.innerHTML = deps.getDayOptions(currentDay, maxDay);
+            }
+          }
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        setTimeout(deps.checkFormState, 0);
+      });
+      const header = row.querySelector(".tag-header");
+      const body = row.querySelector(".tag-body");
+      const icon = row.querySelector(".expand-icon");
+      if (header && body) {
+        header.addEventListener("click", (e) => {
+          const ev = e;
+          if (ev.target instanceof Element && ev.target.closest(".header-actions")) return;
+          const isHidden = body.style.display === "none";
+          body.style.display = isHidden ? "block" : "none";
+          if (icon) icon.innerText = isHidden ? "expand_less" : "expand_more";
+          if (isHidden) {
+            body.querySelectorAll("textarea.txtMiValue, textarea.txtTagBlacklist").forEach((ta) => {
+              ta.style.height = "auto";
+              ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+              ta.style.overflowY = ta.scrollHeight > 120 ? "auto" : "hidden";
+            });
+          }
+        });
+      }
+      const chk = row.querySelector(".chkTagActive");
+      const lblStatus = row.querySelector(".lblActiveStatus");
+      if (chk && lblStatus) {
+        chk.addEventListener("change", function() {
+          lblStatus.textContent = this.checked ? "Active" : "Disabled";
+          lblStatus.style.color = this.checked ? "#52B54B" : "var(--theme-text-secondary)";
+          if (this.checked) row.classList.remove("inactive");
+          else row.classList.add("inactive");
+          updateRunGroupBtn();
+        });
+      }
+      updateRunGroupBtn();
+      const chkEnableTag = row.querySelector(".chkEnableTag");
+      if (chkEnableTag) {
+        chkEnableTag.addEventListener("change", function() {
+          const tagSettings = row.querySelector(".tag-settings");
+          if (tagSettings) tagSettings.style.display = this.checked ? "block" : "none";
+          updateBadges(row);
+          deps.updateHseSectionAvailability(row);
+        });
+      }
+      const chkEnableCollection = row.querySelector(".chkEnableCollection");
+      if (chkEnableCollection) {
+        chkEnableCollection.addEventListener("change", function() {
+          const collSettings = row.querySelector(".collection-settings");
+          if (collSettings) collSettings.style.display = this.checked ? "block" : "none";
+          updateBadges(row);
+          deps.updateHseSectionAvailability(row);
+        });
+      }
+      const chkEnablePlaylist = row.querySelector(".chkEnablePlaylist");
+      if (chkEnablePlaylist) {
+        chkEnablePlaylist.addEventListener("change", function() {
+          const plSettings = row.querySelector(".playlist-settings");
+          if (plSettings) plSettings.style.display = this.checked ? "block" : "none";
+          updateBadges(row);
+        });
+      }
+      const chkOverride = row.querySelector(".chkOverrideWhenActive");
+      if (chkOverride) {
+        chkOverride.addEventListener("change", () => {
+          updateBadges(row);
+        });
+      }
+      const chkEnableHse = row.querySelector(".chkEnableHomeSection");
+      if (chkEnableHse) {
+        chkEnableHse.addEventListener("change", function() {
+          const hseDetails = row.querySelector(".hse-details");
+          if (hseDetails) hseDetails.style.display = this.checked ? "block" : "none";
+          updateBadges(row);
+        });
+      }
+      const chkAiWatched = row.querySelector(".chkAiRecentlyWatched");
+      if (chkAiWatched) {
+        chkAiWatched.addEventListener("change", function() {
+          const opts = row.querySelector(".ai-recently-watched-options");
+          if (opts) opts.style.display = this.checked ? "block" : "none";
+        });
+      }
+      const selAiProv = row.querySelector(".selAiProvider");
+      if (selAiProv) {
+        selAiProv.addEventListener("change", function() {
+          const warn = row.querySelector(".ollama-experimental-warning");
+          if (warn) warn.style.display = this.value === "Ollama" ? "flex" : "none";
+        });
+      }
+      const btnAddUrl = row.querySelector(".btnAddUrl");
+      if (btnAddUrl) {
+        btnAddUrl.addEventListener("click", () => {
+          const urlListContainer = row.querySelector(".url-list-container");
+          if (urlListContainer) {
+            urlListContainer.insertAdjacentHTML("beforeend", getUrlRowHtml("", 0));
+          }
+        });
+      }
+      const btnAddLocal = row.querySelector(".btnAddLocal");
+      if (btnAddLocal) {
+        btnAddLocal.addEventListener("click", () => {
+          const st = row.querySelector(".selSourceType")?.value || "";
+          const localListContainer = row.querySelector(".local-list-container");
+          if (localListContainer) {
+            localListContainer.insertAdjacentHTML("beforeend", getLocalRowHtml(st, "", 0));
+          }
+        });
+      }
+      const btnAddDate = row.querySelector(".btnAddDate");
+      if (btnAddDate) {
+        btnAddDate.addEventListener("click", () => {
+          const dateListContainer = row.querySelector(".date-list-container");
+          if (dateListContainer) {
+            dateListContainer.insertAdjacentHTML("beforeend", getDateRowHtml({ Type: "SpecificDate" }));
+          }
+          updateBadges(row);
+        });
+      }
+      const btnTagTargetHelp = row.querySelector(".btnTagTargetHelp");
+      if (btnTagTargetHelp) {
+        btnTagTargetHelp.addEventListener("click", () => {
+          document.getElementById("tagTargetHelpModalOverlay")?.classList.add("modal-visible");
+        });
+      }
+      const btnCollTargetHelp = row.querySelector(".btnCollTargetHelp");
+      if (btnCollTargetHelp) {
+        btnCollTargetHelp.addEventListener("click", () => {
+          document.getElementById("tagTargetHelpModalOverlay")?.classList.add("modal-visible");
+        });
+      }
+      row.addEventListener("click", (e) => {
+        const ev = e;
+        const clickTarget = ev.target;
+        if (!clickTarget) return;
+        if (clickTarget.closest(".btnMiHelp")) {
+          document.getElementById("miHelpModalOverlay")?.classList.add("modal-visible");
+          return;
+        }
+        if (clickTarget.closest(".btnToggleAdditionalFilters")) {
+          const miToggleRow = row.querySelector(".mi-toggle-row");
+          const miFilterBody = row.querySelector(".mi-filter-body");
+          if (miToggleRow) miToggleRow.style.display = "none";
+          if (miFilterBody) miFilterBody.style.display = "block";
+          const miList = row.querySelector(".mediainfo-filter-list");
+          if (miList && miList.querySelectorAll(".mediainfo-filter-group").length === 0) {
+            miList.insertAdjacentHTML(
+              "beforeend",
+              getMediaInfoFilterGroupHtml({ Operator: "AND", Criteria: [], GroupOperator: "AND" }, 0, true, deps.miFilterDeps)
+            );
+          }
+          return;
+        }
+        const removeUrlBtn = clickTarget.closest(".btnRemoveUrl");
+        if (removeUrlBtn) {
+          const urlRow = removeUrlBtn.closest(".url-row");
+          if (urlRow) urlRow.remove();
+          return;
+        }
+        const removeLocalBtn = clickTarget.closest(".btnRemoveLocal");
+        if (removeLocalBtn) {
+          const localRow = removeLocalBtn.closest(".local-row");
+          if (localRow) localRow.remove();
+          return;
+        }
+        const removeDateBtn = clickTarget.closest(".btnRemoveDate");
+        if (removeDateBtn) {
+          const dateRow = removeDateBtn.closest(".date-row");
+          if (dateRow) dateRow.remove();
+          updateBadges(row);
+          return;
+        }
+        const premadeBtn = clickTarget.closest(".btnPremadeFilters");
+        if (premadeBtn) {
+          const panel = premadeBtn.closest(".source-mediainfo-container")?.querySelector(".mi-preset-panel");
+          if (panel) {
+            const open = panel.style.display === "none";
+            panel.style.display = open ? "" : "none";
+            const iconEl = premadeBtn.querySelector(".mi-expand-icon");
+            if (iconEl) iconEl.style.transform = open ? "rotate(180deg)" : "";
+          }
+          return;
+        }
+        const mySavedBtn = clickTarget.closest(".btnMySavedFilters");
+        if (mySavedBtn) {
+          const savedPanel = mySavedBtn.closest(".source-mediainfo-container")?.querySelector(".mi-saved-panel");
+          if (savedPanel) {
+            const open = savedPanel.style.display === "none";
+            savedPanel.style.display = open ? "" : "none";
+            const iconEl = mySavedBtn.querySelector(".mi-expand-icon");
+            if (iconEl) iconEl.style.transform = open ? "rotate(180deg)" : "";
+          }
+          return;
+        }
+        const confirmSaveBtn = clickTarget.closest(".btnConfirmSaveFilter");
+        if (confirmSaveBtn) {
+          const miContainer = confirmSaveBtn.closest(".source-mediainfo-container");
+          if (miContainer) {
+            const nameInput = miContainer.querySelector(".txtSaveFilterName");
+            const name = nameInput?.value.trim() || "";
+            if (!name) {
+              nameInput?.focus();
+              return;
+            }
+            const filters = readMiFiltersFromContainer(miContainer);
+            if (filters.length === 0) {
+              nameInput?.focus();
+              return;
+            }
+            deps.savedFilters.filters.push({ Name: name, Filters: filters });
+            if (nameInput) nameInput.value = "";
+            deps.refreshMySavedFiltersPanels(deps.savedFilters.filters);
+            deps.saveSavedFiltersNow();
+          }
+          return;
+        }
+        const applySavedBtn = clickTarget.closest(".btnApplyMySavedFilter");
+        if (applySavedBtn) {
+          const idx = parseInt(applySavedBtn.dataset.index || "-1", 10);
+          const sf = deps.savedFilters.filters[idx];
+          if (sf) {
+            const savedList = applySavedBtn.closest(".source-mediainfo-container")?.querySelector(".mediainfo-filter-list");
+            if (savedList) {
+              savedList.innerHTML = sf.Filters.map(
+                (f, i) => getMediaInfoFilterGroupHtml(f, i, i === 0, deps.miFilterDeps)
+              ).join("");
+            }
+            const savedPanel = applySavedBtn.closest(".mi-saved-panel");
+            if (savedPanel) savedPanel.style.display = "none";
+            setTimeout(deps.checkFormState, 0);
+          }
+          return;
+        }
+        const deleteSavedBtn = clickTarget.closest(".btnDeleteMySavedFilter");
+        if (deleteSavedBtn) {
+          const idx = parseInt(deleteSavedBtn.dataset.index || "-1", 10);
+          if (idx >= 0) deps.savedFilters.filters.splice(idx, 1);
+          deps.refreshMySavedFiltersPanels(deps.savedFilters.filters);
+          deps.saveSavedFiltersNow();
+          return;
+        }
+        const applyPresetBtn = clickTarget.closest(".btnApplyMiPreset");
+        if (applyPresetBtn) {
+          const dataset = applyPresetBtn.dataset.preset || "";
+          const idxParts = dataset.split(",");
+          const catIdx = parseInt(idxParts[0] || "-1", 10);
+          const presetIdx = parseInt(idxParts[1] || "-1", 10);
+          const cat = deps.miPresets[catIdx];
+          const preset = cat?.presets[presetIdx];
+          if (preset) {
+            const presetFilters = preset.build();
+            const presetList = applyPresetBtn.closest(".source-mediainfo-container")?.querySelector(".mediainfo-filter-list");
+            if (presetList) {
+              presetList.innerHTML = presetFilters.map(
+                (f, i) => getMediaInfoFilterGroupHtml(f, i, i === 0, deps.miFilterDeps)
+              ).join("");
+            }
+            const presetPanel = applyPresetBtn.closest(".mi-preset-panel");
+            if (presetPanel) presetPanel.style.display = "none";
+            setTimeout(deps.checkFormState, 0);
+          }
+          return;
+        }
+        if (clickTarget.closest(".btnAddMediaInfoFilter")) {
+          const list = row.querySelector(".mediainfo-filter-list");
+          if (list) {
+            const idx = list.querySelectorAll(".mediainfo-filter-group").length;
+            list.insertAdjacentHTML(
+              "beforeend",
+              getMediaInfoFilterGroupHtml(
+                { Operator: "AND", Criteria: [], GroupOperator: "AND" },
+                idx,
+                false,
+                deps.miFilterDeps
+              )
+            );
+          }
+          return;
+        }
+        if (clickTarget.closest(".btnClearAllFilters")) {
+          const list = row.querySelector(".mediainfo-filter-list");
+          if (list) list.innerHTML = "";
+          return;
+        }
+        if (clickTarget.closest(".btnRemoveFilterGroup")) {
+          const group = clickTarget.closest(".mediainfo-filter-group");
+          if (group) group.remove();
+          const miList = row.querySelector(".mediainfo-filter-list");
+          const firstGroup = miList?.querySelector(".mediainfo-filter-group");
+          if (firstGroup) {
+            const conn = firstGroup.querySelector(".mi-group-connector");
+            if (conn) conn.remove();
+          }
+          return;
+        }
+        const groupOpBtn = clickTarget.closest(".btnGroupOpChoice");
+        if (groupOpBtn) {
+          const newOp = groupOpBtn.dataset.value || "AND";
+          const group = groupOpBtn.closest(".mediainfo-filter-group");
+          if (group) {
+            group.dataset.groupOp = newOp;
+            group.querySelectorAll(".btnGroupOpChoice").forEach((b) => {
+              const active = (b.dataset.value || "") === newOp;
+              b.style.background = active ? newOp === "AND" ? "rgba(0,164,220,0.75)" : "rgba(220,120,0,0.75)" : "transparent";
+              b.style.color = active ? "#fff" : "";
+            });
+            const desc = group.querySelector(".group-op-desc");
+            if (desc) desc.textContent = newOp === "AND" ? "Both groups must match" : "Either group is enough";
+          }
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        const innerOpBtn = clickTarget.closest(".btnGroupInnerOpChoice");
+        if (innerOpBtn) {
+          const newOp = innerOpBtn.dataset.value || "AND";
+          const group = innerOpBtn.closest(".mediainfo-filter-group");
+          if (group) {
+            group.dataset.op = newOp;
+            group.querySelectorAll(".btnGroupInnerOpChoice").forEach((b) => {
+              const active = (b.dataset.value || "") === newOp;
+              b.style.background = active ? newOp === "AND" ? "rgba(0,164,220,0.75)" : "rgba(220,120,0,0.75)" : "transparent";
+              b.style.color = active ? "#fff" : "";
+            });
+            const desc = group.querySelector(".inner-op-desc");
+            if (desc) desc.textContent = newOp === "AND" ? "All rules must match" : "Any rule is enough";
+          }
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        const notBtn = clickTarget.closest(".btnNotToggle");
+        if (notBtn) {
+          const active = notBtn.dataset.not === "1";
+          const nextActive = !active;
+          notBtn.dataset.not = nextActive ? "1" : "0";
+          notBtn.style.background = nextActive ? "rgba(200,50,50,0.75)" : "transparent";
+          notBtn.style.color = nextActive ? "#fff" : "";
+          notBtn.style.border = nextActive ? "1px solid rgba(200,50,50,0.6)" : "1px solid rgba(128,128,128,0.4)";
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        if (clickTarget.closest(".mi-include-parent")) {
+          setTimeout(deps.checkFormState, 0);
+          return;
+        }
+        if (clickTarget.closest(".btnAddMiRule")) {
+          const group = clickTarget.closest(".mediainfo-filter-group");
+          const rulesList = group?.querySelector(".mi-rules-list");
+          if (rulesList) {
+            rulesList.insertAdjacentHTML("beforeend", getMediaInfoRuleHtml("", deps.miFilterDeps));
+          }
+          return;
+        }
+        if (clickTarget.closest(".btnRemoveMiRule")) {
+          const miRule = clickTarget.closest(".mi-rule");
+          if (miRule) miRule.remove();
+          return;
+        }
+        if (clickTarget.closest(".btnRemoveGroup")) {
+          const removeConfirmed = typeof confirm === "function" ? confirm("Delete this tag group?") : window.confirm("Delete this tag group?");
+          if (removeConfirmed) row.remove();
+          return;
+        }
+        const runEntryBtn = clickTarget.closest(".btnRunEntry");
+        if (runEntryBtn) {
+          const entryName = row.querySelector(".txtEntryLabel")?.value || row.querySelector(".txtTagName")?.value || "";
+          if (!entryName) {
+            deps.alert("Entry has no name or tag.");
+            return;
+          }
+          const doRun = () => {
+            const liveView2 = row.closest("#HomeScreenCompanionConfigPage");
+            const btn = row.querySelector(".btnRunEntry");
+            const lbl = btn?.querySelector(".btnRunEntryLabel");
+            const btnSaveEl = liveView2?.querySelector(".btn-save");
+            const dotEl = liveView2?.querySelector("#dotStatus");
+            const labelEl = liveView2?.querySelector("#lastRunStatusLabel");
+            if (lbl) lbl.textContent = "Running\u2026";
+            if (btn) btn.disabled = true;
+            if (btnSaveEl) {
+              btnSaveEl.disabled = true;
+              btnSaveEl.style.opacity = "0.5";
+              const sp = btnSaveEl.querySelector("span");
+              if (sp) sp.textContent = "Sync in progress...";
+            }
+            if (dotEl) dotEl.className = "status-dot running";
+            if (labelEl) labelEl.textContent = "Running...";
+            const apiClient = typeof window !== "undefined" ? window.ApiClient : void 0;
+            if (!apiClient) return;
+            const headers = {
+              "Content-Type": "application/json",
+              "X-MediaBrowser-Token": apiClient.accessToken()
+            };
+            fetch(apiClient.getUrl("HomeScreenCompanion/RunEntry"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ EntryName: entryName })
+            }).then((r) => r.json()).then((result) => {
+              if (lbl) lbl.textContent = "Run Group";
+              if (btn) btn.disabled = false;
+              if (liveView2) deps.refreshStatus(liveView2);
+              deps.alert(result.Success ? "Done: " + result.Message : "Failed: " + result.Message);
+            }).catch(() => {
+              if (lbl) lbl.textContent = "Run Group";
+              if (btn) btn.disabled = false;
+              if (liveView2) deps.refreshStatus(liveView2);
+              deps.alert("Request failed.");
+            });
+          };
+          const liveView = row.closest("#HomeScreenCompanionConfigPage");
+          const _saveBtn = liveView ? liveView.querySelector(".btn-save") : document.querySelector(".btn-save");
+          const isDirty = !!_saveBtn && !_saveBtn.disabled;
+          if (isDirty) {
+            const confirmed = typeof confirm === "function" ? confirm("You have unsaved changes. Save and run?") : window.confirm("You have unsaved changes. Save and run?");
+            if (confirmed) {
+              _saveBtn?.click();
+              setTimeout(doRun, 800);
+            }
+          } else {
+            doRun();
+          }
+          return;
+        }
+        const btnTest = clickTarget.closest(".btnTestUrl");
+        if (btnTest) {
+          const uRow = btnTest.closest(".url-row");
+          if (uRow) {
+            const urlInput = uRow.querySelector(".txtTagUrl");
+            const url = urlInput?.value || "";
+            if (!url) return;
+            const limitInput = uRow.querySelector(".txtUrlLimit");
+            const limitVal = parseInt(limitInput?.value || "0", 10) || 0;
+            const testBtn = btnTest;
+            testBtn.disabled = true;
+            const apiClient = typeof window !== "undefined" ? window.ApiClient : void 0;
+            if (apiClient) {
+              apiClient.getJSON(apiClient.getUrl("HomeScreenCompanion/TestUrl", { Url: url, Limit: limitVal })).then((result) => {
+                deps.alert(result.Message || "");
+              }).finally(() => {
+                testBtn.disabled = false;
+              });
+            } else {
+              testBtn.disabled = false;
+            }
+          }
+          return;
+        }
+        const btnTestAi = clickTarget.closest(".btnTestAiSource");
+        if (btnTestAi) {
+          const aiContainer = btnTestAi.closest(".source-ai-container");
+          if (aiContainer) {
+            const aiProvider = aiContainer.querySelector(".selAiProvider")?.value || "OpenAI";
+            const aiPrompt = (aiContainer.querySelector(".txtAiPrompt")?.value || "").trim();
+            const aiIncludeWatched = !!aiContainer.querySelector(".chkAiRecentlyWatched")?.checked;
+            const aiWatchedUserId = aiIncludeWatched ? aiContainer.querySelector(".selAiWatchedUser")?.value || "" : "";
+            const aiWatchedCount = parseInt(
+              aiContainer.querySelector(".txtAiWatchedCount")?.value || "20",
+              10
+            ) || 20;
+            const resultSpan = aiContainer.querySelector(".ai-test-result");
+            if (!aiPrompt) {
+              if (resultSpan) resultSpan.textContent = "Please enter a prompt first.";
+              return;
+            }
+            const testBtn = btnTestAi;
+            testBtn.disabled = true;
+            if (resultSpan) resultSpan.textContent = "Testing...";
+            const apiClient = typeof window !== "undefined" ? window.ApiClient : void 0;
+            if (!apiClient) {
+              testBtn.disabled = false;
+              return;
+            }
+            const headers = {
+              "Content-Type": "application/json",
+              "X-MediaBrowser-Token": apiClient.accessToken()
+            };
+            fetch(apiClient.getUrl("HomeScreenCompanion/TestAiSource"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                Provider: aiProvider,
+                Prompt: aiPrompt,
+                IncludeRecentlyWatched: aiIncludeWatched,
+                RecentlyWatchedUserId: aiWatchedUserId,
+                RecentlyWatchedCount: aiWatchedCount
+              })
+            }).then((r) => r.json()).then((result) => {
+              if (resultSpan) {
+                resultSpan.textContent = result.Success ? result.Message || "" : "Failed: " + result.Message;
+              }
+              if (result.Success && result.Preview && result.Preview.length > 0) {
+                deps.alert("AI returned " + result.Count + " items:\n\n" + result.Preview.join("\n"));
+              } else if (!result.Success) {
+                deps.alert("AI test failed:\n" + result.Message);
+              }
+            }).catch((err) => {
+              if (resultSpan) {
+                resultSpan.textContent = "Error: " + (err instanceof Error ? err.message : String(err));
+              }
+            }).finally(() => {
+              testBtn.disabled = false;
+            });
+          }
+          return;
+        }
+      });
+      const txtEntryLabel = row.querySelector(".txtEntryLabel");
+      if (txtEntryLabel) {
+        txtEntryLabel.addEventListener("input", () => {
+          updateTagTitle();
+        });
+      }
+      const txtTagName = row.querySelector(".txtTagName");
+      if (txtTagName) {
+        txtTagName.addEventListener("input", () => {
+          updateTagTitle();
+        });
+      }
+      const handle = row.querySelector(".drag-handle");
+      if (handle) {
+        handle.addEventListener("mousedown", () => {
+          if (localStorage.getItem("HomeScreenCompanion_SortBy") === "Manual") {
+            row.setAttribute("draggable", "true");
+          }
+        });
+        handle.addEventListener("mouseup", () => {
+          row.setAttribute("draggable", "false");
+        });
+        handle.addEventListener("touchstart", (e) => {
+          if (localStorage.getItem("HomeScreenCompanion_SortBy") !== "Manual") return;
+          const touchEvent = e;
+          touchEvent.preventDefault();
+          const tagContainer = row.closest("#tagListContainer") || row.parentElement;
+          if (!tagContainer) return;
+          document.querySelectorAll(".tag-body").forEach((b) => {
+            b.style.display = "none";
+          });
+          document.querySelectorAll(".expand-icon").forEach((i) => {
+            i.innerText = "expand_more";
+          });
+          row.classList.add("dragging");
+          const onTouchMove = (ev) => {
+            const tEv = ev;
+            tEv.preventDefault();
+            const touch = tEv.touches[0];
+            if (!touch) return;
+            const afterEl = getDragAfterElement(tagContainer, touch.clientY);
+            let ph = tagContainer.querySelector(".sort-placeholder");
+            if (!ph) {
+              ph = document.createElement("div");
+              ph.className = "sort-placeholder";
+            }
+            if (afterEl == null) {
+              if (ph.nextElementSibling !== null) tagContainer.appendChild(ph);
+            } else {
+              if (ph.nextElementSibling !== afterEl) tagContainer.insertBefore(ph, afterEl);
+            }
+          };
+          const onTouchEnd = () => {
+            document.removeEventListener("touchmove", onTouchMove);
+            document.removeEventListener("touchend", onTouchEnd);
+            document.removeEventListener("touchcancel", onTouchCancel);
+            row.classList.remove("dragging");
+            const ph = tagContainer.querySelector(".sort-placeholder");
+            if (ph) {
+              tagContainer.insertBefore(row, ph);
+              ph.remove();
+            }
+            row.classList.add("just-moved");
+            setTimeout(() => {
+              row.classList.remove("just-moved");
+            }, 2e3);
+            setTimeout(deps.checkFormState, 0);
+          };
+          const onTouchCancel = () => {
+            document.removeEventListener("touchmove", onTouchMove);
+            document.removeEventListener("touchend", onTouchEnd);
+            document.removeEventListener("touchcancel", onTouchCancel);
+            row.classList.remove("dragging");
+            const ph = tagContainer.querySelector(".sort-placeholder");
+            if (ph) ph.remove();
+          };
+          document.addEventListener("touchmove", onTouchMove, { passive: false });
+          document.addEventListener("touchend", onTouchEnd);
+          document.addEventListener("touchcancel", onTouchCancel);
+        }, { passive: false });
+      }
+      const btnDuplicateRow = row.querySelector(".btnDuplicateRow");
+      if (btnDuplicateRow) {
+        btnDuplicateRow.addEventListener("click", () => {
+          const config = readRowAsConfig(row);
+          const tagged = {
+            ...config,
+            Name: (config.Name || config.Tag || "Source") + " (copy)"
+          };
+          const tagContainer = row.closest("#tagListContainer");
+          deps.renderTagGroup(tagged, tagContainer, true, void 0, true);
+          deps.applyFilters(deps.view);
+          setTimeout(deps.checkFormState, 0);
+        });
+      }
+      row.addEventListener("dragstart", (e) => {
+        if (localStorage.getItem("HomeScreenCompanion_SortBy") !== "Manual") {
+          e.preventDefault();
+          return;
+        }
+        document.querySelectorAll(".tag-body").forEach((b) => {
+          b.style.display = "none";
+        });
+        document.querySelectorAll(".expand-icon").forEach((i) => {
+          i.innerText = "expand_more";
+        });
+        row.classList.add("dragging");
+        const dragEv = e;
+        if (dragEv.dataTransfer) {
+          dragEv.dataTransfer.effectAllowed = "move";
+          dragEv.dataTransfer.setData("text/plain", "");
+        }
+        setTimeout(() => {
+          row.style.display = "none";
+        }, 0);
+      });
+      row.addEventListener("dragend", () => {
+        row.style.display = "";
+        row.classList.remove("dragging");
+        row.setAttribute("draggable", "false");
+        const existingPlaceholder = document.querySelector(".sort-placeholder");
+        if (existingPlaceholder) existingPlaceholder.remove();
+        row.classList.add("just-moved");
+        setTimeout(() => {
+          row.classList.remove("just-moved");
+        }, 2e3);
+        setTimeout(deps.checkFormState, 0);
+      });
+      const btnChoosePoster = row.querySelector(".btnChoosePoster");
+      const inputPosterFile = row.querySelector(".inputPosterFile");
+      if (btnChoosePoster && inputPosterFile) {
+        btnChoosePoster.addEventListener("click", () => {
+          inputPosterFile.click();
+        });
+        inputPosterFile.addEventListener("change", () => {
+          const file = inputPosterFile.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (re) => {
+            const dataUrl = re.target?.result;
+            if (typeof dataUrl !== "string") return;
+            const base64 = dataUrl.split(",")[1] || "";
+            const img = row.querySelector(".poster-preview-img");
+            if (img) {
+              img.src = dataUrl;
+              img.style.display = "block";
+            }
+            const apiClient = typeof window !== "undefined" ? window.ApiClient : void 0;
+            if (!apiClient) return;
+            const headers = { "Content-Type": "application/json" };
+            const token = apiClient.accessToken();
+            if (token) headers["X-Emby-Token"] = token;
+            const hiddenPath = row.querySelector(".hiddenPosterPath")?.value || "";
+            fetch(apiClient.getUrl("HomeScreenCompanion/UploadCollectionImage"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ FileName: file.name, Base64Data: base64, OldFilePath: hiddenPath })
+            }).then((r) => r.json()).then((result) => {
+              if (result.Success) {
+                const pathInput = row.querySelector(".hiddenPosterPath");
+                if (pathInput && result.FilePath) pathInput.value = result.FilePath;
+                const fnameEl = row.querySelector(".poster-filename");
+                if (fnameEl) fnameEl.textContent = file.name;
+                const previewContainer = row.querySelector(".poster-preview-container");
+                if (previewContainer) previewContainer.style.display = "block";
+              } else {
+                deps.alert("Upload failed: " + (result.Message || "Unknown error"));
+                if (img) img.style.display = "none";
+              }
+            }).catch(() => {
+              deps.alert("Upload error. Check server logs.");
+              if (img) img.style.display = "none";
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+      const btnRemovePoster = row.querySelector(".btnRemovePoster");
+      if (btnRemovePoster) {
+        btnRemovePoster.addEventListener("click", () => {
+          const pathInput = row.querySelector(".hiddenPosterPath");
+          if (pathInput) pathInput.value = "";
+          const fnameEl = row.querySelector(".poster-filename");
+          if (fnameEl) fnameEl.textContent = "";
+          const previewContainer = row.querySelector(".poster-preview-container");
+          if (previewContainer) previewContainer.style.display = "none";
+          const previewImg = row.querySelector(".poster-preview-img");
+          if (previewImg) previewImg.style.display = "none";
+          if (inputPosterFile) inputPosterFile.value = "";
+        });
+      }
+      const btnLoadPosterUrl = row.querySelector(".btnLoadPosterUrl");
+      if (btnLoadPosterUrl) {
+        btnLoadPosterUrl.addEventListener("click", () => {
+          const urlInput = row.querySelector(".txtPosterUrl");
+          const url = (urlInput?.value || "").trim();
+          if (!url) return;
+          const apiClient = typeof window !== "undefined" ? window.ApiClient : void 0;
+          if (!apiClient) return;
+          const headers = { "Content-Type": "application/json" };
+          const token = apiClient.accessToken();
+          if (token) headers["X-Emby-Token"] = token;
+          const hiddenPath = row.querySelector(".hiddenPosterPath")?.value || "";
+          fetch(apiClient.getUrl("HomeScreenCompanion/FetchCollectionImageFromUrl"), {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ Url: url, OldFilePath: hiddenPath })
+          }).then((r) => r.json()).then((result) => {
+            if (result.Success) {
+              const pathInput = row.querySelector(".hiddenPosterPath");
+              if (pathInput && result.FilePath) pathInput.value = result.FilePath;
+              const fnameEl = row.querySelector(".poster-filename");
+              if (fnameEl) {
+                const parts = url.split("/");
+                fnameEl.textContent = (parts[parts.length - 1] || "").split("?")[0] || "";
+              }
+              const previewContainer = row.querySelector(".poster-preview-container");
+              if (previewContainer) previewContainer.style.display = "block";
+              const img = row.querySelector(".poster-preview-img");
+              if (img) {
+                img.src = url;
+                img.style.display = "block";
+              }
+              if (urlInput) urlInput.value = "";
+            } else {
+              deps.alert("Failed to load image: " + (result.Message || "Unknown error"));
+            }
+          }).catch(() => {
+            deps.alert("Error fetching image. Check the URL and server logs.");
+          });
+        });
+      }
+      setTimeout(() => {
+        deps.updateHseSectionAvailability(row);
+      }, 0);
+    }
+
+    const customCss = `
     <style id="homeScreenCompanionCustomCss">
         .day-toggle {
             background: rgba(128,128,128,0.08);
@@ -538,6125 +5770,903 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
             transform: none;
         }
     </style>`;
-
-    function getUrlRowHtml(value, limit) {
-        var val = value || '';
-        var lim = limit !== undefined ? limit : 0;
-        return `
-            <div class="url-row" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                <div style="flex-grow:1;">
-                    <input is="emby-input" class="txtTagUrl" type="text" label="Trakt/MDBList/TMDb URL" value="${val}" />
-                </div>
-                <div style="width:110px;">
-                    <input is="emby-input" class="txtUrlLimit" type="number" label="Max (0=All)" value="${lim}" min="0" />
-                </div>
-                <button type="button" is="emby-button" class="raised button-submit btnTestUrl" style="min-width:60px; height:36px; padding:0 10px; font-size:0.8rem; margin-top:12px;" title="Test Source"><span>Test</span></button>
-                <button type="button" is="emby-button" class="raised btnRemoveUrl btn-row-remove" title="Remove URL"><i class="md-icon">remove_circle_outline</i></button>
-            </div>`;
-    }
-
-    function getLocalRowHtml(type, selectedName, limit) {
-        var options = type === 'LocalCollection' ? cachedCollections : cachedPlaylists;
-        var optHtml = '<option value="">-- Select --</option>' + options.map(o => `<option value="${o.Name}" ${selectedName === o.Name ? 'selected' : ''}>${o.Name}</option>`).join('');
-        var lim = limit !== undefined ? limit : 0;
-        return `
-            <div class="local-row" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-                <div style="flex-grow:1;">
-                    <select is="emby-select" class="selLocalSource" style="width:100%;">
-                        ${optHtml}
-                    </select>
-                </div>
-                <div style="width:110px;">
-                    <input is="emby-input" class="txtLocalLimit" type="number" label="Max (0=All)" value="${lim}" min="0" />
-                </div>
-                <button type="button" is="emby-button" class="raised btnRemoveLocal btn-row-remove" title="Remove"><i class="md-icon">remove_circle_outline</i></button>
-            </div>`;
-    }
-
-    function getMonthOptions(selectedMonth) {
-        var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        return months.map((m, i) => `<option value="${i + 1}" ${selectedMonth == (i + 1) ? 'selected' : ''}>${m}</option>`).join('');
-    }
-
-    function getDayOptions(selectedDay, maxDay) {
-        maxDay = maxDay || 31;
-        var html = '';
-        for (var i = 1; i <= maxDay; i++) html += `<option value="${i}" ${selectedDay == i ? 'selected' : ''}>${i}</option>`;
-        return html;
-    }
-
-    function getMaxDays(month) {
-        return new Date(2001, month, 0).getDate();
-    }
-
-    function getWeekButtons(savedDays) {
-        var days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-        var shortDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-        var saved = (savedDays || "").toLowerCase();
-
-        return days.map((d, i) => {
-            var isActive = saved.includes(d.toLowerCase());
-            return `<button type="button" class="day-toggle ${isActive ? 'active' : ''}" data-day="${d}">${shortDays[i]}</button>`;
-        }).join('');
-    }
-
-    function parseDateYMD(dateStr) {
-        if (!dateStr) return null;
-        var s = String(dateStr);
-        // Fast path: ISO YYYY-MM-DD (with or without time/tz suffix)
-        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-        if (m) return { year: +m[1], month: +m[2], day: +m[3] };
-        // Fallback for non-ISO formats: parse with Date and use UTC accessors
-        // (date-only strings are UTC midnight per spec, so getUTC* is correct)
-        var d = new Date(s);
-        if (!isNaN(d.getTime())) return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
-        return null;
-    }
-
-    function getDateRowHtml(interval) {
-        var type = interval.Type || 'SpecificDate';
-        if (type === 'EveryYear') console.log('[HSC schedule] raw interval from server:', JSON.stringify(interval));
-        var sDate = interval.Start ? interval.Start.split('T')[0] : '';
-        var eDate = interval.End ? interval.End.split('T')[0] : '';
-        var sParts = parseDateYMD(interval.Start);
-        var eParts = parseDateYMD(interval.End);
-        var sMonth = sParts ? sParts.month : 12;
-        var sDay   = sParts ? sParts.day   : 1;
-        var eMonth = eParts ? eParts.month : 12;
-        var eDay   = eParts ? eParts.day   : 28;
-        var sMaxDay = getMaxDays(sMonth);
-        var eMaxDay = getMaxDays(eMonth);
-        sDay = Math.min(sDay, sMaxDay);
-        eDay = Math.min(eDay, eMaxDay);
-        var dayOfWeek = interval.DayOfWeek || '';
-
-        return `
-            <div class="date-row date-row-container" style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 15px;">
-                
-                <div style="width:160px;">
-                    <label class="selectLabel">Rule Type</label>
-                    <select is="emby-select" class="selDateType" style="width:100%;">
-                        <option value="SpecificDate" ${type === 'SpecificDate' ? 'selected' : ''}>Specific Date</option>
-                        <option value="EveryYear" ${type === 'EveryYear' ? 'selected' : ''}>Recurring</option>
-                        <option value="Weekly" ${type === 'Weekly' ? 'selected' : ''}>Week Days</option>
-                    </select>
-                </div>
-                
-                <div class="inputs-specific" style="display: ${type === 'SpecificDate' ? 'flex' : 'none'}; gap: 8px; flex-grow: 1; align-items: center;">
-                    <div style="flex-grow:1;">
-                        <input is="emby-input" type="date" class="txtFullStartDate" label="Start Date" value="${sDate}" />
-                    </div>
-                    <span style="opacity:0.5; padding-top:15px;">to</span>
-                    <div style="flex-grow:1;">
-                        <input is="emby-input" type="date" class="txtFullEndDate" label="End Date" value="${eDate}" />
-                    </div>
-                </div>
-
-                <div class="inputs-annual" style="display: ${type === 'EveryYear' ? 'flex' : 'none'}; gap: 8px; flex-grow: 1; align-items: flex-start;">
-                    
-                    <div style="display:flex; display:flex; gap:5px;">
-                        <div style="width:80px;">
-                            <label class="selectLabel">Start Month</label>
-                            <select is="emby-select" class="selStartMonth" style="width:100%;">${getMonthOptions(sMonth)}</select>
-                        </div>
-                        <div style="width:70px;">
-                            <label class="selectLabel">Day</label>
-                            <select is="emby-select" class="selStartDay" style="width:100%;">${getDayOptions(sDay, sMaxDay)}</select>
-                        </div>
-                    </div>
-
-                    <span style="opacity:0.5; padding-top:32px;">to</span>
-
-                    <div style="display:flex; display:flex; gap:5px;">
-                        <div style="width:80px;">
-                            <label class="selectLabel">End Month</label>
-                            <select is="emby-select" class="selEndMonth" style="width:100%;">${getMonthOptions(eMonth)}</select>
-                        </div>
-                        <div style="width:70px;">
-                            <label class="selectLabel">Day</label>
-                            <select is="emby-select" class="selEndDay" style="width:100%;">${getDayOptions(eDay, eMaxDay)}</select>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="inputs-weekly" style="display: ${type === 'Weekly' ? 'flex' : 'none'}; flex-grow: 1; align-items: center; gap: 5px; flex-wrap: wrap;">
-                    <div style="width:100%;">
-                        <label class="selectLabel">Active On Days</label>
-                        <div class="week-btn-container" style="display:flex; gap:5px; margin-top:2px;">
-                            ${getWeekButtons(dayOfWeek)}
-                        </div>
-                    </div>
-                </div>
-
-                <button type="button" is="emby-button" class="btnRemoveDate" style="background:transparent; color:#cc3333; min-width:40px; margin-top: 25px;" title="Remove Rule"><i class="md-icon">delete</i></button>
-            </div>`;
-    }
-
-    function getDragAfterElement(container, y) {
-        const draggableElements = [...container.querySelectorAll('.tag-row:not(.dragging)')];
-
-        return draggableElements.reduce((closest, child) => {
-            const box = child.getBoundingClientRect();
-            const offset = y - box.top - box.height / 2;
-            if (offset < 0 && offset > closest.offset) {
-                return { offset: offset, element: child };
-            } else {
-                return closest;
-            }
-        }, { offset: Number.NEGATIVE_INFINITY }).element;
-    }
-
-    function readRowAsConfig(row) {
-        var entryLabel = row.querySelector('.txtEntryLabel').value;
-        var tagName = row.querySelector('.txtTagName').value || entryLabel;
-        var active = row.querySelector('.chkTagActive').checked;
-        var blInput = row.querySelector('.txtTagBlacklist');
-        var bl = blInput ? blInput.value.split(/[\n\r]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; }) : [];
-        var enableTag = row.querySelector('.chkEnableTag').checked;
-        var enableColl = row.querySelector('.chkEnableCollection').checked;
-        var overrideWhenActive = !!(row.querySelector('.chkOverrideWhenActive') || {}).checked;
-        var _plTab = row.querySelector('.playlist-tab');
-        var _plUserIds = _plTab && _plTab.dataset.plLoaded === '1'
-            ? Array.from(_plTab.querySelectorAll('.chkPlaylistUser:checked')).map(function(c) { return c.value; })
-            : (function() { try { return JSON.parse(decodeURIComponent((_plTab && _plTab.dataset.plUserids) || '%5B%5D')); } catch { return []; } })();
-        var collName = row.querySelector('.txtCollectionName').value;
-        var collDesc = row.querySelector('.txtCollectionDescription') ? row.querySelector('.txtCollectionDescription').value : '';
-        var collPoster = row.querySelector('.hiddenPosterPath') ? row.querySelector('.hiddenPosterPath').value : '';
-        var st = row.querySelector('.selSourceType').value;
-
-        var intervals = [];
-        row.querySelectorAll('.date-row').forEach(function(dr) {
-            var type = dr.querySelector('.selDateType').value;
-            var s = null, e = null, days = '';
-            if (type === 'SpecificDate') {
-                s = dr.querySelector('.txtFullStartDate').value;
-                e = dr.querySelector('.txtFullEndDate').value;
-            } else if (type === 'EveryYear') {
-                var sM = dr.querySelector('.selStartMonth').value, sD = dr.querySelector('.selStartDay').value;
-                var eM = dr.querySelector('.selEndMonth').value, eD = dr.querySelector('.selEndDay').value;
-                s = '2000-' + sM.padStart(2, '0') + '-' + sD.padStart(2, '0');
-                e = '2000-' + eM.padStart(2, '0') + '-' + eD.padStart(2, '0');
-            } else if (type === 'Weekly') {
-                days = Array.from(dr.querySelectorAll('.day-toggle.active')).map(function(b) { return b.dataset.day; }).join(',');
-            }
-            intervals.push({ Type: type, Start: s || null, End: e || null, DayOfWeek: days });
-        });
-
-        var miFilters = [];
-        row.querySelectorAll('.mediainfo-filter-group').forEach(function(group, gi) {
-            var operator = group.dataset.op || 'AND';
-            var groupOp = gi === 0 ? 'AND' : (group.dataset.groupOp || 'AND');
-            var criteria = [];
-            group.querySelectorAll('.mi-rule').forEach(function(rule) {
-                var prop = (rule.querySelector('.selMiProperty') || {}).value || '';
-                var selVal = rule.querySelector('.selMiValue');
-                var txtVal = rule.querySelector('.txtMiValue');
-                var selOp  = rule.querySelector('.selMiOp');
-                var txtNum = rule.querySelector('.txtMiNum');
-                var selUser = rule.querySelector('.selMiUser');
-                var selTextOp = rule.querySelector('.selMiTextOp');
-                var val = selVal ? selVal.value : (txtVal ? txtVal.value.replace(/\r?\n/g, '\n').trim() : '');
-                // MediaType:Episode + "Include parent series" → save as EpisodeIncludeSeries
-                if (prop === 'MediaType' && val === 'Episode') {
-                    var incParentChk = rule.querySelector('.chkIncludeParentSeries');
-                    if (incParentChk && incParentChk.checked) val = 'EpisodeIncludeSeries';
-                }
-                var op2 = selOp ? selOp.value : '';
-                var textMatchOp = selTextOp ? selTextOp.value : '';
-                var num = txtNum ? txtNum.value.trim() : '';
-                var userId = selUser ? selUser.value : '';
-                var finalOp = op2 || textMatchOp;
-                var finalVal = op2 ? num : val;
-                var notBtn = rule.querySelector('.btnNotToggle');
-                var isNot = notBtn && notBtn.dataset.not === '1';
-                var crit = buildCriterion(prop, finalOp, finalVal, userId);
-                if (crit) criteria.push(isNot ? '!' + crit : crit);
-            });
-            if (criteria.length > 0) miFilters.push({ Operator: operator, Criteria: criteria, GroupOperator: groupOp });
-        });
-
-        var hseTab = row.querySelector('.homescreen-tab');
-        var enableHse = hseTab ? !!(hseTab.querySelector('.chkEnableHomeSection') || {}).checked : false;
-        var hseLibraryId = hseTab && hseTab.dataset.hseLoaded === '1'
-            ? ((hseTab.querySelector('.selHseLibrary') || {}).value || 'auto')
-            : decodeURIComponent((hseTab && hseTab.dataset.hseLibraryid) || 'auto');
-        var hseUserIds = hseTab && hseTab.dataset.hseLoaded === '1'
-            ? Array.from(hseTab.querySelectorAll('.chkHseUser:checked')).map(function(c) { return c.value; })
-            : (function() { try { return JSON.parse(decodeURIComponent((hseTab && hseTab.dataset.hseUserids) || '%5B%5D')); } catch(ex) { return []; } })();
-        var hseSettings = {};
-        if (hseTab && hseTab.dataset.hseLoaded === '1') {
-            hseTab.querySelectorAll('[data-field]').forEach(function(el) {
-                var f = el.dataset.field;
-                var v = el.type === 'checkbox' ? String(el.checked) : el.value;
-                // If field is empty, fall back to placeholder (e.g. CustomName uses display name as placeholder)
-                if (v === '' && el.placeholder) v = el.placeholder;
-                hseSettings[f] = v;
-            });
-            // Virtual playstate field → native per-viewer query fields (IsPlayed / IsResumable)
-            var _hsePlaystate = hseSettings['_hsePlaystate'] || '';
-            delete hseSettings['_hsePlaystate'];
-            if (_hsePlaystate === 'played') { hseSettings['_queryIsPlayed'] = 'true'; hseSettings['_queryIsResumable'] = ''; }
-            else if (_hsePlaystate === 'unplayed') { hseSettings['_queryIsPlayed'] = 'false'; hseSettings['_queryIsResumable'] = ''; }
-            else if (_hsePlaystate === 'inprogress') { hseSettings['_queryIsPlayed'] = ''; hseSettings['_queryIsResumable'] = 'true'; }
-            else { hseSettings['_queryIsPlayed'] = ''; hseSettings['_queryIsResumable'] = ''; }
-            var itemTypesVal = (hseTab.querySelector('.selHseItemTypes') || {}).value || 'Movie,Series';
-            hseSettings['ItemTypes'] = JSON.stringify(itemTypesVal.split(','));
-            // Compute excluded library IDs from unchecked boxes → stored in _queryExcludeViewIds → Query.ExcludeUserViewIds
-            var _excludedLibIds = Array.from(hseTab.querySelectorAll('.chkHseLibrary:not(:checked)')).map(function(c) { return c.value; });
-            if (_excludedLibIds.length > 0) hseSettings['_queryExcludeViewIds'] = _excludedLibIds.join(',');
-            else delete hseSettings['_queryExcludeViewIds'];
-        } else {
-            try { hseSettings = JSON.parse(decodeURIComponent((hseTab && hseTab.dataset.hseSettings) || '%7B%7D')); } catch(ex) {}
-            // Mirror the placeholder fallback from the loaded-form path: use group name as CustomName when not explicitly set
-            if (!hseSettings.CustomName) {
-                var _hseDefaultName = (row.querySelector('.txtEntryLabel') || {}).value
-                    || (row.querySelector('.txtTagName') || {}).value || '';
-                if (_hseDefaultName) hseSettings.CustomName = _hseDefaultName;
-            }
-        }
-
-        var urls = [];
-        row.querySelectorAll('.url-row').forEach(function(uRow) {
-            urls.push({ url: uRow.querySelector('.txtTagUrl').value.trim(), limit: parseInt(uRow.querySelector('.txtUrlLimit').value, 10) || 0 });
-        });
-        if (urls.length === 0) urls = [{ url: '', limit: 0 }];
-
-        var localSources = [];
-        row.querySelectorAll('.local-row').forEach(function(lRow) {
-            localSources.push({ id: lRow.querySelector('.selLocalSource').value, limit: parseInt(lRow.querySelector('.txtLocalLimit').value, 10) || 0 });
-        });
-
-        var miLimit = parseInt((row.querySelector('.txtMediaInfoLimit') || {}).value, 10) || 0;
-
-        var aiProvider = (row.querySelector('.selAiProvider') || {}).value || 'OpenAI';
-        var aiPrompt = (row.querySelector('.txtAiPrompt') || {}).value || '';
-        var aiIncludeRecentlyWatched = !!(row.querySelector('.chkAiRecentlyWatched') || {}).checked;
-        var aiRecentlyWatchedUserId = (row.querySelector('.selAiWatchedUser') || {}).value || '';
-        var aiRecentlyWatchedCount = parseInt((row.querySelector('.txtAiWatchedCount') || {}).value, 10) || 20;
-        var aiRefreshIntervalDays = parseInt((row.querySelector('.txtAiRefreshInterval') || {}).value, 10) || 0;
-
-        return {
-            Name: entryLabel, Tag: tagName, Active: active, Blacklist: bl, ActiveIntervals: intervals,
-            EnableTag: enableTag, EnableCollection: enableColl, CollectionName: collName,
-            CollectionDescription: collDesc, CollectionPosterPath: collPoster,
-            OverrideWhenActive: overrideWhenActive, SourceType: st,
-            Urls: urls, LocalSources: localSources, Limit: miLimit,
-            MediaInfoFilters: miFilters, MediaInfoConditions: [],
-            EnableHomeSection: enableHse, HomeSectionLibraryId: hseLibraryId,
-            HomeSectionUserIds: hseUserIds, HomeSectionSettings: JSON.stringify(hseSettings),
-            HomeSectionTracked: [], LastModified: new Date().toISOString(),
-            AiProvider: aiProvider, AiPrompt: aiPrompt,
-            AiIncludeRecentlyWatched: aiIncludeRecentlyWatched,
-            AiRecentlyWatchedUserId: aiRecentlyWatchedUserId,
-            AiRecentlyWatchedCount: aiRecentlyWatchedCount,
-            AiRefreshIntervalDays: aiRefreshIntervalDays,
-            TagTargetEpisode:        !!(row.querySelector('.chkTagTargetEpisode')  || {}).checked,
-            TagTargetSeason:         !!(row.querySelector('.chkTagTargetSeason')   || {}).checked,
-            TagTargetSeries:         !!(row.querySelector('.chkTagTargetSeries')   || {}).checked,
-            CollectionTargetEpisode: !!(row.querySelector('.chkCollTargetEpisode') || {}).checked,
-            CollectionTargetSeason:  !!(row.querySelector('.chkCollTargetSeason')  || {}).checked,
-            CollectionTargetSeries:  !!(row.querySelector('.chkCollTargetSeries')  || {}).checked,
-            EnablePlaylist:   !!(row.querySelector('.chkEnablePlaylist') || {}).checked,
-            PlaylistName:     (row.querySelector('.txtPlaylistName') || { value: '' }).value,
-            PlaylistUserIds:  _plUserIds,
-            PlaylistMappings: (function() { try { return JSON.parse(decodeURIComponent((_plTab && _plTab.dataset.plMappings) || '%5B%5D')); } catch { return []; } })(),
-            MediaInfoTargetEpisode: false, MediaInfoTargetSeason: false, MediaInfoTargetSeries: false,
-            MediaInfoTargetType: '', MediaInfoSeasonMode: false,
-        };
-    }
-
-    var _formAc = null;
-
-    var MI_CRITERION_MAP = {
-        '4K': { prop: 'Resolution', val: '4K' }, '8K': { prop: 'Resolution', val: '8K' },
-        '1080p': { prop: 'Resolution', val: '1080p' }, '720p': { prop: 'Resolution', val: '720p' },
-        'SD': { prop: 'Resolution', val: 'SD' },
-        'HEVC': { prop: 'VideoCodec', val: 'HEVC' }, 'AV1': { prop: 'VideoCodec', val: 'AV1' },
-        'H264': { prop: 'VideoCodec', val: 'H264' },
-        'HDR': { prop: 'HDR', val: 'HDR' }, 'DolbyVision': { prop: 'HDR', val: 'DolbyVision' },
-        'HDR10': { prop: 'HDR', val: 'HDR10' },
-        'Atmos': { prop: 'AudioFormat', val: 'Atmos' }, 'TrueHD': { prop: 'AudioFormat', val: 'TrueHD' },
-        'DtsHdMa': { prop: 'AudioFormat', val: 'DtsHdMa' }, 'DTS': { prop: 'AudioFormat', val: 'DTS' },
-        'AC3': { prop: 'AudioFormat', val: 'AC3' }, 'AAC': { prop: 'AudioFormat', val: 'AAC' },
-        '7.1': { prop: 'AudioChannels', val: '7.1' }, '5.1': { prop: 'AudioChannels', val: '5.1' },
-        'Stereo': { prop: 'AudioChannels', val: 'Stereo' }, 'Mono': { prop: 'AudioChannels', val: 'Mono' },
-        'InProgress': { prop: 'InProgress', val: 'InProgress' }
-    };
-    var MI_REVERSE_MAP = {};
-    Object.keys(MI_CRITERION_MAP).forEach(function (k) {
-        var m = MI_CRITERION_MAP[k];
-        MI_REVERSE_MAP[m.prop + ':' + m.val] = k;
-    });
-
-    // Migrate legacy comma-separated values to newline-separated on first load.
-    // Only converts if the string contains commas but no newlines.
-    function migrateCommaSeparated(val) {
-        if (!val || val.indexOf('\n') >= 0) return val;
-        if (val.indexOf(',') < 0) return val;
-        return val.split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; }).join('\n');
-    }
-
-    function parseCriterion(crit) {
-        if (!crit) return { prop: 'Resolution', op: '', val: '', userId: '', not: false };
-        var not = crit.charAt(0) === '!';
-        if (not) crit = crit.slice(1);
-        // Handle Collection/Playlist before split(':') — names may contain colons
-        var lcrit = crit.toLowerCase();
-        if (lcrit.startsWith('collection:') || lcrit.startsWith('playlist:')) {
-            var ci = crit.indexOf(':');
-            return { prop: crit.substring(0, ci), op: '', val: crit.substring(ci + 1), userId: '', not: not };
-        }
-        var parts = crit.split(':');
-        if (parts.length === 1) {
-            var mapped = MI_CRITERION_MAP[crit];
-            return mapped ? { prop: mapped.prop, op: '', val: mapped.val, userId: '', not: not } : { prop: '', op: '', val: crit, userId: '', not: not };
-        }
-        if (parts.length === 2) return { prop: parts[0], op: '', val: parts[1], userId: '', not: not };
-        if (parts.length === 3) return { prop: parts[0], op: parts[1], val: parts[2], userId: '', not: not };
-        if (parts.length === 4) return { prop: parts[0], userId: parts[1], op: parts[2], val: parts[3], not: not };
-        return { prop: 'Resolution', op: '', val: '', userId: '', not: false };
-    }
-
-    function buildCriterion(prop, op, val, userId) {
-        if (!prop || val === '') return '';
-        if (userId) return prop + ':' + userId + ':' + op + ':' + val;
-        if (op) return prop + ':' + op + ':' + val;
-        var key = prop + ':' + val;
-        return MI_REVERSE_MAP[key] || (prop + ':' + val);
-    }
-
-    var MI_DROPDOWN_OPTIONS = {
-        Resolution: [['8K', '8K (7680p+)'], ['4K', '4K / UHD'], ['1080p', '1080p / FHD'], ['720p', '720p / HD'], ['SD', 'SD (<720p)']],
-        VideoCodec: [['HEVC', 'HEVC / H.265'], ['AV1', 'AV1'], ['H264', 'H.264 / AVC']],
-        HDR:        [['HDR', 'HDR (any)'], ['DolbyVision', 'Dolby Vision'], ['HDR10', 'HDR10']],
-        AudioFormat: [['Atmos', 'Dolby Atmos'], ['TrueHD', 'Dolby TrueHD'], ['DtsHdMa', 'DTS-HD MA'], ['DTS', 'DTS'], ['AC3', 'Dolby Digital / AC3'], ['AAC', 'AAC']],
-        AudioChannels: [['7.1', '7.1+ Surround'], ['5.1', '5.1 Surround'], ['Stereo', 'Stereo'], ['Mono', 'Mono']],
-        MediaType: [['Movie', 'Movie'], ['Series', 'Show / Series'], ['Episode', 'Episode'], ['Audio', 'Music Track (Audio)'], ['MusicVideo', 'Music Video'], ['MusicAlbum', 'Music Album'], ['MusicArtist', 'Music Artist']],
-        IsPlayed: [['Watched', 'Watched'], ['Unwatched', 'Unwatched']],
-        InProgress: [['InProgress', 'In progress (started, not finished)']]
-    };
-    var MI_NUMERIC_PROPS = ['CommunityRating', 'Year', 'Runtime', 'DateAdded', 'DateModified', 'FileSize', 'LastPlayed', 'PlayCount', 'BitRate', 'SampleRate', 'BitsPerSample', 'TrackNumber', 'DiscNumber', 'WatchedByCount'];
-    var MI_UNIT_LABELS = { DateAdded: 'days ago', DateModified: 'days ago', LastPlayed: 'days ago', FileSize: 'MB', PlayCount: 'plays', BitRate: 'kbps', SampleRate: 'Hz', BitsPerSample: 'bits', WatchedByCount: 'users' };
-    var MI_USER_PROPS = ['IsPlayed', 'LastPlayed', 'PlayCount'];
-    var MI_TEXT_MATCH_PROPS = ['Tag', 'Title', 'EpisodeTitle', 'Overview', 'Studio', 'Genre', 'Actor', 'Director', 'Writer', 'ContentRating', 'AudioLanguage', 'Artist', 'Album', 'FolderPath', 'Country'];
-    var MI_TEXT_MATCH_DEFAULT = {
-        Title: 'contains', EpisodeTitle: 'contains', Overview: 'contains', Studio: 'contains', Genre: 'contains', Tag: 'contains',
-        Actor: 'exact', Director: 'exact', Writer: 'exact', Artist: 'contains', Album: 'contains',
-        ContentRating: 'exact', AudioLanguage: 'exact', FolderPath: 'contains', Country: 'contains'
-    };
-    var _miUsers = null;
-    var MI_PRESETS = [
-        { label: 'Resolution', presets: [
-            { name: 'Movies in 4K',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Movie', '4K'] }]; } },
-            { name: 'Movies in 1080p',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Movie', '1080p'] }]; } },
-            { name: 'Movies below HD (≤720p)',
-              build: function() { return [
-                  { Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Movie'] },
-                  { Operator:'OR',  GroupOperator:'AND', Criteria:['720p', 'SD'] }
-              ]; } }
-        ]},
-        { label: 'Release Year', presets: [
-            { name: 'Movies from the 1990s',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Movie','Year:>=:1990','Year:<=:1999'] }]; } },
-            { name: 'Movies released this year',
-              build: function() { var y = new Date().getFullYear(); return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Movie','Year:=:'+y] }]; } },
-            { name: 'Movies released in the last 5 years',
-              build: function() { var y = new Date().getFullYear()-5; return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Movie','Year:>=:'+y] }]; } }
-        ]},
-        { label: 'Recently', presets: [
-            { name: 'Recently added (last 30 days)',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['DateAdded:<=:30'] }]; } },
-            { name: 'Recently modified (last 7 days)',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['DateModified:<=:7'] }]; } },
-            { name: 'Recently played (last 7 days)',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['LastPlayed:__any__:<=:7'] }]; } }
-        ]},
-        { label: 'Watch Status', presets: [
-            { name: 'Unwatched movies',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Movie','IsPlayed:__any__:=:Unwatched'] }]; } },
-            { name: 'Never played by anyone',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['IsPlayed:__all__:=:Unwatched'] }]; } },
-            { name: 'Watched by at least 2 users',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['WatchedByCount:>=:2'] }]; } },
-            { name: 'Unseen by everyone',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['WatchedByCount:=:0'] }]; } },
-            { name: 'In progress by current user (home section)',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['InProgress'] }]; } },
-            { name: 'Watched by current user (home section)',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['IsPlayed:__current__:=:Watched'] }]; } }
-        ]},
-        { label: 'Music', presets: [
-            { name: 'All music tracks',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Audio'] }]; } },
-            { name: 'All music videos',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:MusicVideo'] }]; } },
-            { name: 'Lossless audio (≥24-bit)',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Audio', 'BitsPerSample:>=:24'] }]; } },
-            { name: 'Hi-res audio (≥96 kHz)',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:Audio', 'SampleRate:>=:96000'] }]; } },
-            { name: 'Music videos in 4K',
-              build: function() { return [{ Operator:'AND', GroupOperator:'AND', Criteria:['MediaType:MusicVideo', '4K'] }]; } }
-        ]}
-    ];
-    var MI_TEXT_PLACEHOLDERS = {
-        Title: 'e.g. Batman, Dark Knight', EpisodeTitle: 'e.g. Pilot, Finale', Overview: 'e.g. heist, time travel',
-        Studio: 'e.g. Warner, Netflix, HBO', Genre: 'e.g. Action, Thriller',
-        Actor: 'e.g. Tom Hanks, Idris Elba', Director: 'e.g. Nolan, Tarantino', Writer: 'e.g. Tarantino, Nolan',
-        ContentRating: 'e.g. PG-13, R', AudioLanguage: 'e.g. eng, swe', ImdbId: 'e.g. tt1234567, tt7654321',
-        TvdbId: 'e.g. 121361',
-        FolderPath: 'e.g. /movies/action',
-        Country: 'e.g. United States',
-        Artist: 'e.g. Radiohead, Pink Floyd', Album: 'e.g. OK Computer, Dark Side of the Moon'
-    };
-
-    function propertyOptionsHtml(selected) {
-        var groups = [
-            { label: 'Video', props: [['Resolution','Resolution'], ['VideoCodec','Video Codec'], ['HDR','HDR']] },
-            { label: 'Audio', props: [['AudioFormat','Audio Format'], ['AudioChannels','Audio Channels'], ['AudioLanguage','Audio Language']] },
-            { label: 'Content', props: [['MediaType','Media Type'], ['Tag','Tag'], ['Title','Title'], ['EpisodeTitle','Title (Episode)'], ['Overview','Overview'], ['Studio','Studio'], ['Genre','Genre'], ['Actor','Actor / Cast'], ['Director','Director'], ['Writer','Writer'], ['ContentRating','Content Rating'], ['ImdbId','IMDB ID'], ['TvdbId','TVDB ID'], ['Country','Country'], ['Collection','In Collection'], ['Playlist','In Playlist']] },
-            { label: 'Music', props: [['Artist','Artist'], ['Album','Album'], ['BitRate','Bit Rate (kbps)'], ['SampleRate','Sample Rate (Hz)'], ['BitsPerSample','Bit Depth'], ['TrackNumber','Track Number'], ['DiscNumber','Disc Number']] },
-            { label: 'Metrics', props: [['CommunityRating','Community Rating'], ['Year','Year'], ['Runtime','Runtime (minutes)'], ['DateAdded','Date Added'], ['DateModified','Date Modified'], ['FileSize','File Size (MB)'], ['FolderPath','Folder Path']] },
-            { label: 'Activity', props: [['IsPlayed','Watched / Unwatched'], ['LastPlayed','Last Played'], ['PlayCount','Play Count'], ['InProgress','In Progress (viewer)'], ['WatchedByCount','Watched by (user count)']] }
-        ];
-        return groups.map(function (g) {
-            return '<optgroup label="' + g.label + '">' +
-                g.props.map(function (p) {
-                    return '<option value="' + p[0] + '"' + (p[0] === selected ? ' selected' : '') + '>' + p[1] + '</option>';
-                }).join('') +
-                '</optgroup>';
-        }).join('');
-    }
-
-    function getMiValueHtml(prop, savedOp, savedVal, savedUserId) {
-        var userHtml = '';
-        if (MI_USER_PROPS.indexOf(prop) >= 0) {
-            var specialOpts =
-                '<option value="__any__"' + ('__any__' === savedUserId ? ' selected' : '') + '>Any user</option>' +
-                '<option value="__all__"' + ('__all__' === savedUserId ? ' selected' : '') + '>All users</option>';
-            // Current-user play state is resolved per viewer by the home section query (Emby),
-            // so it is only offered where that is supported (IsPlayed).
-            if (prop === 'IsPlayed') {
-                specialOpts += '<option value="__current__"' + ('__current__' === savedUserId ? ' selected' : '') + '>Current user (viewer)</option>';
-            }
-            var uOpts = specialOpts + (_miUsers || []).map(function (u) {
-                return '<option value="' + u.Id + '"' + (u.Id === savedUserId ? ' selected' : '') + '>' + u.Name + '</option>';
-            }).join('');
-            userHtml = '<select class="selMiUser" is="emby-select" style="flex:0 0 auto;min-width:110px;">' + uOpts + '</select>';
-        }
-        var unitLabel = MI_UNIT_LABELS[prop] ? '<span style="margin-left:4px;opacity:.7;white-space:nowrap;">' + MI_UNIT_LABELS[prop] + '</span>' : '';
-        if (prop === 'Collection' || prop === 'Playlist') {
-            var cpList = prop === 'Collection' ? cachedCollections : cachedPlaylists;
-            var cpOpts = cpList.map(function (o) {
-                var n = o.Name || '';
-                return '<option value="' + n.replace(/"/g, '&quot;') + '"' + (n === savedVal ? ' selected' : '') + '>' + n + '</option>';
-            }).join('');
-            return '<select class="selMiValue" is="emby-select" style="flex:1;"><option value="">-- Select --</option>' + cpOpts + '</select>';
-        }
-        if (prop === 'Tag') {
-            var tagTextOp = savedOp || MI_TEXT_MATCH_DEFAULT['Tag'];
-            var tagTextOpHtml = '<select class="selMiTextOp" is="emby-select" style="flex:0 0 100px;">' +
-                '<option value="contains"' + (tagTextOp === 'contains' ? ' selected' : '') + '>Contains</option>' +
-                '<option value="exact"' + (tagTextOp === 'exact' ? ' selected' : '') + '>Exact</option>' +
-                '</select>';
-            if (cachedTags.length > 0) {
-                var tagOpts = cachedTags.map(function (t) {
-                    return '<option value="' + t.replace(/"/g, '&quot;') + '"' + (t === savedVal ? ' selected' : '') + '>' + t + '</option>';
-                }).join('');
-                return tagTextOpHtml + '<select class="selMiValue" is="emby-select" style="flex:1;"><option value="">-- Select tag --</option>' + tagOpts + '</select>';
-            }
-            var migratedTagVal = migrateCommaSeparated(savedVal || '');
-            return tagTextOpHtml + '<textarea class="txtMiValue" placeholder="e.g. 4K" rows="1" style="flex:1;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:32px;max-height:120px;overflow-y:auto;">' + migratedTagVal.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>';
-        }
-        if (MI_DROPDOWN_OPTIONS[prop]) {
-            if (prop === 'MediaType') {
-                var dispVal = (savedVal === 'EpisodeIncludeSeries') ? 'Episode' : (savedVal || '');
-                var mtOpts = MI_DROPDOWN_OPTIONS['MediaType'].map(function (pair) {
-                    return '<option value="' + pair[0] + '"' + (pair[0] === dispVal ? ' selected' : '') + '>' + pair[1] + '</option>';
-                }).join('');
-                var ipChecked = (savedVal === 'EpisodeIncludeSeries') ? 'checked' : '';
-                var ipDisplay = (dispVal === 'Episode') ? 'inline-flex' : 'none';
-                return '<select class="selMiValue" is="emby-select" style="flex:1;">' + mtOpts + '</select>' +
-                    '<label class="mi-include-parent" style="display:' + ipDisplay + '; align-items:center; gap:6px; cursor:pointer; white-space:nowrap; font-size:0.85em; margin:0;">' +
-                    '<input type="checkbox" class="chkIncludeParentSeries" ' + ipChecked + ' style="margin:0;">' +
-                    '<span>Also include parent series</span>' +
-                    '</label>';
-            }
-            var opts = MI_DROPDOWN_OPTIONS[prop].map(function (pair) {
-                return '<option value="' + pair[0] + '"' + (pair[0] === savedVal ? ' selected' : '') + '>' + pair[1] + '</option>';
-            }).join('');
-            return userHtml + '<select class="selMiValue" is="emby-select" style="flex:1;">' + opts + '</select>';
-        }
-        if (MI_NUMERIC_PROPS.indexOf(prop) >= 0) {
-            var ops = ['=', '>', '>=', '<', '<='];
-            var defaultOp = (prop === 'PlayCount') ? '>=' : '<=';
-            var opOpts = ops.map(function (o) {
-                return '<option value="' + o + '"' + (o === (savedOp || defaultOp) ? ' selected' : '') + '>' + o + '</option>';
-            }).join('');
-            var infoTooltip =
-                '<div class="mi-op-info">' +
-                '<div class="mi-op-info-icon">i</div>' +
-                '<div class="mi-op-tooltip"><table>' +
-                '<tr><td>=</td><td>Exactly equal</td></tr>' +
-                '<tr><td>&gt;</td><td>Greater than</td></tr>' +
-                '<tr><td>&gt;=</td><td>Greater than or equal</td></tr>' +
-                '<tr><td>&lt;</td><td>Less than</td></tr>' +
-                '<tr><td>&lt;=</td><td>Less than or equal</td></tr>' +
-                '</table></div></div>';
-            var numStep = (prop === 'PlayCount') ? '1' : '0.01';
-            return userHtml +
-                '<select class="selMiOp" is="emby-select" style="flex:0 0 64px;">' + opOpts + '</select>' +
-                infoTooltip +
-                '<input class="txtMiNum" is="emby-input" type="number" step="' + numStep + '" value="' + (savedVal || '') + '" style="flex:1;" />' +
-                unitLabel;
-        }
-        if (MI_TEXT_MATCH_PROPS.indexOf(prop) >= 0) {
-            var textOp = savedOp || MI_TEXT_MATCH_DEFAULT[prop] || 'contains';
-            var textOpHtml = '<select class="selMiTextOp" is="emby-select" style="flex:0 0 100px;">' +
-                '<option value="contains"' + (textOp === 'contains' ? ' selected' : '') + '>Contains</option>' +
-                '<option value="exact"' + (textOp === 'exact' ? ' selected' : '') + '>Exact</option>' +
-                '</select>';
-            var ph = MI_TEXT_PLACEHOLDERS[prop] || '';
-            var ph = MI_TEXT_PLACEHOLDERS[prop] || '';
-            var migratedVal = migrateCommaSeparated(savedVal || '');
-            return textOpHtml + '<textarea class="txtMiValue" placeholder="' + ph + '" rows="1" style="flex:1;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:32px;max-height:120px;overflow-y:auto;">' + migratedVal.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>';
-        }
-        var ph = MI_TEXT_PLACEHOLDERS[prop] || '';
-        var migratedVal = migrateCommaSeparated(savedVal || '');
-        return '<textarea class="txtMiValue" placeholder="' + ph + '" rows="1" style="flex:1;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:32px;max-height:120px;overflow-y:auto;">' + migratedVal.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>';
-    }
-
-    function getMiHintHtml(prop) {
-        if (MI_TEXT_MATCH_PROPS.indexOf(prop) < 0 && prop !== 'ImdbId' && prop !== 'TvdbId') return '<div class="mi-rule-hint"></div>';
-        return '<div class="mi-rule-hint" style="font-size:0.75em; opacity:0.5; margin-top:2px; padding-right:32px; text-align:right;">One value per line &mdash; matches if <em>any</em> line matches (OR)</div>';
-    }
-
-    function getMediaInfoRuleHtml(criterion) {
-        var parsed = parseCriterion(criterion || '');
-        var prop = parsed.prop || 'Resolution';
-        var notActive = parsed.not;
-        var notBg = notActive ? 'rgba(200,50,50,0.75)' : 'transparent';
-        var notColor = notActive ? '#fff' : '';
-        var notBorder = notActive ? '1px solid rgba(200,50,50,0.6)' : '1px solid rgba(128,128,128,0.4)';
-        return '<div class="mi-rule" style="margin-bottom:6px;">' +
-            '<div style="display:flex; gap:6px; align-items:center;">' +
-            '<button type="button" class="btnNotToggle" data-not="' + (notActive ? '1' : '0') + '"' +
-            ' style="border:' + notBorder + '; border-radius:10px; padding:3px 10px; font-size:0.78em; font-weight:bold; cursor:pointer; letter-spacing:0.5px; flex-shrink:0;' +
-            ' background:' + notBg + '; color:' + notColor + ';" title="Negate this rule">NOT</button>' +
-            '<select class="selMiProperty" is="emby-select" style="flex:0 0 155px;">' + propertyOptionsHtml(prop) + '</select>' +
-            '<div class="mi-value-wrapper" style="flex:1; display:flex; gap:6px; align-items:center;">' + getMiValueHtml(prop, parsed.op, parsed.val, parsed.userId || '') + '</div>' +
-            '<button type="button" class="btnRemoveMiRule" style="background:transparent; border:none; color:#cc3333; cursor:pointer; padding:2px 8px; font-size:1em; flex-shrink:0;" title="Remove rule">✕</button>' +
-            '</div>' +
-            getMiHintHtml(prop) +
-            '</div>';
-    }
-
-    function getMediaInfoFilterGroupHtml(filter, _i, isFirst) {
-        var op = (filter && filter.Operator) || 'AND';
-        var groupOp = (filter && filter.GroupOperator) || 'AND';
-        var criteria = (filter && filter.Criteria) || [];
-
-        var connectorHtml = isFirst ? '' :
-            '<div class="mi-group-connector" style="display:flex; align-items:center; gap:10px; margin:-12px -12px 14px; padding:8px 14px; background:rgba(0,0,0,0.12);">' +
-                '<div style="flex:1; height:1px; background:rgba(128,128,128,0.25);"></div>' +
-                '<div style="display:flex; flex-direction:column; align-items:center; gap:4px;">' +
-                    '<span style="font-size:0.7em; text-transform:uppercase; letter-spacing:1px; opacity:0.45;">Connect groups with</span>' +
-                    '<div style="display:flex; border-radius:14px; overflow:hidden; border:1px solid rgba(128,128,128,0.4);">' +
-                        '<button type="button" class="btnGroupOpChoice" data-value="AND"' +
-                        ' style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px;' +
-                        ' background:' + (groupOp === 'AND' ? 'rgba(0,164,220,0.75)' : 'transparent') + ';' +
-                        ' color:' + (groupOp === 'AND' ? '#fff' : 'inherit') + ';"' +
-                        ' title="Both filter groups must match">AND</button>' +
-                        '<div style="width:1px; background:rgba(128,128,128,0.4);"></div>' +
-                        '<button type="button" class="btnGroupOpChoice" data-value="OR"' +
-                        ' style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px;' +
-                        ' background:' + (groupOp === 'OR' ? 'rgba(220,120,0,0.75)' : 'transparent') + ';' +
-                        ' color:' + (groupOp === 'OR' ? '#fff' : 'inherit') + ';"' +
-                        ' title="Either filter group is enough">OR</button>' +
-                    '</div>' +
-                    '<span class="group-op-desc" style="font-size:0.7em; opacity:0.55; white-space:nowrap;">' +
-                        (groupOp === 'AND' ? 'Both groups must match' : 'Either group is enough') +
-                    '</span>' +
-                '</div>' +
-                '<div style="flex:1; height:1px; background:rgba(128,128,128,0.25);"></div>' +
-            '</div>';
-
-        var rulesHtml = criteria.map(function (c) { return getMediaInfoRuleHtml(c); }).join('');
-
-        return '<div class="mediainfo-filter-group" data-group-op="' + groupOp + '" data-op="' + op + '" style="border:1px solid rgba(128,128,128,0.3); border-radius:6px; padding:12px; margin-bottom:10px; background:rgba(128,128,128,0.03);">' +
-            connectorHtml +
-            '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">' +
-                '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">' +
-                    '<span style="font-size:0.8em; font-weight:bold; text-transform:uppercase; letter-spacing:0.5px; opacity:0.6;">Match rules:</span>' +
-                    '<div style="display:flex; flex-direction:column; gap:3px;">' +
-                        '<div style="display:flex; border-radius:14px; overflow:hidden; border:1px solid rgba(128,128,128,0.4);">' +
-                            '<button type="button" class="btnGroupInnerOpChoice" data-value="AND"' +
-                            ' style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px;' +
-                            ' background:' + (op === 'AND' ? 'rgba(0,164,220,0.75)' : 'transparent') + ';' +
-                            ' color:' + (op === 'AND' ? '#fff' : 'inherit') + ';"' +
-                            ' title="All rules in this group must match">ALL</button>' +
-                            '<div style="width:1px; background:rgba(128,128,128,0.4);"></div>' +
-                            '<button type="button" class="btnGroupInnerOpChoice" data-value="OR"' +
-                            ' style="border:none; padding:4px 16px; font-size:0.82em; font-weight:bold; cursor:pointer; letter-spacing:0.5px;' +
-                            ' background:' + (op === 'OR' ? 'rgba(220,120,0,0.75)' : 'transparent') + ';' +
-                            ' color:' + (op === 'OR' ? '#fff' : 'inherit') + ';"' +
-                            ' title="Any rule in this group is enough">ANY</button>' +
-                        '</div>' +
-                        '<span class="inner-op-desc" style="font-size:0.7em; opacity:0.55;">' +
-                            (op === 'AND' ? 'All rules must match' : 'Any rule is enough') +
-                        '</span>' +
-                    '</div>' +
-                '</div>' +
-                '<button type="button" class="btnRemoveFilterGroup" style="background:transparent; border:none; color:#cc3333; cursor:pointer; padding:2px 8px; font-size:0.85em; flex-shrink:0;">✕ Remove</button>' +
-            '</div>' +
-            '<div class="mi-rules-list">' + rulesHtml + '</div>' +
-            '<button type="button" is="emby-button" class="btnAddMiRule raised btn-neutral" style="margin-top: 4px;">+ Add Rule</button>' +
-            '</div>';
-    }
-
-    function escapeHtml(str) {
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    function readMiFiltersFromContainer(container) {
-        var miFilters = [];
-        container.querySelectorAll('.mediainfo-filter-group').forEach(function (group, gi) {
-            var operator = group.dataset.op || 'AND';
-            var groupOp = gi === 0 ? 'AND' : (group.dataset.groupOp || 'AND');
-            var criteria = [];
-            group.querySelectorAll('.mi-rule').forEach(function (rule) {
-                var prop = (rule.querySelector('.selMiProperty') || {}).value || '';
-                var selVal = rule.querySelector('.selMiValue');
-                var txtVal = rule.querySelector('.txtMiValue');
-                var selOp  = rule.querySelector('.selMiOp');
-                var txtNum = rule.querySelector('.txtMiNum');
-                var selUser = rule.querySelector('.selMiUser');
-                var selTextOp = rule.querySelector('.selMiTextOp');
-                var val = selVal ? selVal.value : (txtVal ? txtVal.value.replace(/\r?\n/g, '\n').trim() : '');
-                if (prop === 'MediaType' && val === 'Episode') {
-                    var incParentChk = rule.querySelector('.chkIncludeParentSeries');
-                    if (incParentChk && incParentChk.checked) val = 'EpisodeIncludeSeries';
-                }
-                var op2 = selOp ? selOp.value : '';
-                var textMatchOp = selTextOp ? selTextOp.value : '';
-                var num = txtNum ? txtNum.value.trim() : '';
-                var userId = selUser ? selUser.value : '';
-                var finalOp = op2 || textMatchOp;
-                var finalVal = op2 ? num : val;
-                var notBtn = rule.querySelector('.btnNotToggle');
-                var isNot = notBtn && notBtn.dataset.not === '1';
-                var crit = buildCriterion(prop, finalOp, finalVal, userId);
-                if (crit) criteria.push(isNot ? '!' + crit : crit);
-            });
-            if (criteria.length > 0) miFilters.push({ Operator: operator, Criteria: criteria, GroupOperator: groupOp });
-        });
-        return miFilters;
-    }
-
-    function getMySavedFiltersPanelHtml() {
-        if (savedFilters.length === 0) {
-            return '<div style="font-size:0.82em; color:var(--theme-text-secondary); font-style:italic; margin-bottom:4px;">No saved filters yet.</div>';
-        }
-        return '<div style="display:flex; flex-wrap:wrap; gap:6px;">' +
-            savedFilters.map(function (sf, i) {
-                return '<div style="display:flex; align-items:center; gap:0;">' +
-                    '<button type="button" class="btnApplyMySavedFilter" data-index="' + i + '"' +
-                    ' style="border:1.5px solid #000; border-radius:14px 0 0 14px; padding:4px 10px; font-size:0.82em; cursor:pointer; background:transparent; color:var(--theme-text-primary);">' +
-                    escapeHtml(sf.Name) + '</button>' +
-                    '<button type="button" class="btnDeleteMySavedFilter" data-index="' + i + '"' +
-                    ' style="border:1.5px solid #000; border-left:none; border-radius:0 14px 14px 0; background:transparent; color:#cc3333; cursor:pointer; padding:4px 8px; font-size:0.82em; line-height:1;" title="Delete">✕</button>' +
-                    '</div>';
-            }).join('') +
-            '</div>';
-    }
-
-    function refreshMySavedFiltersPanels() {
-        var v = document.querySelector('#HomeScreenCompanionConfigPage');
-        if (!v) return;
-        var html = getMySavedFiltersPanelHtml();
-        v.querySelectorAll('.mi-saved-panel-content').forEach(function (el) {
-            el.innerHTML = html;
-        });
-    }
-
-    function saveSavedFiltersNow() {
-        window.ApiClient.getPluginConfiguration(pluginId)
-            .then(function (currentConfig) {
-                currentConfig.SavedFilters = savedFilters;
-                return window.ApiClient.updatePluginConfiguration(pluginId, currentConfig);
-            })
-            .then(function () {
-                if (originalConfigState) {
-                    try {
-                        var state = JSON.parse(originalConfigState);
-                        state.SavedFilters = savedFilters;
-                        originalConfigState = JSON.stringify(state);
-                    } catch (e) {}
-                }
-                var view = document.querySelector('#HomeScreenCompanionConfigPage');
-                if (view) checkFormState();
-            });
-    }
-
     function isScheduleCurrentlyActive(intervals) {
-        if (!intervals || intervals.length === 0) return false;
-        var now = new Date();
-        var dowNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-        var todayName = dowNames[now.getDay()];
-        return intervals.some(function(iv) {
-            if (iv.Type === 'Weekly') {
-                var days = (iv.DayOfWeek || '').split(',').map(function(d) { return d.trim(); });
-                return days.indexOf(todayName) >= 0;
-            }
-            if (!iv.Start || !iv.End) return false;
-            var s = new Date(iv.Start);
-            var e = new Date(iv.End);
-            if (iv.Type === 'EveryYear') {
-                var nowMD = now.getMonth() * 100 + now.getDate();
-                var sMD  = s.getMonth() * 100 + s.getDate();
-                var eMD  = e.getMonth() * 100 + e.getDate();
-                return sMD <= nowMD && nowMD <= eMD;
-            }
-            // SpecificDate
-            e.setHours(23, 59, 59, 999);
-            return s <= now && now <= e;
-        });
+      if (!intervals || intervals.length === 0) return false;
+      const now = /* @__PURE__ */ new Date();
+      const dowNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const todayName = dowNames[now.getDay()] ?? "";
+      return intervals.some((iv) => {
+        if (iv.Type === "Weekly") {
+          const days = (iv.DayOfWeek || "").split(",").map((d) => d.trim());
+          return days.indexOf(todayName) >= 0;
+        }
+        if (!iv.Start || !iv.End) return false;
+        const s = new Date(iv.Start);
+        const e = new Date(iv.End);
+        if (iv.Type === "EveryYear") {
+          const nowMD = now.getMonth() * 100 + now.getDate();
+          const sMD = s.getMonth() * 100 + s.getDate();
+          const eMD = e.getMonth() * 100 + e.getDate();
+          return sMD <= nowMD && nowMD <= eMD;
+        }
+        e.setHours(23, 59, 59, 999);
+        return s <= now && now <= e;
+      });
     }
-
     function readIntervalsFromRow(row) {
-        var intervals = [];
-        row.querySelectorAll('.date-row').forEach(function(dr) {
-            var type = (dr.querySelector('.selDateType') || {}).value || 'SpecificDate';
-            var s = null, e = null, days = '';
-            if (type === 'SpecificDate') {
-                s = (dr.querySelector('.txtFullStartDate') || {}).value || null;
-                e = (dr.querySelector('.txtFullEndDate') || {}).value || null;
-            } else if (type === 'EveryYear') {
-                var sM = (dr.querySelector('.selStartMonth') || {}).value || '1';
-                var sD = (dr.querySelector('.selStartDay') || {}).value || '1';
-                var eM = (dr.querySelector('.selEndMonth') || {}).value || '1';
-                var eD = (dr.querySelector('.selEndDay') || {}).value || '1';
-                s = '2000-' + sM.padStart(2, '0') + '-' + sD.padStart(2, '0');
-                e = '2000-' + eM.padStart(2, '0') + '-' + eD.padStart(2, '0');
-            } else if (type === 'Weekly') {
-                days = Array.from(dr.querySelectorAll('.day-toggle.active')).map(function(b) { return b.dataset.day; }).join(',');
-            }
-            intervals.push({ Type: type, Start: s, End: e, DayOfWeek: days });
-        });
-        return intervals;
-    }
-
-    function getSourceBadgeHtml(st) {
-        var map = {
-            'External':          { icon: 'language',        title: 'External List' },
-            'LocalCollection':   { icon: 'folder_special',  title: 'Local Collection' },
-            'LocalPlaylist':     { icon: 'playlist_play',   title: 'Local Playlist' },
-            'MediaInfo':         { icon: 'tune',            title: 'Smart Playlist' },
-                'AI':              { icon: 'auto_awesome',   title: 'AI created lists' }
-        };
-        var e = map[st];
-        if (!e) return '';
-        return `<span class="tag-indicator source" title="${e.title}"><i class="md-icon" style="font-size:1.1em;">${e.icon}</i></span>`;
-    }
-
-    function renderTagGroup(tagConfig, container, prepend, index, isNew, afterRef) {
-        var isChecked = tagConfig.Active !== false ? 'checked' : '';
-        var tagName = tagConfig.Tag || '';
-        var labelName = tagConfig.Name || '';
-        var urls = tagConfig.Urls || (tagConfig.Url ? [{ url: tagConfig.Url, limit: tagConfig.Limit !== undefined ? tagConfig.Limit : 0 }] : [{ url: '', limit: 0 }]);
-        var blacklist = migrateCommaSeparated((tagConfig.Blacklist || []).join('\n'));
-        var intervals = tagConfig.ActiveIntervals || [];
-        var idx = typeof index !== 'undefined' ? index : 9999;
-
-        var lastMod = tagConfig.LastModified || new Date().toISOString();
-
-        var enableTag = tagConfig.EnableTag !== false ? 'checked' : '';
-        var enableColl = tagConfig.EnableCollection ? 'checked' : '';
-        var enablePlaylist = tagConfig.EnablePlaylist ? 'checked' : '';
-        var playlistName = tagConfig.PlaylistName || '';
-        var playlistUserIds = tagConfig.PlaylistUserIds || [];
-        var playlistUserIdsEnc = encodeURIComponent(JSON.stringify(playlistUserIds));
-        var playlistMappingsEnc = encodeURIComponent(JSON.stringify(tagConfig.PlaylistMappings || []));
-        var overrideChecked = tagConfig.OverrideWhenActive ? 'checked' : '';
-
-        var collName = tagConfig.CollectionName || '';
-        var collDescription = tagConfig.CollectionDescription || '';
-        var collPosterPath = tagConfig.CollectionPosterPath || '';
-
-        var sourceType = tagConfig.SourceType || "";
-        var localSources = tagConfig.LocalSources || [];
-        if (localSources.length === 0) localSources = [{ id: "", limit: 0 }];
-
-        var mediaInfoLimit = tagConfig.Limit || 0;
-        var aiLimit = tagConfig.Limit || 0;
-        // Backwards compat: legacy single-target → derive separate tag + collection targets
-        var _legacyTarget = tagConfig.MediaInfoTargetType || (tagConfig.MediaInfoSeasonMode ? 'Season' : '');
-        // Tag output targets — default Series=true if no target has ever been set
-        var _tagAnySet = tagConfig.TagTargetEpisode || tagConfig.TagTargetSeason || tagConfig.TagTargetSeries ||
-                         tagConfig.MediaInfoTargetEpisode || tagConfig.MediaInfoTargetSeason || tagConfig.MediaInfoTargetSeries ||
-                         _legacyTarget !== '';
-        var _tagTargetEp  = tagConfig.TagTargetEpisode  || tagConfig.MediaInfoTargetEpisode || _legacyTarget === 'Episode';
-        var _tagTargetSea = tagConfig.TagTargetSeason   || tagConfig.MediaInfoTargetSeason  || _legacyTarget === 'Season';
-        var _tagTargetSer = tagConfig.TagTargetSeries   || tagConfig.MediaInfoTargetSeries  || _legacyTarget === 'Series' || !_tagAnySet;
-        // Collection output targets — default Series=true if no target has ever been set
-        var _collAnySet = tagConfig.CollectionTargetEpisode || tagConfig.CollectionTargetSeason || tagConfig.CollectionTargetSeries ||
-                          tagConfig.MediaInfoTargetEpisode || tagConfig.MediaInfoTargetSeason || tagConfig.MediaInfoTargetSeries ||
-                          _legacyTarget !== '';
-        var _collTargetEp  = tagConfig.CollectionTargetEpisode || tagConfig.MediaInfoTargetEpisode || _legacyTarget === 'Episode';
-        var _collTargetSea = tagConfig.CollectionTargetSeason  || tagConfig.MediaInfoTargetSeason  || _legacyTarget === 'Season';
-        var _collTargetSer = tagConfig.CollectionTargetSeries  || tagConfig.MediaInfoTargetSeries  || _legacyTarget === 'Series' || !_collAnySet;
-
-        var enableHomeSection = tagConfig.EnableHomeSection ? 'checked' : '';
-        // A MediaInfo group with a viewer-dependent filter can own a home section without a tag/collection
-        // (the section query is resolved per user by Emby).
-        var _hasViewerCriteria = tagConfigHasViewerCriteria(tagConfig);
-        var _hseAllowedWithoutOutput = sourceType === 'MediaInfo' && _hasViewerCriteria;
-        var disableHomeSection = (tagConfig.EnableTag === false && !tagConfig.EnableCollection && !_hseAllowedWithoutOutput) ? 'disabled' : '';
-        var homeSectionLibraryId = encodeURIComponent(tagConfig.HomeSectionLibraryId || 'auto');
-        var homeSectionUserIdsEnc = encodeURIComponent(JSON.stringify(tagConfig.HomeSectionUserIds || []));
-        var homeSectionSettingsEnc = encodeURIComponent(tagConfig.HomeSectionSettings || '{}');
-        var homeSectionTrackedEnc = encodeURIComponent(JSON.stringify(tagConfig.HomeSectionTracked || []));
-        var hsDefaultSectionType = tagConfig.EnableCollection ? 'boxset' : ((tagConfig.EnableTag || _hseAllowedWithoutOutput) ? 'items' : 'boxset');
-
-        var mediaFilters = (tagConfig.MediaInfoFilters && tagConfig.MediaInfoFilters.length > 0)
-            ? tagConfig.MediaInfoFilters
-            : ((tagConfig.MediaInfoConditions && tagConfig.MediaInfoConditions.length > 0)
-                ? [{ Operator: 'AND', Criteria: tagConfig.MediaInfoConditions }]
-                : []);
-        var filterGroupsHtml = mediaFilters.map((f, i) => getMediaInfoFilterGroupHtml(f, i, i === 0)).join('');
-
-        var activeText = tagConfig.Active !== false ? "Active" : "Disabled";
-        var activeColor = tagConfig.Active !== false ? "#52B54B" : "var(--theme-text-secondary)";
-
-        var sourceBadgeHtml = getSourceBadgeHtml(sourceType);
-        var indicatorsHtml = '';
-        if (intervals.length > 0) {
-            var schedActiveClass = isScheduleCurrentlyActive(intervals) ? ' schedule-active' : '';
-            var schedPriorityClass = tagConfig.OverrideWhenActive ? ' priority-active' : '';
-            var schedText = tagConfig.OverrideWhenActive ? 'Schedule priority' : 'Schedule';
-            indicatorsHtml += `<span class="tag-indicator schedule${schedPriorityClass}${schedActiveClass}"><i class="md-icon" style="font-size:1.1em;">calendar_today</i> ${schedText}</span>`;
+      const intervals = [];
+      row.querySelectorAll(".date-row").forEach((dr) => {
+        const drEl = dr;
+        const typeSel = drEl.querySelector(".selDateType");
+        const type = typeSel ? typeSel.value : "SpecificDate";
+        let s = null;
+        let e = null;
+        let days = "";
+        if (type === "SpecificDate") {
+          const sEl = drEl.querySelector(".txtFullStartDate");
+          const eEl = drEl.querySelector(".txtFullEndDate");
+          s = sEl ? sEl.value || null : null;
+          e = eEl ? eEl.value || null : null;
+        } else if (type === "EveryYear") {
+          const sM = drEl.querySelector(".selStartMonth");
+          const sD = drEl.querySelector(".selStartDay");
+          const eM = drEl.querySelector(".selEndMonth");
+          const eD = drEl.querySelector(".selEndDay");
+          const smStr = sM ? sM.value : "1";
+          const sdStr = sD ? sD.value : "1";
+          const emStr = eM ? eM.value : "1";
+          const edStr = eD ? eD.value : "1";
+          s = "2000-" + smStr.padStart(2, "0") + "-" + sdStr.padStart(2, "0");
+          e = "2000-" + emStr.padStart(2, "0") + "-" + edStr.padStart(2, "0");
+        } else if (type === "Weekly") {
+          const activeBtns = Array.from(drEl.querySelectorAll(".day-toggle.active"));
+          days = activeBtns.map((b) => b.dataset.day || "").filter(Boolean).join(",");
         }
-        if (tagConfig.EnableCollection) {
-            indicatorsHtml += `<span class="tag-indicator collection"><i class="md-icon" style="font-size:1.1em;">library_books</i> Collection</span>`;
-        }
-        if (tagConfig.EnableHomeSection) {
-            indicatorsHtml += `<span class="tag-indicator homescreen"><i class="md-icon" style="font-size:1.1em;">home</i> Home Section</span>`;
-        }
-        if (tagConfig.EnableTag) {
-            indicatorsHtml += `<span class="tag-indicator tag"><i class="md-icon" style="font-size:1.1em;">label</i> Tag</span>`;
-        }
-        if (tagConfig.EnablePlaylist) {
-            indicatorsHtml += `<span class="tag-indicator playlist"><i class="md-icon" style="font-size:1.1em;">queue_music</i> Playlist</span>`;
-        }
-        if (_topListTagNames.has(tagName.toLowerCase())) {
-            indicatorsHtml += `<span class="tag-indicator toplist"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Top-List</span>`;
-        }
-
-        var initialStyle = isNew ? 'display:block;' : 'display:none;';
-        var initialIcon = isNew ? 'expand_less' : 'expand_more';
-
-        var inactiveClass = tagConfig.Active === false ? "inactive" : "";
-        var newClass = isNew ? "just-added" : "";
-
-        var html = `
-        <div class="tag-row ${inactiveClass} ${newClass}" data-index="${idx}" data-tag="${tagName.toLowerCase()}" data-last-modified="${lastMod}" data-dirty="false">
-            <div class="tag-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px; cursor:pointer;">
-                <div style="display:flex; align-items:center;">
-                    <div class="header-actions" style="margin-right:15px; display:flex; align-items:center;" onclick="event.stopPropagation()">
-                        <div class="drag-handle">
-                            <i class="md-icon">reorder</i>
-                        </div>
-                        <span class="lblActiveStatus" style="margin-right:8px; font-size:0.9em; font-weight:bold; color:${activeColor}; min-width:60px; text-align:right;">${activeText}</span>
-                        <label class="checkboxContainer" style="margin:0;">
-                            <input type="checkbox" is="emby-checkbox" class="chkTagActive" ${isChecked} />
-                            <span></span>
-                        </label>
-                    </div>
-                    <div class="tag-info" style="display:flex; align-items:center;">
-                        <span class="source-badge">${sourceBadgeHtml}</span>
-                        <span class="tag-title" style="font-weight:bold; font-size:1.1em;">${labelName || tagName || 'New'}</span>
-                        <span class="badge-container" style="display:flex; align-items:center;">${indicatorsHtml}</span>
-                    </div>
-                </div>
-                <i class="md-icon expand-icon">${initialIcon}</i>
-            </div>
-            <div class="tag-body" style="${initialStyle} padding:15px; border-top:1px solid rgba(255,255,255,0.1);">
-                <div style="display:flex; justify-content:flex-end; margin-bottom:4px;">
-                    <button type="button" is="emby-button" class="btnDuplicateRow raised" style="background:transparent; color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0; box-shadow:none;" title="Duplicate this source"><i class="md-icon" style="font-size:1em; margin-right:4px;">content_copy</i><span>Duplicate</span></button>
-                </div>
-                <div class="tag-tabs" style="display: flex; gap: 20px; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                    <div class="tag-tab active" data-tab="general" style="padding: 8px 0; cursor: pointer; font-weight: bold; border-bottom: 2px solid #52B54B;">Source</div>
-                    <div class="tag-tab" data-tab="tag" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Tag</div>
-                    <div class="tag-tab" data-tab="collection" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Collection</div>
-                    <div class="tag-tab" data-tab="playlist" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Playlist</div>
-                    <div class="tag-tab" data-tab="schedule" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Schedule</div>
-                    <div class="tag-tab" data-tab="advanced" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Blacklist</div>
-                    <div class="tag-tab" data-tab="homescreen" style="padding: 8px 0; cursor: pointer; opacity: 0.6; font-weight: bold; border-bottom: 2px solid transparent;">Home Screen</div>
-                </div>
-                
-                <div class="tab-content general-tab">
-                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtEntryLabel" type="text" label="Display Name" value="${labelName}" /></div>
-                    
-                    <div style="margin-bottom: 15px;">
-                        <label class="selectLabel">Source Type</label>
-                        <select is="emby-select" class="selSourceType" style="width:100%;">
-                            <option value="" ${!sourceType ? 'selected' : ''}>-- Select source type --</option>
-                            <option value="External" ${sourceType === 'External' ? 'selected' : ''}>External List (Trakt/MDBList/TMDb)</option>
-                            <option value="LocalCollection" ${sourceType === 'LocalCollection' ? 'selected' : ''}>Local Collection</option>
-                            <option value="LocalPlaylist" ${sourceType === 'LocalPlaylist' ? 'selected' : ''}>Local Playlist</option>
-                            <option value="MediaInfo" ${sourceType === 'MediaInfo' ? 'selected' : ''}>Local Media Information (Smart Playlist)</option>
-                            <option value="AI" ${sourceType === 'AI' ? 'selected' : ''}>AI created lists</option>
-                        </select>
-                        <p class="source-type-hint" style="margin:6px 0 0 0; font-size:1em; opacity:0.8; line-height:1.4;">${(function(st) {
-                            if (st === 'External')         return 'Use an external list to tag, or create a collection, from the items that match your library.';
-                            if (st === 'LocalCollection') return 'Every item in the selected collection(s) gets the configured tag or is added to a new collection. You can also use this to create a curated list of selected collections as a home screen section.';
-                            if (st === 'LocalPlaylist')   return 'Every item in the selected playlist(s) gets the configured tag or is added to a new collection.';
-                            if (st === 'MediaInfo')       return 'Filter your own library to select which movies or shows to tag or create a collection of. This is also known as a Smart Playlist.';
-                            if (st === 'AI')              return 'Use AI to create a list. Write your prompt and the AI will build a list based on it.';
-                            return '';
-                        })(sourceType)}</p>
-                    </div>
-
-                    <div class="source-external-container" style="display: ${sourceType === 'External' ? 'block' : 'none'};">
-                        <div style="display:flex; align-items:baseline; gap:10px; margin:10px 0 10px 0;">
-                            <p style="margin:0; font-size:0.9em; font-weight:bold; opacity:0.7;">Source URLs</p>
-                            <span style="font-size:0.75em; opacity:0.5;">— Find lists: <a href="https://trakt.tv/discover" target="_blank" style="color:inherit; text-decoration:underline;">Trakt</a> &middot; <a href="https://mdblist.com/toplists/" target="_blank" style="color:inherit; text-decoration:underline;">MDBList</a> &middot; <a href="https://www.themoviedb.org/" target="_blank" style="color:inherit; text-decoration:underline;">TMDb</a> &middot; <a href="https://developer.themoviedb.org/reference/getting-started" target="_blank" style="color:inherit; text-decoration:underline;">TMDb API</a></span>
-                        </div>
-                        <div class="url-list-container">${urls.map(u => getUrlRowHtml(u.url, u.limit)).join('')}</div>
-                        <div style="margin-top:10px;"><button is="emby-button" type="button" class="raised btnAddUrl" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);"><i class="md-icon" style="margin-right:5px;">add</i>Add another URL</button></div>
-                    </div>
-
-                    <div class="source-local-container" style="display: ${(sourceType === 'LocalCollection' || sourceType === 'LocalPlaylist') ? 'block' : 'none'};">
-                        <p style="margin:10px 0 10px 0; font-size:0.9em; font-weight:bold; opacity:0.7;" class="local-type-label">${sourceType === 'LocalPlaylist' ? 'Select Playlists' : 'Select Collections'}</p>
-                        <div class="local-list-container">${localSources.map(ls => getLocalRowHtml(sourceType, ls.id, ls.limit)).join('')}</div>
-                        <div style="margin-top:10px;"><button is="emby-button" type="button" class="raised btnAddLocal" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);"><i class="md-icon" style="margin-right:5px;">add</i>Add another</button></div>
-                    </div>
-
-                    <div class="source-ai-container" style="display: ${sourceType === 'AI' ? 'block' : 'none'};">
-                        <div style="margin-bottom: 15px;">
-                            <label class="selectLabel">AI Provider</label>
-                            <select is="emby-select" class="selAiProvider" style="width:100%;">
-                                <option value="OpenAI" ${(tagConfig.AiProvider || 'OpenAI') === 'OpenAI' ? 'selected' : ''}>OpenAI (ChatGPT)</option>
-                                <option value="Gemini" ${(tagConfig.AiProvider || 'OpenAI') === 'Gemini' ? 'selected' : ''}>Google Gemini</option>
-                                <option value="Claude" ${(tagConfig.AiProvider || 'OpenAI') === 'Claude' ? 'selected' : ''}>Anthropic Claude</option>
-                                <option value="Ollama" ${(tagConfig.AiProvider || 'OpenAI') === 'Ollama' ? 'selected' : ''}>Ollama (Local)</option>
-                            </select>
-                        </div>
-
-                        <div class="ollama-experimental-warning" style="display:${(tagConfig.AiProvider || 'OpenAI') === 'Ollama' ? 'flex' : 'none'}; align-items:flex-start; gap:8px; background:rgba(232,168,56,0.1); border:1px solid rgba(232,168,56,0.35); border-radius:4px; padding:10px 12px; margin-bottom:15px; font-size:0.85em; line-height:1.5;">
-                            <i class="md-icon" style="font-size:1.1em; color:#e8a838; flex-shrink:0; margin-top:1px;">warning</i>
-                            <span style="opacity:0.85;"><strong>Experimental:</strong> Ollama support is experimental. Local models may return inaccurate IMDB IDs — the plugin will fall back to title matching, but results <strong>WILL</strong> vary depending on the model used. Known limitations with local AI is the lack of new and updated information, and limited ability to research online. Cloud based models seems to be the best options for now. </span>
-                        </div>
-
-                        <div class="inputContainer" style="margin-bottom:15px;">
-                            <textarea is="emby-textarea" class="txtAiPrompt" rows="3"
-                                label="Prompt"
-                                style="width:100%; resize:vertical; box-sizing:border-box;"
-                                placeholder="e.g. Give me the best thriller movies from the 2000s">${tagConfig.AiPrompt || ''}</textarea>
-                            <div class="fieldDescription">Write your intent. The system will automatically format the output as a structured movie/show list. You don't need to specify a format.</div>
-                        </div>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:12px;">
-                            <label>
-                                <input type="checkbox" is="emby-checkbox" class="chkAiRecentlyWatched" ${tagConfig.AiIncludeRecentlyWatched ? 'checked' : ''} />
-                                <span>Include recently watched for personalization</span>
-                            </label>
-                            <div class="fieldDescription">Prepends the selected user's watch history to the AI prompt, enabling "Recommended for you" style lists.</div>
-                        </div>
-
-                        <div class="ai-recently-watched-options" style="display: ${tagConfig.AiIncludeRecentlyWatched ? 'block' : 'none'}; margin-top:10px; padding-left:10px; border-left:2px solid rgba(128,128,128,0.3);">
-                            <div style="margin-bottom:10px;">
-                                <label class="selectLabel">User for watch history</label>
-                                <select is="emby-select" class="selAiWatchedUser" style="width:100%;">
-                                    <option value="">-- Select user --</option>
-                                    ${(_miUsers || []).map(function(u) { return '<option value="' + u.Id + '"' + (u.Id === (tagConfig.AiRecentlyWatchedUserId || '') ? ' selected' : '') + '>' + u.Name + '</option>'; }).join('')}
-                                </select>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                                <label style="font-size:0.9em; white-space:nowrap; margin:0;">Recent items to include</label>
-                                <input is="emby-input" class="txtAiWatchedCount" type="number" value="${tagConfig.AiRecentlyWatchedCount || 20}" min="5" max="100" style="width:80px;" />
-                            </div>
-                        </div>
-
-                        <div style="display:flex; align-items:center; gap:12px; margin-top:15px; margin-bottom:15px;">
-                            <label style="font-size:0.9em; white-space:nowrap; margin:0;">Max items</label>
-                            <input is="emby-input" class="txtAiLimit" type="number" value="${aiLimit}" min="0" style="width:90px;" />
-                            <span style="font-size:0.8em; opacity:0.5;">0 = no limit. Injected into the prompt automatically.</span>
-                        </div>
-
-                        <div style="display:flex; align-items:center; gap:12px; margin-top:0; margin-bottom:15px;">
-                            <label style="font-size:0.9em; white-space:nowrap; margin:0;">Refresh every</label>
-                            <input is="emby-input" class="txtAiRefreshInterval" type="number" value="${tagConfig.AiRefreshIntervalDays || 0}" min="0" style="width:90px;" />
-                            <span style="font-size:0.8em; opacity:0.5;">days &nbsp;(0 = run on every full sync)</span>
-                        </div>
-
-                        <div style="margin-top:0;">
-                            <button type="button" is="emby-button" class="raised btnTestAiSource btn-neutral" style="background:transparent; border:1px solid rgba(128,128,128,0.4); color:var(--theme-text-secondary);">
-                                <i class="md-icon" style="margin-right:5px;">science</i>Test AI Source
-                            </button>
-                            <span class="ai-test-result" style="margin-left:10px; font-size:0.85em; opacity:0.7;"></span>
-                        </div>
-                    </div>
-
-                    <div class="source-mediainfo-container" style="display: ${(sourceType && sourceType !== '') ? 'block' : 'none'};">
-                        <div class="mi-limit-row" style="display:${sourceType === 'MediaInfo' ? 'flex' : 'none'}; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-                            <label style="font-size:0.9em; white-space:nowrap; margin:0;">Max items</label>
-                            <input is="emby-input" class="txtMediaInfoLimit" type="number" value="${mediaInfoLimit}" min="0" style="width:90px;" />
-                            <button type="button" is="emby-button" class="btnMiHelp raised" style="margin-left:auto; background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to (filter guide)</span></button>
-                        </div>
-                        <div class="mi-toggle-row" style="display:${sourceType === 'MediaInfo' || mediaFilters.length > 0 ? 'none' : 'block'}; padding-top:14px; border-top:1px solid var(--line-color);">
-                            <button type="button" is="emby-button" class="btnToggleAdditionalFilters raised" style="background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.85em;"><i class="md-icon" style="font-size:1em; margin-right:4px;">filter_list</i><span>Add filters (optional)</span></button>
-                        </div>
-                        <div class="mi-filter-body" style="display:${sourceType === 'MediaInfo' || mediaFilters.length > 0 ? 'block' : 'none'};">
-                            <div class="mi-help-btn-row" style="display:${sourceType === 'MediaInfo' ? 'none' : 'flex'}; margin-bottom:14px; padding-top:14px; border-top:1px solid var(--line-color);">
-                                <button type="button" is="emby-button" class="btnMiHelp raised" style="margin-left:auto; background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to (filter guide)</span></button>
-                            </div>
-                            <div class="mediainfo-filter-list">${filterGroupsHtml}</div>
-                            <div style="display:flex; gap:8px; margin-top:8px;">
-                                <button type="button" is="emby-button" class="btnAddMediaInfoFilter raised" style="flex:1; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);"><i class="md-icon" style="margin-right:5px;">add</i>Add Filter Group</button>
-                                <button type="button" is="emby-button" class="btnClearAllFilters raised" style="background:transparent; border:2px dashed rgba(204,51,51,0.4); color:#cc3333; padding:0 14px; min-width:0;" title="Clear all filters"><i class="md-icon" style="font-size:1em;">delete_sweep</i></button>
-                            </div>
-                            <div class="mi-presets-section" style="margin-top:30px; border-top:1px solid var(--line-color); padding-top:12px; display:${sourceType === 'MediaInfo' ? 'block' : 'none'};">
-                            ${true ? `
-                                <button type="button" is="emby-button" class="btnPremadeFilters raised btn-neutral" style="width:100%; margin-bottom:6px; background:transparent; border:1px solid var(--line-color); color:var(--theme-text-secondary); display:flex; align-items:center; justify-content:space-between;"><span><i class="md-icon" style="margin-right:5px;">auto_awesome</i>Premade filters</span><i class="md-icon mi-expand-icon" style="transition:transform 0.2s; font-size:1.2em;">expand_more</i></button>
-                                <div class="mi-preset-panel" style="display:none; border:1px solid var(--line-color); border-radius:6px; padding:10px 12px; margin-bottom:8px; background:rgba(128,128,128,0.06);">
-                                    <div style="font-size:0.8em; color:var(--theme-text-secondary); margin-bottom:10px;">Select a preset to replace the current filters:</div>
-                                    ${MI_PRESETS.map(function(cat, ci) {
-                                        return '<div style="margin-bottom:10px;">' +
-                                            '<div style="font-size:0.72em; text-transform:uppercase; letter-spacing:1px; color:var(--theme-text-secondary); margin-bottom:5px;">' + cat.label + '</div>' +
-                                            '<div style="display:flex; flex-wrap:wrap; gap:6px;">' +
-                                            cat.presets.map(function(p, pi) {
-                                                return '<button type="button" class="btnApplyMiPreset" data-preset="' + ci + ',' + pi + '"' +
-                                                    ' style="border:1.5px solid #000; border-radius:14px; padding:4px 12px; font-size:0.82em; cursor:pointer; background:transparent; color:var(--theme-text-primary);">' + p.name + '</button>';
-                                            }).join('') + '</div></div>';
-                                    }).join('')}
-                                </div>
-                                <button type="button" is="emby-button" class="btnMySavedFilters raised btn-neutral" style="width:100%; margin-bottom:6px; background:transparent; border:1px solid var(--line-color); color:var(--theme-text-secondary); display:flex; align-items:center; justify-content:space-between;"><span><i class="md-icon" style="margin-right:5px;">bookmarks</i>My saved filters</span><i class="md-icon mi-expand-icon" style="transition:transform 0.2s; font-size:1.2em;">expand_more</i></button>
-                                <div class="mi-saved-panel" style="display:none; border:1px solid var(--line-color); border-radius:6px; padding:10px 12px; margin-bottom:8px; background:rgba(128,128,128,0.06);">
-                                    <div style="font-size:0.8em; color:var(--theme-text-secondary); margin-bottom:10px;">Select a saved filter to replace the current filters:</div>
-                                    <div class="mi-saved-panel-content">${getMySavedFiltersPanelHtml()}</div>
-                                    <div style="border-top:1px solid var(--line-color); margin:12px 0 10px;"></div>
-                                    <div style="font-size:0.8em; color:var(--theme-text-secondary); margin-bottom:6px;">Save current filter as:</div>
-                                    <div class="mi-saveas-bar" style="display:flex; gap:6px; align-items:flex-start;">
-                                        <input type="text" class="txtSaveFilterName emby-input" placeholder="Filter name..." style="flex:1; padding:4px 8px; font-size:0.85em;" />
-                                        <button type="button" is="emby-button" class="btnConfirmSaveFilter raised" style="background:var(--button-background); color:var(--button-foreground); flex-shrink:0;">Save</button>
-                                    </div>
-                                </div>
-                            ` : ''}
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-
-            <div class="tab-content tagname-tab" style="display:none;">
-                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtTagName" type="text" label="Tag Name" value="${tagName}" placeholder="${labelName}" /></div>
-                    <div class="tag-tab-controls" style="margin-top:10px;">
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label>
-                                <input is="emby-checkbox" type="checkbox" class="chkEnableTag" ${enableTag} />
-                                <span>Apply Tag</span>
-                            </label>
-                            <div class="fieldDescription">Automatically tag matched items in Emby.</div>
-                        </div>
-                        <div class="tag-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${tagConfig.EnableTag !== false ? 'block' : 'none'};">
-                            <div class="mi-tag-target-section" style="margin-top:4px;">
-                                <div style="font-size:0.85em; opacity:0.6; margin-bottom:6px; display:flex; align-items:center; gap:8px;">
-                                    <span>For TV shows, choose what level to tag:</span>
-                                    <button type="button" is="emby-button" class="btnTagTargetHelp raised" style="background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to use</span></button>
-                                </div>
-                                <div style="display:flex; flex-direction:row; align-items:center; gap:20px;">
-                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
-                                        <input type="checkbox" is="emby-checkbox" class="chkTagTargetSeries" ${_tagTargetSer ? 'checked' : ''} />
-                                        <span>Series</span>
-                                    </label>
-                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
-                                        <input type="checkbox" is="emby-checkbox" class="chkTagTargetSeason" ${_tagTargetSea ? 'checked' : ''} />
-                                        <span>Season</span>
-                                    </label>
-                                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
-                                        <input type="checkbox" is="emby-checkbox" class="chkTagTargetEpisode" ${_tagTargetEp ? 'checked' : ''} />
-                                        <span>Episode</span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-            </div>
-
-                <div class="tab-content schedule-tab" style="display:none;">
-                    <p style="margin:0 0 15px 0; font-size:0.9em; opacity:0.8;">Define when this tag should be active. If empty, it's always active.</p>
-                    <div class="date-list-container">${intervals.map(i => getDateRowHtml(i)).join('')}</div>
-                    <button is="emby-button" type="button" class="btnAddDate" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary); margin-top:10px;"><i class="md-icon" style="margin-right:5px;">event</i>Add Schedule Rule</button>
-                    <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:16px; ${intervals.length === 0 ? 'opacity:0.4;' : ''}">
-                        <label>
-                            <input is="emby-checkbox" type="checkbox" class="chkOverrideWhenActive" ${overrideChecked} ${intervals.length === 0 ? 'disabled' : ''} />
-                            <span>Priority override when active</span>
-                        </label>
-                        <div class="fieldDescription">When this entry is in schedule, all other entries sharing the same tag or collection are suppressed — only this entry's items keep the tag and collection.</div>
-                    </div>
-                </div>
-
-                <div class="tab-content collection-tab" style="display:none;">
-                    <div class="collection-tab-controls">
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label>
-                            <input is="emby-checkbox" type="checkbox" class="chkEnableCollection" ${enableColl} />
-                            <span>Create Collection</span>
-                        </label>
-                        <div class="fieldDescription">Automatically create and maintain an Emby Collection from these items.</div>
-                    </div>
-                    
-                    <div class="collection-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${tagConfig.EnableCollection ? 'block' : 'none'};">
-                        <div class="inputContainer">
-                            <input is="emby-input" type="text" class="txtCollectionName" label="Collection Name" value="${collName}" placeholder="${labelName}" />
-                            <div class="fieldDescription">Leave empty to use Display Name.</div>
-                        </div>
-
-                        <div class="mi-coll-target-section" style="margin-top:10px;">
-                            <div style="font-size:0.85em; opacity:0.6; margin-bottom:6px; display:flex; align-items:center; gap:8px;">
-                                <span>For TV shows, choose what level to add to collection:</span>
-                                <button type="button" is="emby-button" class="btnCollTargetHelp raised" style="background:transparent; border:1px solid rgba(128,128,128,0.35); color:var(--theme-text-secondary); font-size:0.82em; padding:0 10px; min-width:0;"><i class="md-icon" style="font-size:1em; margin-right:4px;">help_outline</i><span>How to use</span></button>
-                            </div>
-                            <div style="display:flex; flex-direction:row; align-items:center; gap:20px;">
-                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
-                                    <input type="checkbox" is="emby-checkbox" class="chkCollTargetSeries" ${_collTargetSer ? 'checked' : ''} />
-                                    <span>Series</span>
-                                </label>
-                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
-                                    <input type="checkbox" is="emby-checkbox" class="chkCollTargetSeason" ${_collTargetSea ? 'checked' : ''} />
-                                    <span>Season</span>
-                                </label>
-                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;">
-                                    <input type="checkbox" is="emby-checkbox" class="chkCollTargetEpisode" ${_collTargetEp ? 'checked' : ''} />
-                                    <span>Episode</span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div class="inputContainer" style="margin-top:15px;">
-                            <textarea is="emby-textarea" class="txtCollectionDescription" rows="3"
-                                label="Description"
-                                placeholder="Optional description for this collection..."
-                                style="width:100%; resize:vertical; box-sizing:border-box;">${collDescription}</textarea>
-                        </div>
-
-                        <div style="margin-top:15px;">
-                            <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Collection Poster</p>
-                            <div class="poster-preview-container" style="margin-bottom:8px; display:${collPosterPath ? 'block' : 'none'};">
-                                <span class="poster-filename" style="font-size:0.85em; opacity:0.7;">${collPosterPath ? collPosterPath.split(/[\\\\/]/).pop() : ''}</span>
-                                <button type="button" class="btnRemovePoster" style="margin-left:10px; font-size:0.8em; background:transparent; border:none; color:#e55; cursor:pointer; vertical-align:middle;">✕ Remove</button>
-                            </div>
-                            <img class="poster-preview-img" src="" alt="" style="max-width:120px; max-height:180px; border-radius:4px; display:none; margin-bottom:8px;" />
-                            <input type="file" class="inputPosterFile" accept="image/*" style="display:none;" />
-                            <input type="hidden" class="hiddenPosterPath" value="${collPosterPath}" />
-                            <button type="button" is="emby-button" class="btnChoosePoster raised" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);">
-                                <i class="md-icon" style="margin-right:5px;">image</i>Choose Poster Image
-                            </button>
-                            <div style="display:flex; align-items:center; gap:6px; margin-top:8px; opacity:0.45;">
-                                <div style="flex:1; height:1px; background:currentColor;"></div>
-                                <span style="font-size:0.75em;">or</span>
-                                <div style="flex:1; height:1px; background:currentColor;"></div>
-                            </div>
-                            <div style="display:flex; gap:6px; margin-top:6px;">
-                                <input class="txtPosterUrl" is="emby-input" type="url" placeholder="https://example.com/poster.jpg" style="flex:1;" />
-                                <button type="button" is="emby-button" class="btnLoadPosterUrl raised btn-neutral">Load</button>
-                            </div>
-                        </div>
-                    </div>
-                    </div>
-                </div>
-
-                <div class="tab-content playlist-tab" style="display:none;"
-                    data-pl-userids="${playlistUserIdsEnc}"
-                    data-pl-mappings="${playlistMappingsEnc}"
-                    data-pl-loaded="0">
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label>
-                            <input is="emby-checkbox" type="checkbox" class="chkEnablePlaylist" ${enablePlaylist} />
-                            <span>Create Playlist</span>
-                        </label>
-                        <div class="fieldDescription">Automatically create and maintain an individual Emby Playlist for each selected user.</div>
-                    </div>
-                    <div class="playlist-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${tagConfig.EnablePlaylist ? 'block' : 'none'};">
-                        <div class="inputContainer">
-                            <input is="emby-input" type="text" class="txtPlaylistName" label="Playlist Name" value="${playlistName}" placeholder="${labelName}" />
-                            <div class="fieldDescription">Leave empty to use Display Name.</div>
-                        </div>
-                        <div style="margin-top:12px;">
-                            <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Target Users</p>
-                            <div class="playlist-user-list"><em style="opacity:0.5">Loading users...</em></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="tab-content advanced-tab" style="display:none;">
-                    <div class="inputContainer">
-                        <p style="margin:0 0 5px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Blacklist / Ignore (IMDB IDs)</p>
-                        <textarea class="txtTagBlacklist" rows="2" placeholder="tt1234567&#10;tt9876543" style="width:100%;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:44px;max-height:120px;overflow-y:auto;">${blacklist}</textarea>
-                        <div class="fieldDescription">Items with these IDs will never be tagged or added to collection.</div>
-                    </div>
-                </div>
-
-                <div class="tab-content homescreen-tab" style="display:none;"
-                    data-hse-libraryid="${homeSectionLibraryId}"
-                    data-hse-userids="${homeSectionUserIdsEnc}"
-                    data-hse-settings="${homeSectionSettingsEnc}"
-                    data-hse-tracked="${homeSectionTrackedEnc}"
-                    data-hse-default-type="${hsDefaultSectionType}"
-                    data-hse-loaded="0">
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label>
-                            <input is="emby-checkbox" class="chkEnableHomeSection" type="checkbox" ${enableHomeSection} ${disableHomeSection}/>
-                            <span>Add as home screen section</span>
-                        </label>
-                        <div class="fieldDescription">A home screen section will be managed for selected users each time sync runs.</div>
-                        <div class="hse-disabled-hint" style="font-size:0.9em; color:#e07070; margin-top:4px; display:${(tagConfig.EnableTag === false && !tagConfig.EnableCollection && !_hseAllowedWithoutOutput) ? 'block' : 'none'};">Requires <strong>Apply Tag</strong>, <strong>Create Collection</strong>, or a current-user filter (Smart playlist) to be enabled.</div>
-                    </div>
-                    <div class="hse-details" style="display:${enableHomeSection ? 'block' : 'none'}; margin-top:15px;">
-                        <div style="margin-bottom:15px;">
-                            <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Target Users</p>
-                            <div class="hse-user-list-inner"><em style="opacity:0.5">Loading users...</em></div>
-                        </div>
-                        <div>
-                            <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Section Settings</p>
-                            <div class="hse-fields-inner"><em style="opacity:0.5">Loading settings...</em></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:20px; border-top:1px solid var(--line-color); padding-top:10px;">
-                    <button is="emby-button" type="button" class="raised button-submit btnRunEntry" style="background:#0099d5 !important; color:#fff !important;"><i class="md-icon" style="margin-right:5px;">play_arrow</i><span class="btnRunEntryLabel">Run Group</span></button>
-                    <button is="emby-button" type="button" class="raised btnRemoveGroup" style="background:#cc3333 !important; color:#fff;"><i class="md-icon" style="margin-right:5px;">delete</i>Remove Group</button>
-                </div>
-            </div>
-        </div>`;
-
-        if (afterRef) afterRef.insertAdjacentHTML('afterend', html);
-        else if (prepend) container.insertAdjacentHTML('afterbegin', html);
-        else container.insertAdjacentHTML('beforeend', html);
-
-        var newRow = afterRef ? afterRef.nextElementSibling : (prepend ? container.firstElementChild : container.lastElementChild);
-        setupRowEvents(newRow);
-        // Auto-size any pre-filled growing textareas
-        newRow.querySelectorAll('textarea.txtMiValue, textarea.txtTagBlacklist').forEach(function (ta) {
-            ta.style.height = 'auto';
-            ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-            ta.style.overflowY = ta.scrollHeight > 120 ? 'auto' : 'hidden';
-        });
-
-        if (isNew) {
-            setTimeout(() => { newRow.classList.remove('just-added'); }, 2000);
-        }
+        intervals.push({ Type: type, Start: s, End: e, DayOfWeek: days });
+      });
+      return intervals;
     }
-
-    function refreshTopListBadges() {
-        document.querySelectorAll('.tag-row').forEach(function (row) {
-            var container = row.querySelector('.badge-container');
-            if (!container) return;
-            var tagName = (row.dataset.tag || '').toLowerCase();
-            var existing = container.querySelector('.tag-indicator.toplist');
-            if (_topListTagNames.has(tagName)) {
-                if (!existing) {
-                    var span = document.createElement('span');
-                    span.className = 'tag-indicator toplist';
-                    span.innerHTML = '<i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Top-List';
-                    container.appendChild(span);
-                }
-            } else if (existing) {
-                existing.remove();
-            }
-        });
+    function getApi() {
+      return window.ApiClient;
     }
-
-    function setupRowEvents(row) {
-        function updateBadges(row) {
-            var container = row.querySelector('.badge-container');
-            if (!container) return;
-
-            var hasSchedule = row.querySelectorAll('.date-row').length > 0;
-            var hasCollection = row.querySelector('.chkEnableCollection').checked;
-            var hasHomeSection = row.querySelector('.chkEnableHomeSection').checked;
-            var hasTag = row.querySelector('.chkEnableTag').checked;
-            var hasPlaylist = !!(row.querySelector('.chkEnablePlaylist') || {}).checked;
-            var overrideChk = row.querySelector('.chkOverrideWhenActive');
-            if (overrideChk) {
-                overrideChk.disabled = !hasSchedule;
-                if (!hasSchedule) overrideChk.checked = false;
-                var overrideContainer = overrideChk.closest('.checkboxContainer');
-                if (overrideContainer) overrideContainer.style.opacity = hasSchedule ? '' : '0.4';
-            }
-            var hasOverride = hasSchedule && !!(overrideChk || {}).checked;
-
-            var sourceBadge = row.querySelector('.source-badge');
-            if (sourceBadge) sourceBadge.innerHTML = getSourceBadgeHtml(row.querySelector('.selSourceType').value);
-
-            var html = '';
-            if (hasSchedule) {
-                var schedPriorityClass = hasOverride ? ' priority-active' : '';
-                var schedActiveClass = isScheduleCurrentlyActive(readIntervalsFromRow(row)) ? ' schedule-active' : '';
-                var schedText = hasOverride ? 'Schedule priority' : 'Schedule';
-                html += `<span class="tag-indicator schedule${schedPriorityClass}${schedActiveClass}"><i class="md-icon" style="font-size:1.1em;">calendar_today</i> ${schedText}</span>`;
-            }
-            if (hasCollection) {
-                html += `<span class="tag-indicator collection"><i class="md-icon" style="font-size:1.1em;">library_books</i> Collection</span>`;
-            }
-            if (hasHomeSection) {
-                html += `<span class="tag-indicator homescreen"><i class="md-icon" style="font-size:1.1em;">home</i> Home Section</span>`;
-            }
-            if (hasTag) {
-                html += `<span class="tag-indicator tag"><i class="md-icon" style="font-size:1.1em;">label</i> Tag</span>`;
-            }
-            if (hasPlaylist) {
-                html += `<span class="tag-indicator playlist"><i class="md-icon" style="font-size:1.1em;">queue_music</i> Playlist</span>`;
-            }
-            if (_topListTagNames.has((row.dataset.tag || '').toLowerCase())) {
-                html += `<span class="tag-indicator toplist"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Top-List</span>`;
-            }
-            container.innerHTML = html;
-        }
-
-        row.querySelectorAll('.tag-tab').forEach(tab => {
-            tab.addEventListener('click', function () {
-                row.querySelectorAll('.tag-tab').forEach(t => { t.style.opacity = "0.6"; t.style.borderBottomColor = "transparent"; });
-                this.style.opacity = "1"; this.style.borderBottomColor = "#52B54B";
-                var target = this.getAttribute('data-tab');
-                row.querySelector('.general-tab').style.display = target === 'general' ? 'block' : 'none';
-                row.querySelector('.tagname-tab').style.display = target === 'tag' ? 'block' : 'none';
-                row.querySelector('.schedule-tab').style.display = target === 'schedule' ? 'block' : 'none';
-                row.querySelector('.collection-tab').style.display = target === 'collection' ? 'block' : 'none';
-                row.querySelector('.advanced-tab').style.display = target === 'advanced' ? 'block' : 'none';
-                row.querySelector('.homescreen-tab').style.display = target === 'homescreen' ? 'block' : 'none';
-                row.querySelector('.playlist-tab').style.display = target === 'playlist' ? 'block' : 'none';
-                if (target === 'homescreen') initHomeSectionTab(row);
-                if (target === 'playlist') initPlaylistTab(row);
-                var activeTabEl = row.querySelector('.' + target + '-tab');
-                if (activeTabEl) activeTabEl.querySelectorAll('textarea.txtMiValue, textarea.txtTagBlacklist').forEach(function(ta) {
-                    ta.style.height = 'auto';
-                    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-                    ta.style.overflowY = ta.scrollHeight > 120 ? 'auto' : 'hidden';
-                });
-            });
-        });
-
-        row.addEventListener('change', e => {
-            if (e.target.classList.contains('selSourceType')) {
-                var type = e.target.value;
-                row.querySelector('.source-external-container').style.display = type === 'External' ? 'block' : 'none';
-                row.querySelector('.source-local-container').style.display = (type === 'LocalCollection' || type === 'LocalPlaylist') ? 'block' : 'none';
-                row.querySelector('.source-mediainfo-container').style.display = (type && type !== '') ? 'block' : 'none';
-                row.querySelector('.source-ai-container').style.display = type === 'AI' ? 'block' : 'none';
-
-                var _hint = row.querySelector('.source-type-hint');
-                if (_hint) {
-                    var _hints = {
-                        'External':         'Use an external list to tag, or create a collection, from the items that match your library.',
-                        'LocalCollection':  'Every item in the selected collection(s) gets the configured tag or is added to a new collection. You can also use this to create a curated list of selected collections as a home screen section.',
-                        'LocalPlaylist':    'Every item in the selected playlist(s) gets the configured tag or is added to a new collection.',
-                        'MediaInfo':        'Filter your own library to select which movies or shows to tag or create a collection of. This is also known as a Smart Playlist.',
-                        'AI':               'Use AI to create a list. Write your prompt and the AI will build a list based on it.'
-                    };
-                    _hint.textContent = _hints[type] || '';
-                }
-
-                var isMi = type === 'MediaInfo';
-                var miLimitRow      = row.querySelector('.mi-limit-row');
-                var miToggleRow     = row.querySelector('.mi-toggle-row');
-                var miFilterBody    = row.querySelector('.mi-filter-body');
-                var miHelpBtnRow    = row.querySelector('.mi-help-btn-row');
-                var miPresetsSection = row.querySelector('.mi-presets-section');
-                if (miPresetsSection) miPresetsSection.style.display = isMi ? 'block' : 'none';
-                if (miLimitRow) miLimitRow.style.display = isMi ? 'flex' : 'none';
-                if (miHelpBtnRow) miHelpBtnRow.style.display = isMi ? 'none' : 'flex';
-                if (isMi) {
-                    if (miToggleRow)  miToggleRow.style.display  = 'none';
-                    if (miFilterBody) miFilterBody.style.display = 'block';
-                } else if (type) {
-                    // Always collapse filters when switching away from MediaInfo — user must open manually
-                    if (miToggleRow)  miToggleRow.style.display  = 'block';
-                    if (miFilterBody) miFilterBody.style.display = 'none';
-                }
-                if (type) {
-                    var miList = row.querySelector('.mediainfo-filter-list');
-                    if (miList && isMi && miList.querySelectorAll('.mediainfo-filter-group').length === 0) {
-                        miList.insertAdjacentHTML('beforeend', getMediaInfoFilterGroupHtml({ Operator: 'AND', Criteria: [], GroupOperator: 'AND' }, 0, true));
-                    }
-                }
-
-                if (type === 'LocalCollection' || type === 'LocalPlaylist') {
-                    row.querySelector('.local-list-container').innerHTML = getLocalRowHtml(type, "", 0);
-                    row.querySelector('.local-type-label').textContent = type === 'LocalPlaylist' ? "Select Playlists" : "Select Collections";
-                }
-                updateBadges(row);
-                updateHseSectionAvailability(row);
-            }
-            
-            if (e.target.classList.contains('selMiProperty')) {
-                var miRule = e.target.closest('.mi-rule');
-                miRule.querySelector('.mi-value-wrapper').innerHTML = getMiValueHtml(e.target.value, '', '');
-                var existingHint = miRule.querySelector('.mi-rule-hint');
-                if (existingHint) existingHint.outerHTML = getMiHintHtml(e.target.value);
-                updateHseSectionAvailability(row);
-            }
-            if (e.target.classList.contains('selMiUser')) {
-                updateHseSectionAvailability(row);
-            }
-            if (e.target.classList.contains('selMiValue')) {
-                var _miRule = e.target.closest('.mi-rule');
-                if (_miRule) {
-                    var _prop = (_miRule.querySelector('.selMiProperty') || {}).value;
-                    if (_prop === 'MediaType') {
-                        var _incParent = _miRule.querySelector('.mi-include-parent');
-                        if (_incParent) _incParent.style.display = e.target.value === 'Episode' ? 'inline-flex' : 'none';
-                    }
-                }
-            }
-            if (e.target.classList.contains('selDateType')) {
-                var dateRow = e.target.closest('.date-row');
-                var type = e.target.value;
-                dateRow.querySelector('.inputs-specific').style.display = type === 'SpecificDate' ? 'flex' : 'none';
-                dateRow.querySelector('.inputs-annual').style.display = type === 'EveryYear' ? 'flex' : 'none';
-                dateRow.querySelector('.inputs-weekly').style.display = type === 'Weekly' ? 'flex' : 'none';
-            }
-            if (e.target.classList.contains('selStartMonth') || e.target.classList.contains('selEndMonth')) {
-                var isStart = e.target.classList.contains('selStartMonth');
-                var dateRow = e.target.closest('.date-row');
-                var month = parseInt(e.target.value, 10);
-                var maxDay = getMaxDays(month);
-                var daySelect = dateRow.querySelector(isStart ? '.selStartDay' : '.selEndDay');
-                var currentDay = Math.min(parseInt(daySelect.value, 10), maxDay);
-                daySelect.innerHTML = getDayOptions(currentDay, maxDay);
-            }
-            setTimeout(checkFormState, 0);
-        });
-
-        var header = row.querySelector('.tag-header'), body = row.querySelector('.tag-body'), icon = row.querySelector('.expand-icon');
-        header.addEventListener('click', e => {
-            if (e.target.closest('.header-actions')) return;
-            var isHidden = body.style.display === 'none';
-            body.style.display = isHidden ? 'block' : 'none';
-            icon.innerText = isHidden ? 'expand_less' : 'expand_more';
-            if (isHidden) {
-                body.querySelectorAll('textarea.txtMiValue, textarea.txtTagBlacklist').forEach(function(ta) {
-                    ta.style.height = 'auto';
-                    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-                    ta.style.overflowY = ta.scrollHeight > 120 ? 'auto' : 'hidden';
-                });
-            }
-        });
-
-        var chk = row.querySelector('.chkTagActive'), lblStatus = row.querySelector('.lblActiveStatus');
-        function updateRunGroupBtn() {
-            var runBtn = row.querySelector('.btnRunEntry');
-            if (!runBtn) return;
-            var active = chk.checked;
-            runBtn.disabled = !active;
-            runBtn.style.opacity = active ? '1' : '0.4';
-        }
-        chk.addEventListener('change', function () {
-            lblStatus.textContent = this.checked ? "Active" : "Disabled";
-            lblStatus.style.color = this.checked ? "#52B54B" : "var(--theme-text-secondary)";
-            if (this.checked) row.classList.remove('inactive');
-            else row.classList.add('inactive');
-            updateRunGroupBtn();
-        });
-        updateRunGroupBtn();
-
-        row.querySelector('.chkEnableTag').addEventListener('change', function () {
-            row.querySelector('.tag-settings').style.display = this.checked ? 'block' : 'none';
-            updateBadges(row);
-            updateHseSectionAvailability(row);
-        });
-
-        row.querySelector('.chkEnableCollection').addEventListener('change', function () {
-            row.querySelector('.collection-settings').style.display = this.checked ? 'block' : 'none';
-            updateBadges(row);
-            updateHseSectionAvailability(row);
-        });
-
-        row.querySelector('.chkEnablePlaylist').addEventListener('change', function () {
-            row.querySelector('.playlist-settings').style.display = this.checked ? 'block' : 'none';
-            updateBadges(row);
-        });
-
-        row.querySelector('.chkOverrideWhenActive').addEventListener('change', function () {
-            updateBadges(row);
-        });
-
-        row.querySelector('.chkEnableHomeSection').addEventListener('change', function () {
-            var hseDetails = row.querySelector('.hse-details');
-            if (hseDetails) hseDetails.style.display = this.checked ? 'block' : 'none';
-            updateBadges(row);
-        });
-
-        var chkAiWatched = row.querySelector('.chkAiRecentlyWatched');
-        if (chkAiWatched) {
-            chkAiWatched.addEventListener('change', function () {
-                var opts = row.querySelector('.ai-recently-watched-options');
-                if (opts) opts.style.display = this.checked ? 'block' : 'none';
-            });
-        }
-
-        var selAiProv = row.querySelector('.selAiProvider');
-        if (selAiProv) {
-            selAiProv.addEventListener('change', function () {
-                var warn = row.querySelector('.ollama-experimental-warning');
-                if (warn) warn.style.display = this.value === 'Ollama' ? 'flex' : 'none';
-            });
-        }
-
-        row.querySelector('.btnAddUrl').addEventListener('click', () => {
-            row.querySelector('.url-list-container').insertAdjacentHTML('beforeend', getUrlRowHtml('', 0));
-        });
-
-        row.querySelector('.btnAddLocal').addEventListener('click', () => {
-            var st = row.querySelector('.selSourceType').value;
-            row.querySelector('.local-list-container').insertAdjacentHTML('beforeend', getLocalRowHtml(st, "", 0));
-        });
-
-        row.querySelector('.btnAddDate').addEventListener('click', () => {
-            row.querySelector('.date-list-container').insertAdjacentHTML('beforeend', getDateRowHtml({ Type: 'SpecificDate' }));
-            updateBadges(row);
-        });
-
-        row.querySelector('.btnTagTargetHelp').addEventListener('click', () => {
-            document.getElementById('tagTargetHelpModalOverlay').classList.add('modal-visible');
-        });
-
-        row.querySelector('.btnCollTargetHelp').addEventListener('click', () => {
-            document.getElementById('tagTargetHelpModalOverlay').classList.add('modal-visible');
-        });
-
-        row.addEventListener('click', e => {
-            if (e.target.closest('.btnMiHelp')) {
-                document.getElementById('miHelpModalOverlay').classList.add('modal-visible');
-                return;
-            }
-            if (e.target.closest('.btnToggleAdditionalFilters')) {
-                row.querySelector('.mi-toggle-row').style.display  = 'none';
-                row.querySelector('.mi-filter-body').style.display = 'block';
-                var miList = row.querySelector('.mediainfo-filter-list');
-                if (miList && miList.querySelectorAll('.mediainfo-filter-group').length === 0) {
-                    miList.insertAdjacentHTML('beforeend', getMediaInfoFilterGroupHtml({ Operator: 'AND', Criteria: [], GroupOperator: 'AND' }, 0, true));
-                }
-                return;
-            }
-            if (e.target.closest('.btnRemoveUrl')) {
-                e.target.closest('.url-row').remove();
-            }
-
-            if (e.target.closest('.btnRemoveLocal')) {
-                e.target.closest('.local-row').remove();
-            }
-
-            if (e.target.closest('.btnRemoveDate')) {
-                e.target.closest('.date-row').remove();
-                updateBadges(row);
-            }
-
-            if (e.target.closest('.btnPremadeFilters')) {
-                var btn = e.target.closest('.btnPremadeFilters');
-                var panel = btn.closest('.source-mediainfo-container').querySelector('.mi-preset-panel');
-                var open = panel.style.display === 'none';
-                panel.style.display = open ? '' : 'none';
-                var icon = btn.querySelector('.mi-expand-icon');
-                if (icon) icon.style.transform = open ? 'rotate(180deg)' : '';
-                return;
-            }
-            if (e.target.closest('.btnMySavedFilters')) {
-                var btn = e.target.closest('.btnMySavedFilters');
-                var savedPanel = btn.closest('.source-mediainfo-container').querySelector('.mi-saved-panel');
-                var open = savedPanel.style.display === 'none';
-                savedPanel.style.display = open ? '' : 'none';
-                var icon = btn.querySelector('.mi-expand-icon');
-                if (icon) icon.style.transform = open ? 'rotate(180deg)' : '';
-                return;
-            }
-            if (e.target.closest('.btnConfirmSaveFilter')) {
-                var miContainer = e.target.closest('.source-mediainfo-container');
-                var nameInput = miContainer.querySelector('.txtSaveFilterName');
-                var name = nameInput.value.trim();
-                if (!name) { nameInput.focus(); return; }
-                var filters = readMiFiltersFromContainer(miContainer);
-                if (filters.length === 0) { nameInput.focus(); return; }
-                savedFilters.push({ Name: name, Filters: filters });
-                nameInput.value = '';
-                refreshMySavedFiltersPanels();
-                saveSavedFiltersNow();
-                return;
-            }
-            if (e.target.closest('.btnApplyMySavedFilter')) {
-                var idx = parseInt(e.target.closest('.btnApplyMySavedFilter').dataset.index, 10);
-                var sf = savedFilters[idx];
-                var savedList = e.target.closest('.source-mediainfo-container').querySelector('.mediainfo-filter-list');
-                savedList.innerHTML = sf.Filters.map(function(f, i) { return getMediaInfoFilterGroupHtml(f, i, i === 0); }).join('');
-                e.target.closest('.mi-saved-panel').style.display = 'none';
-                setTimeout(checkFormState, 0);
-                return;
-            }
-            if (e.target.closest('.btnDeleteMySavedFilter')) {
-                var idx = parseInt(e.target.closest('.btnDeleteMySavedFilter').dataset.index, 10);
-                savedFilters.splice(idx, 1);
-                refreshMySavedFiltersPanels();
-                saveSavedFiltersNow();
-                return;
-            }
-            if (e.target.closest('.btnApplyMiPreset')) {
-                var idxParts = e.target.closest('.btnApplyMiPreset').dataset.preset.split(',');
-                var preset = MI_PRESETS[+idxParts[0]].presets[+idxParts[1]];
-                var presetFilters = preset.build();
-                var presetList = e.target.closest('.source-mediainfo-container').querySelector('.mediainfo-filter-list');
-                presetList.innerHTML = presetFilters.map(function(f, i) { return getMediaInfoFilterGroupHtml(f, i, i === 0); }).join('');
-                e.target.closest('.mi-preset-panel').style.display = 'none';
-                setTimeout(checkFormState, 0);
-                return;
-            }
-            if (e.target.closest('.btnAddMediaInfoFilter')) {
-                var list = row.querySelector('.mediainfo-filter-list');
-                var idx = list.querySelectorAll('.mediainfo-filter-group').length;
-                list.insertAdjacentHTML('beforeend', getMediaInfoFilterGroupHtml({ Operator: 'AND', Criteria: [], GroupOperator: 'AND' }, idx, false));
-            }
-
-            if (e.target.closest('.btnClearAllFilters')) {
-                var list = row.querySelector('.mediainfo-filter-list');
-                if (list) { list.innerHTML = ''; }
-            }
-
-            if (e.target.closest('.btnRemoveFilterGroup')) {
-                e.target.closest('.mediainfo-filter-group').remove();
-                var miList = row.querySelector('.mediainfo-filter-list');
-                var firstGroup = miList && miList.querySelector('.mediainfo-filter-group');
-                if (firstGroup) { var conn = firstGroup.querySelector('.mi-group-connector'); if (conn) conn.remove(); }
-            }
-
-            if (e.target.closest('.btnGroupOpChoice')) {
-                var btn = e.target.closest('.btnGroupOpChoice');
-                var newOp = btn.dataset.value;
-                var group = btn.closest('.mediainfo-filter-group');
-                group.dataset.groupOp = newOp;
-                group.querySelectorAll('.btnGroupOpChoice').forEach(function(b) {
-                    var active = b.dataset.value === newOp;
-                    b.style.background = active
-                        ? (newOp === 'AND' ? 'rgba(0,164,220,0.75)' : 'rgba(220,120,0,0.75)')
-                        : 'transparent';
-                    b.style.color = active ? '#fff' : '';
-                });
-                var desc = group.querySelector('.group-op-desc');
-                if (desc) desc.textContent = newOp === 'AND' ? 'Both groups must match' : 'Either group is enough';
-                setTimeout(checkFormState, 0);
-            }
-
-            if (e.target.closest('.btnGroupInnerOpChoice')) {
-                var btn = e.target.closest('.btnGroupInnerOpChoice');
-                var newOp = btn.dataset.value;
-                var group = btn.closest('.mediainfo-filter-group');
-                group.dataset.op = newOp;
-                group.querySelectorAll('.btnGroupInnerOpChoice').forEach(function(b) {
-                    var active = b.dataset.value === newOp;
-                    b.style.background = active
-                        ? (newOp === 'AND' ? 'rgba(0,164,220,0.75)' : 'rgba(220,120,0,0.75)')
-                        : 'transparent';
-                    b.style.color = active ? '#fff' : '';
-                });
-                var desc = group.querySelector('.inner-op-desc');
-                if (desc) desc.textContent = newOp === 'AND' ? 'All rules must match' : 'Any rule is enough';
-                setTimeout(checkFormState, 0);
-            }
-
-            if (e.target.closest('.btnNotToggle')) {
-                var btn = e.target.closest('.btnNotToggle');
-                var active = btn.dataset.not === '1';
-                active = !active;
-                btn.dataset.not = active ? '1' : '0';
-                btn.style.background = active ? 'rgba(200,50,50,0.75)' : 'transparent';
-                btn.style.color = active ? '#fff' : '';
-                btn.style.border = active ? '1px solid rgba(200,50,50,0.6)' : '1px solid rgba(128,128,128,0.4)';
-                setTimeout(checkFormState, 0);
-            }
-
-            if (e.target.closest('.mi-include-parent')) {
-                setTimeout(checkFormState, 0);
-            }
-
-            if (e.target.closest('.btnAddMiRule')) {
-                var rulesList = e.target.closest('.mediainfo-filter-group').querySelector('.mi-rules-list');
-                rulesList.insertAdjacentHTML('beforeend', getMediaInfoRuleHtml(''));
-            }
-
-            if (e.target.closest('.btnRemoveMiRule')) {
-                e.target.closest('.mi-rule').remove();
-            }
-
-            if (e.target.closest('.btnRemoveGroup')) {
-                if (confirm("Delete this tag group?")) {
-                    row.remove();
-                }
-            }
-
-            if (e.target.closest('.btnRunEntry')) {
-                var entryName = row.querySelector('.txtEntryLabel').value || row.querySelector('.txtTagName').value;
-                if (!entryName) { window.Dashboard.alert('Entry has no name or tag.'); return; }
-                var doRun = function () {
-                    var view = row.closest('#HomeScreenCompanionConfigPage');
-                    var btn = row.querySelector('.btnRunEntry');
-                    var lbl = btn.querySelector('.btnRunEntryLabel');
-                    var btnSaveEl = view ? view.querySelector('.btn-save') : null;
-                    var dotEl = view ? view.querySelector('#dotStatus') : null;
-                    var labelEl = view ? view.querySelector('#lastRunStatusLabel') : null;
-                    // Enter running state
-                    lbl.textContent = 'Running…';
-                    btn.disabled = true;
-                    if (btnSaveEl) { btnSaveEl.disabled = true; btnSaveEl.style.opacity = '0.5'; btnSaveEl.querySelector('span').textContent = 'Sync in progress...'; }
-                    if (dotEl) { dotEl.className = 'status-dot running'; }
-                    if (labelEl) labelEl.textContent = 'Running...';
-                    fetch(window.ApiClient.getUrl('HomeScreenCompanion/RunEntry'), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-MediaBrowser-Token': window.ApiClient.accessToken() },
-                        body: JSON.stringify({ EntryName: entryName })
-                    }).then(function (r) { return r.json(); })
-                    .then(function (result) {
-                        lbl.textContent = 'Run Group';
-                        btn.disabled = false;
-                        if (view) refreshStatus(view);
-                        window.Dashboard.alert(result.Success ? ('Done: ' + result.Message) : ('Failed: ' + result.Message));
-                    }).catch(function () {
-                        lbl.textContent = 'Run Group';
-                        btn.disabled = false;
-                        if (view) refreshStatus(view);
-                        window.Dashboard.alert('Request failed.');
-                    });
-                };
-                var _saveBtn = row.closest('#HomeScreenCompanionConfigPage') ? row.closest('#HomeScreenCompanionConfigPage').querySelector('.btn-save') : document.querySelector('.btn-save');
-                var isDirty = _saveBtn && !_saveBtn.disabled;
-                if (isDirty) {
-                    if (confirm('You have unsaved changes. Save and run?')) {
-                        _saveBtn.click();
-                        setTimeout(doRun, 800);
-                    }
-                } else {
-                    doRun();
-                }
-            }
-
-            var btnTest = e.target.closest('.btnTestUrl');
-            if (btnTest) {
-                var uRow = btnTest.closest('.url-row');
-                var url = uRow.querySelector('.txtTagUrl').value;
-                if (!url) return;
-
-                var limitVal = parseInt(uRow.querySelector('.txtUrlLimit').value, 10) || 0;
-
-                btnTest.disabled = true;
-                window.ApiClient.getJSON(window.ApiClient.getUrl("HomeScreenCompanion/TestUrl", { Url: url, Limit: limitVal })).then(result => {
-                    window.Dashboard.alert(result.Message);
-                }).finally(() => btnTest.disabled = false);
-            }
-
-            var btnTestAi = e.target.closest('.btnTestAiSource');
-            if (btnTestAi) {
-                var aiContainer = btnTestAi.closest('.source-ai-container');
-                var aiProvider = (aiContainer.querySelector('.selAiProvider') || {}).value || 'OpenAI';
-                var aiPrompt = ((aiContainer.querySelector('.txtAiPrompt') || {}).value || '').trim();
-                var aiIncludeWatched = !!(aiContainer.querySelector('.chkAiRecentlyWatched') || {}).checked;
-                var aiWatchedUserId = aiIncludeWatched ? ((aiContainer.querySelector('.selAiWatchedUser') || {}).value || '') : '';
-                var aiWatchedCount = parseInt(((aiContainer.querySelector('.txtAiWatchedCount') || {}).value || '20'), 10) || 20;
-                var resultSpan = aiContainer.querySelector('.ai-test-result');
-
-                if (!aiPrompt) { if (resultSpan) resultSpan.textContent = 'Please enter a prompt first.'; return; }
-
-                btnTestAi.disabled = true;
-                if (resultSpan) resultSpan.textContent = 'Testing...';
-
-                fetch(window.ApiClient.getUrl('HomeScreenCompanion/TestAiSource'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-MediaBrowser-Token': window.ApiClient.accessToken() },
-                    body: JSON.stringify({
-                        Provider: aiProvider,
-                        Prompt: aiPrompt,
-                        IncludeRecentlyWatched: aiIncludeWatched,
-                        RecentlyWatchedUserId: aiWatchedUserId,
-                        RecentlyWatchedCount: aiWatchedCount
-                    })
-                }).then(function(r) { return r.json(); })
-                .then(function(result) {
-                    if (resultSpan) resultSpan.textContent = result.Success ? result.Message : ('Failed: ' + result.Message);
-                    if (result.Success && result.Preview && result.Preview.length > 0) {
-                        window.Dashboard.alert('AI returned ' + result.Count + ' items:\n\n' + result.Preview.join('\n'));
-                    } else if (!result.Success) {
-                        window.Dashboard.alert('AI test failed:\n' + result.Message);
-                    }
-                }).catch(function(err) {
-                    if (resultSpan) resultSpan.textContent = 'Error: ' + err.message;
-                }).finally(function() { btnTestAi.disabled = false; });
-            }
-        });
-
-        function updateTagTitle() {
-            var lbl = row.querySelector('.txtEntryLabel').value;
-            var tag = row.querySelector('.txtTagName').value;
-            row.querySelector('.tag-title').textContent = lbl || tag || 'New';
-            row.querySelector('.txtTagName').setAttribute('placeholder', lbl);
-            row.querySelector('.txtCollectionName').setAttribute('placeholder', lbl);
-            var hseCustomTitle = row.querySelector('[data-field="CustomName"]');
-            if (hseCustomTitle) hseCustomTitle.setAttribute('placeholder', lbl);
-            updateBadges(row);
-        }
-        row.querySelector('.txtEntryLabel').addEventListener('input', function() {
-            updateTagTitle();
-        });
-        row.querySelector('.txtTagName').addEventListener('input', updateTagTitle);
-
-        var handle = row.querySelector('.drag-handle');
-
-        handle.addEventListener('mousedown', () => {
-            if (localStorage.getItem('HomeScreenCompanion_SortBy') === 'Manual') {
-                row.setAttribute('draggable', 'true');
-            }
-        });
-
-        handle.addEventListener('mouseup', () => {
-            row.setAttribute('draggable', 'false');
-        });
-
-        handle.addEventListener('touchstart', (e) => {
-            if (localStorage.getItem('HomeScreenCompanion_SortBy') !== 'Manual') return;
-            e.preventDefault();
-            var tagContainer = row.closest('#tagListContainer') || row.parentElement;
-            document.querySelectorAll('.tag-body').forEach(b => b.style.display = 'none');
-            document.querySelectorAll('.expand-icon').forEach(i => i.innerText = 'expand_more');
-            row.classList.add('dragging');
-
-            const onTouchMove = (ev) => {
-                ev.preventDefault();
-                const touch = ev.touches[0];
-                const afterEl = getDragAfterElement(tagContainer, touch.clientY);
-                let ph = tagContainer.querySelector('.sort-placeholder');
-                if (!ph) { ph = document.createElement('div'); ph.className = 'sort-placeholder'; }
-                if (afterEl == null) { if (ph.nextElementSibling !== null) tagContainer.appendChild(ph); }
-                else { if (ph.nextElementSibling !== afterEl) tagContainer.insertBefore(ph, afterEl); }
-            };
-
-            const onTouchEnd = () => {
-                document.removeEventListener('touchmove', onTouchMove);
-                document.removeEventListener('touchend', onTouchEnd);
-                document.removeEventListener('touchcancel', onTouchCancel);
-                row.classList.remove('dragging');
-                const ph = tagContainer.querySelector('.sort-placeholder');
-                if (ph) { tagContainer.insertBefore(row, ph); ph.remove(); }
-                row.classList.add('just-moved');
-                setTimeout(() => { row.classList.remove('just-moved'); }, 2000);
-                setTimeout(checkFormState, 0);
-            };
-
-            const onTouchCancel = () => {
-                document.removeEventListener('touchmove', onTouchMove);
-                document.removeEventListener('touchend', onTouchEnd);
-                document.removeEventListener('touchcancel', onTouchCancel);
-                row.classList.remove('dragging');
-                const ph = tagContainer.querySelector('.sort-placeholder');
-                if (ph) ph.remove();
-            };
-
-            document.addEventListener('touchmove', onTouchMove, { passive: false });
-            document.addEventListener('touchend', onTouchEnd);
-            document.addEventListener('touchcancel', onTouchCancel);
-        }, { passive: false });
-
-        row.querySelector('.btnDuplicateRow').addEventListener('click', () => {
-            var config = readRowAsConfig(row);
-            config.Name = (config.Name || config.Tag || 'Source') + ' (copy)';
-            renderTagGroup(config, row.closest('#tagListContainer'), true, undefined, true);
-            applyFilters(view);
-            setTimeout(checkFormState, 0);
-        });
-
-        row.addEventListener('dragstart', (e) => {
-            if (localStorage.getItem('HomeScreenCompanion_SortBy') !== 'Manual') { e.preventDefault(); return; }
-
-            document.querySelectorAll('.tag-body').forEach(b => b.style.display = 'none');
-            document.querySelectorAll('.expand-icon').forEach(i => i.innerText = 'expand_more');
-
-            row.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', '');
-
-            setTimeout(() => {
-                row.style.display = 'none';
-            }, 0);
-        });
-
-        row.addEventListener('dragend', () => {
-            row.style.display = '';
-
-            row.classList.remove('dragging');
-            row.setAttribute('draggable', 'false');
-
-            var existingPlaceholder = document.querySelector('.sort-placeholder');
-            if (existingPlaceholder) existingPlaceholder.remove();
-
-            row.classList.add('just-moved');
-            setTimeout(() => { row.classList.remove('just-moved'); }, 2000);
-
-            setTimeout(checkFormState, 0);
-        });
-
-        row.querySelector('.btnChoosePoster').addEventListener('click', function () {
-            row.querySelector('.inputPosterFile').click();
-        });
-
-        row.querySelector('.inputPosterFile').addEventListener('change', function () {
-            var file = this.files[0];
-            if (!file) return;
-            var reader = new FileReader();
-            reader.onload = function (e) {
-                var dataUrl = e.target.result;
-                var base64 = dataUrl.split(',')[1];
-                var img = row.querySelector('.poster-preview-img');
-                img.src = dataUrl;
-                img.style.display = 'block';
-
-                var headers = { 'Content-Type': 'application/json' };
-                var token = window.ApiClient.accessToken();
-                if (token) headers['X-Emby-Token'] = token;
-                fetch(window.ApiClient.getUrl('HomeScreenCompanion/UploadCollectionImage'), {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify({ FileName: file.name, Base64Data: base64, OldFilePath: row.querySelector('.hiddenPosterPath').value })
-                }).then(function (r) { return r.json(); })
-                .then(function (result) {
-                    if (result.Success) {
-                        row.querySelector('.hiddenPosterPath').value = result.FilePath;
-                        row.querySelector('.poster-filename').textContent = file.name;
-                        row.querySelector('.poster-preview-container').style.display = 'block';
-                    } else {
-                        window.Dashboard.alert('Upload failed: ' + (result.Message || 'Unknown error'));
-                        img.style.display = 'none';
-                    }
-                }).catch(function () {
-                    window.Dashboard.alert('Upload error. Check server logs.');
-                    img.style.display = 'none';
-                });
-            };
-            reader.readAsDataURL(file);
-        });
-
-        row.querySelector('.btnRemovePoster').addEventListener('click', function () {
-            row.querySelector('.hiddenPosterPath').value = '';
-            row.querySelector('.poster-filename').textContent = '';
-            row.querySelector('.poster-preview-container').style.display = 'none';
-            row.querySelector('.poster-preview-img').style.display = 'none';
-            row.querySelector('.inputPosterFile').value = '';
-        });
-
-        row.querySelector('.btnLoadPosterUrl').addEventListener('click', function () {
-            var url = row.querySelector('.txtPosterUrl').value.trim();
-            if (!url) return;
-
-            var headers = { 'Content-Type': 'application/json' };
-            var token = window.ApiClient.accessToken();
-            if (token) headers['X-Emby-Token'] = token;
-
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/FetchCollectionImageFromUrl'), {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({ Url: url, OldFilePath: row.querySelector('.hiddenPosterPath').value })
-            }).then(function (r) { return r.json(); })
-            .then(function (result) {
-                if (result.Success) {
-                    row.querySelector('.hiddenPosterPath').value = result.FilePath;
-                    row.querySelector('.poster-filename').textContent = url.split('/').pop().split('?')[0];
-                    row.querySelector('.poster-preview-container').style.display = 'block';
-                    var img = row.querySelector('.poster-preview-img');
-                    img.src = url;
-                    img.style.display = 'block';
-                    row.querySelector('.txtPosterUrl').value = '';
-                } else {
-                    window.Dashboard.alert('Failed to load image: ' + (result.Message || 'Unknown error'));
-                }
-            }).catch(function () {
-                window.Dashboard.alert('Error fetching image. Check the URL and server logs.');
-            });
-        });
-
-        setTimeout(function () { updateHseSectionAvailability(row); }, 0);
+    function getDashboard() {
+      return window.Dashboard;
     }
-
-
-    // Renders the merged execution log as colour-coded lines. Classification is based on the
-    // leading symbol each server task writes (✔ ⚠ ✖ –) and on the [DEBUG] token, which is
-    // stripped for display. A source badge is shown only when several tasks have output.
-    function renderLogLines(container, entries, isRunning) {
-        var stickToBottom = isRunning && (container.scrollHeight - container.scrollTop - container.clientHeight) < 40;
-        var wasEmpty = container.childElementCount === 0;
-        if (!entries.length) { container.textContent = '(no logs yet)'; return; }
-
-        var srcCount = {};
-        entries.forEach(function (e) { srcCount[e.src] = 1; });
-        var showSrc = Object.keys(srcCount).length > 1;
-
-        var frag = document.createDocumentFragment();
-        entries.forEach(function (e) {
-            var raw = e.text || '';
-            var ts = '';
-            var m = raw.match(/^\[(\d{2}:\d{2}:\d{2})\] ?/);
-            if (m) { ts = m[1]; raw = raw.substring(m[0].length); }
-
-            var cls = '';
-            if (/^\[DEBUG\] ?/.test(raw)) { cls = 'log-debug'; raw = raw.replace(/^\[DEBUG\] ?/, ''); }
-            else if (raw.trim() === '') cls = 'log-blank';
-            else if (/^═+$/.test(raw.trim())) cls = 'log-rule';
-            else if (raw.indexOf('✖') >= 0) cls = 'log-err';
-            else if (raw.indexOf('⚠') >= 0) cls = 'log-warn';
-            else if (raw.indexOf('✔') >= 0) cls = 'log-ok';
-            else if (/^\s{1,3}– /.test(raw)) cls = 'log-skip';
-            else if (/^(»|Results$|Summary$|\[Cleanup\]$|\[\d+\/\d+\] |Home Screen (Companion|Sync) )/.test(raw)) cls = 'log-head';
-
-            var line = document.createElement('div');
-            line.className = 'log-line' + (cls ? ' ' + cls : '');
-            if (cls !== 'log-blank') {
-                var tsEl = document.createElement('span');
-                tsEl.className = 'log-ts';
-                tsEl.textContent = ts;
-                line.appendChild(tsEl);
-                if (showSrc) {
-                    var srcEl = document.createElement('span');
-                    srcEl.className = 'log-src';
-                    srcEl.textContent = e.src;
-                    line.appendChild(srcEl);
-                }
-                line.appendChild(document.createTextNode(raw));
-            } else {
-                line.textContent = ' ';
-            }
-            frag.appendChild(line);
-        });
-        container.textContent = '';
-        container.appendChild(frag);
-        if (stickToBottom || wasEmpty) container.scrollTop = container.scrollHeight;
-    }
-
-    // Picks which task's log to show (running task, else the most recently started one, unless the
-    // user chose a tab), updates the tab bar and renders that single log.
-    function renderLogModal(view) {
-        var content = view.querySelector('#logContent');
-        var tabs = view.querySelectorAll('#logTabs .log-tab');
-        if (!content) return;
-
-        var keys = ['sync', 'hsc', 'tl'];
-        function startedMs(k) { var s = _lastStatus[k]; var t = s && s.StartedUtc ? Date.parse(s.StartedUtc) : NaN; return isNaN(t) ? 0 : t; }
-        function running(k) { return !!(_lastStatus[k] && _lastStatus[k].IsRunning); }
-        function logs(k) { return (_lastStatus[k] && _lastStatus[k].Logs) || []; }
-
-        var selected = _logTab;
-        if (!selected) {
-            selected = keys.filter(running)[0];
-            if (!selected) {
-                var best = 0;
-                keys.forEach(function (k) { if (startedMs(k) > best) { best = startedMs(k); selected = k; } });
-            }
-            if (!selected) selected = 'sync';
-        }
-
-        tabs.forEach(function (tab) {
-            var k = tab.getAttribute('data-log');
-            tab.classList.toggle('active', k === selected);
-            tab.classList.toggle('empty', logs(k).length === 0 && !running(k));
-            var dot = tab.querySelector('.status-dot');
-            if (dot) { dot.className = 'status-dot'; if (running(k)) dot.classList.add('running'); dot.style.visibility = (running(k) || logs(k).length) ? 'visible' : 'hidden'; }
-            var timeEl = tab.querySelector('.log-tab-time');
-            if (timeEl) {
-                var ms = startedMs(k);
-                timeEl.textContent = ms ? new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-            }
-        });
-
-        var entries = logs(selected).map(function (l) { return { src: selected, text: l }; });
-        if (!entries.length) { content.textContent = '(no runs yet)'; return; }
-        renderLogLines(content, entries, running(selected));
-    }
-
-    function refreshStatus(view) {
-        var myId = ++statusRequestId;
-        Promise.all([
-            window.ApiClient.getJSON(window.ApiClient.getUrl("HomeScreenCompanion/Status")),
-            window.ApiClient.getJSON(window.ApiClient.getUrl("HomeScreenCompanion/Hsc/Status")).catch(function () { return null; }),
-            window.ApiClient.getJSON(window.ApiClient.getUrl("HomeScreenCompanion/TopList/Status")).catch(function () { return null; })
-        ]).then(function (results) {
-            if (myId !== statusRequestId) return;
-            var result = results[0], hscResult = results[1], tlResult = results[2];
-            var label = view.querySelector('#lastRunStatusLabel'), dot = view.querySelector('#dotStatus'), content = view.querySelector('#logContent');
-            var btnSave = view.querySelector('.btn-save'), btnRun = view.querySelector('#btnRunSync');
-
-            var eitherRunning = result.IsRunning || (hscResult && hscResult.IsRunning);
-            if (eitherRunning) {
-                if (btnSave) { btnSave.disabled = true; btnSave.style.opacity = "0.5"; btnSave.querySelector('span').textContent = "Sync in progress..."; }
-                if (btnRun) btnRun.disabled = true;
-            } else {
-                if (btnRun) btnRun.disabled = false;
-                if (btnSave) {
-                    btnSave.querySelector('span').textContent = "Save Settings";
-                    checkFormState();
-                }
-            }
-
-            if (label) label.textContent = result.LastRunStatus || "Never";
-            if (dot) {
-                dot.className = "status-dot";
-                var st = result.LastRunStatus || '';
-                if (st.includes("Running")) dot.classList.add("running");
-                else if (/failed|error/i.test(st)) dot.classList.add("failed");
-                else if (/warning/i.test(st)) dot.classList.add("warn");
-            }
-
-            _lastStatus = { sync: result, hsc: hscResult, tl: tlResult };
-            if (content) renderLogModal(view);
-        }).catch(function () {
-            if (myId !== statusRequestId) return;
-        });
-    }
-
-    function sortRows(container, criteria) {
-        var rows = Array.from(container.querySelectorAll('.tag-row'));
-
-        rows.sort((a, b) => {
-            if (criteria === 'Name') {
-                var na = (a.querySelector('.txtEntryLabel').value || a.querySelector('.txtTagName').value).toLowerCase();
-                var nb = (b.querySelector('.txtEntryLabel').value || b.querySelector('.txtTagName').value).toLowerCase();
-                return na.localeCompare(nb);
-            }
-            if (criteria === 'Active') {
-                var aa = a.querySelector('.chkTagActive').checked ? 1 : 0;
-                var bb = b.querySelector('.chkTagActive').checked ? 1 : 0;
-                return bb - aa;
-            }
-            if (criteria === 'LatestEdited') {
-                var da = new Date(a.dataset.lastModified || 0).getTime();
-                var db = new Date(b.dataset.lastModified || 0).getTime();
-                return db - da;
-            }
-            return parseInt(a.dataset.index) - parseInt(b.dataset.index);
-        });
-
-        rows.forEach(row => container.appendChild(row));
-
-        if (criteria !== 'Manual') container.classList.add('sort-hidden');
-        else container.classList.remove('sort-hidden');
-    }
-
-    // ---- Home Section Tab helpers ----
-    var _hseUsersCache = null;
-    function getHseUsers() {
-        if (_hseUsersCache) return Promise.resolve(_hseUsersCache);
-        return window.ApiClient.getJSON(window.ApiClient.getUrl('Users', { IsDisabled: false }))
-            .then(function(users) {
-                _hseUsersCache = (users || []).map(function(u) { return { Id: u.Id, Name: u.Name }; });
-                return _hseUsersCache;
-            });
-    }
-
-    function buildUserMultiSelectHtml(users, selectedIds, checkboxClass) {
-        function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-        if (!users || users.length === 0) return '<em style="opacity:0.5">No users found</em>';
-        var sel = selectedIds || [];
-        var rows = users.map(function(u) {
-            var chk = sel.indexOf(u.Id) !== -1 ? ' checked' : '';
-            return '<div class="checkboxContainer" style="margin:2px 0;">' +
-                '<label><input type="checkbox" is="emby-checkbox" class="' + escAttr(checkboxClass) + '" value="' + escAttr(u.Id) + '" data-name="' + escAttr(u.Name) + '"' + chk + '>' +
-                '<span>' + escHtml(u.Name) + '</span></label></div>';
-        }).join('');
-        var checkedNames = users.filter(function(u) { return sel.indexOf(u.Id) !== -1; }).map(function(u) { return u.Name; });
-        var lbl = checkedNames.length === 0 ? 'No users selected'
-            : checkedNames.length === users.length ? 'All users'
-            : checkedNames.join(', ');
-        var btnStyle = 'display:flex;align-items:center;width:100%;padding:6px 10px;' +
-            'background:var(--plugin-input-bg,rgba(128,128,128,0.08));' +
-            'border:1px solid var(--plugin-input-border,var(--line-color));' +
-            'border-radius:4px;font-size:0.9em;color:inherit;cursor:pointer;' +
-            'box-sizing:border-box;text-align:left;';
-        return '<div class="filter-dropdown-wrapper hsc-user-dropdown" style="width:100%;">' +
-            '<button type="button" class="hsc-user-dropdown-btn" style="' + btnStyle + '">' +
-            '<span class="hsc-user-dropdown-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(lbl) + '</span>' +
-            '<i class="md-icon hsc-user-dropdown-caret" style="font-size:1em;margin-left:6px;flex-shrink:0;">expand_more</i>' +
-            '</button>' +
-            '<div class="filter-dropdown-panel" style="min-width:220px;width:100%;box-sizing:border-box;">' + rows + '</div>' +
-            '</div>';
-    }
-
-    function wireUserMultiSelect(container) {
-        var wrapper = container && container.querySelector('.hsc-user-dropdown');
-        if (!wrapper) return;
-        var btn    = wrapper.querySelector('.hsc-user-dropdown-btn');
-        var panel  = wrapper.querySelector('.filter-dropdown-panel');
-        var lbl    = wrapper.querySelector('.hsc-user-dropdown-label');
-        var caret  = wrapper.querySelector('.hsc-user-dropdown-caret');
-        function updateLabel() {
-            var allBoxes     = panel.querySelectorAll('input[type="checkbox"]');
-            var checkedBoxes = panel.querySelectorAll('input[type="checkbox"]:checked');
-            if (checkedBoxes.length === 0) {
-                lbl.textContent = 'No users selected';
-            } else if (checkedBoxes.length === allBoxes.length) {
-                lbl.textContent = 'All users';
-            } else {
-                lbl.textContent = Array.from(checkedBoxes).map(function(cb) {
-                    return cb.dataset.name || '';
-                }).join(', ');
-            }
-        }
-        btn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            var open = panel.classList.toggle('open');
-            caret.textContent = open ? 'expand_less' : 'expand_more';
-        });
-        panel.querySelectorAll('input[type="checkbox"]').forEach(function(chk) {
-            chk.addEventListener('change', updateLabel);
-        });
-        document.addEventListener('click', function closeUserDrop(e) {
-            if (!wrapper.isConnected) { document.removeEventListener('click', closeUserDrop); return; }
-            if (!panel.contains(e.target) && e.target !== btn) {
-                panel.classList.remove('open');
-                caret.textContent = 'expand_more';
-            }
-        });
-    }
-
-    var _hseLibraryCachePromise = null;
-    function preFetchLibraryData() {
-        if (_hseLibraryCachePromise) return _hseLibraryCachePromise;
-        var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-        _hseLibraryCachePromise = Promise.all([
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/List'), { headers: { 'X-MediaBrowser-Token': tok } })
-                .then(function(r) { return r.json(); }).catch(function() { return { FolderNames: [] }; }),
-            fetch(window.ApiClient.getUrl('Library/VirtualFolders'), { headers: { 'X-MediaBrowser-Token': tok } })
-                .then(function(r) { return r.json(); }).catch(function() { return []; })
-        ]).then(function(results) {
-            return {
-                topListFolderNames: new Set((results[0].FolderNames || []).map(function(n) { return n.toLowerCase(); })),
-                virtualFolders: results[1] || []
-            };
-        }).catch(function() {
-            _hseLibraryCachePromise = null; // tillåt omförsök vid fel
-            return { topListFolderNames: new Set(), virtualFolders: [] };
-        });
-        return _hseLibraryCachePromise;
-    }
-
-
-
-    function buildHomeSectionFormHtml(savedSettings, defaultSectionType, defaultName, tagEnabled, collEnabled, libraryOptions, savedLibraryId, allLibraries, viewerOnly) {
-        var s = savedSettings || {};
-        var html = '';
-
-        var st = s.SectionType || defaultSectionType || (collEnabled ? 'boxset' : 'items');
-        html += '<div style="margin-bottom:12px;"><label class="selectLabel">Section Type</label>';
-        html += '<select is="emby-select" class="selHseSectionType hse-field-str" data-field="SectionType" style="width:100%;">';
-        var sectionTypeOptions = [];
-        if (collEnabled) sectionTypeOptions.push(['boxset', 'Single Collection']);
-        if (tagEnabled)  sectionTypeOptions.push(['items',  'Dynamic Media (tag)']);
-        else if (viewerOnly) sectionTypeOptions.push(['items', 'Dynamic Media (per user)']);
-        sectionTypeOptions.forEach(function(o) {
-            html += '<option value="' + o[0] + '"' + (st === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
-        });
-        html += '</select></div>';
-
-        var displayModeVal = s.DisplayMode || '';
-        html += '<div style="margin-bottom:12px;"><label class="selectLabel">Show this section</label>';
-        html += '<select is="emby-select" class="hse-field-str" data-field="DisplayMode" style="width:100%;">';
-        html += '<option value=""'              + (displayModeVal === ''               ? ' selected' : '') + '>Always</option>';
-        html += '<option value="tv"'            + (displayModeVal === 'tv'             ? ' selected' : '') + '>When TV Display Mode is on</option>';
-        html += '<option value="mobile,desktop"'+ (displayModeVal === 'mobile,desktop' ? ' selected' : '') + '>When TV Display Mode is off</option>';
-        html += '</select></div>';
-
-        var savedItemTypes = [];
-        try { savedItemTypes = JSON.parse(s.ItemTypes || '[]'); } catch {}
-        var savedItemTypesStr = savedItemTypes.length > 0 ? savedItemTypes.join(',') : 'Movie,Series';
-        html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">Media Type</label>';
-        html += '<select is="emby-select" class="selHseItemTypes" style="width:100%;">';
-        var itemTypeOptions = [
-                ['Movie',        'Movies'],
-                ['Series',       'Shows'],
-                ['Movie,Series', 'Movies & Shows'],
-                ['Episode',      'Episodes'],
-                ['BoxSet',       'Collections'],
-                ['MusicVideo',   'Music Videos'],
-                ['Video',        'Videos'],
-                ['Photo',        'Photos'],
-                ['Program',      'Programs'],
-                ['TvChannel',    'Live TV Channels'],
-                ['MusicAlbum',   'Music Albums'],
-                ['MusicArtist',  'Artists'],
-                ['Audio',        'Songs'],
-                ['AudioBook',    'Audiobooks'],
-                ['Trailer',      'Trailers'],
-                ['Game',         'Games'],
-                ['Book',         'Books']
-              ];
-        itemTypeOptions.forEach(function(o) {
-            html += '<option value="' + o[0] + '"' + (savedItemTypesStr === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
-        });
-        html += '</select></div>';
-
-        var customName = (s.CustomName || '').replace(/"/g, '&quot;');
-        var customNamePlaceholder = (defaultName || '').replace(/"/g, '&quot;');
-        html += '<div style="margin-bottom:12px;"><input is="emby-input" type="text" class="hse-field-str" data-field="CustomName" label="Custom Title" value="' + customName + '" placeholder="' + customNamePlaceholder + '"/></div>';
-
-        // Emby native uses "" for Cards (default); migrate old stored "cards" value
-        var viewTypeVal = (s.ViewType === 'cards' ? '' : s.ViewType) || '';
-        html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">View Type</label>';
-        html += '<select is="emby-select" class="selHseViewType hse-field-str" data-field="ViewType" style="width:100%;">';
-        [['','Cards (default)'],['spotlight','Spotlight']].forEach(function(o) {
-            html += '<option value="' + o[0] + '"' + (viewTypeVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
-        });
-        html += '</select></div>';
-
-        var imgTypeVal = s.ImageType || '';
-        var imgTypeDisabled = viewTypeVal === 'spotlight';
-        html += '<div style="margin-bottom:12px;"><label class="selectLabel">Image Type</label>';
-        html += '<select is="emby-select" class="selHseImageType hse-field-str" data-field="ImageType" style="width:100%;"' + (imgTypeDisabled ? ' disabled' : '') + '><option value=""' + (imgTypeVal === '' ? ' selected' : '') + '>Auto</option>';
-        ['Primary','Thumb'].forEach(function(o) { html += '<option value="' + o + '"' + (imgTypeVal === o ? ' selected' : '') + '>' + o + '</option>'; });
-        html += '</select></div>';
-
-        var sortByVal = s.SortBy || '';
-        html += '<div style="margin-bottom:12px;"><label class="selectLabel">Sort By</label>';
-        html += '<select is="emby-select" class="hse-field-str" data-field="SortBy" style="width:100%;">';
-        html += '<option value=""' + (sortByVal === '' ? ' selected' : '') + '>(Default)</option>';
-        [
-            ['CommunityRating,SortName',            'Rating'],
-            ['DateCreated,SortName',                'Date Added'],
-            ['SortName',                            'Name'],
-            ['Runtime,SortName',                    'Runtime'],
-            ['ProductionYear,PremiereDate,SortName','Release Date'],
-            ['ProductionYear,SortName',             'Year'],
-            ['DatePlayed,SortName',                 'Last Played (per user)'],
-            ['Random',                              'Random']
-        ].forEach(function(o) {
-            html += '<option value="' + o[0] + '"' + (sortByVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
-        });
-        html += '</select></div>';
-
-        var sortOrderVal = s.SortOrder || '';
-        html += '<div style="margin-bottom:12px;"><label class="selectLabel">Sort Order</label>';
-        html += '<select is="emby-select" class="hse-field-str" data-field="SortOrder" style="width:100%;">';
-        html += '<option value=""' + (sortOrderVal === '' ? ' selected' : '') + '>(Default)</option>';
-        [['Ascending','Ascending'],['Descending','Descending']].forEach(function(o) { html += '<option value="' + o[0] + '"' + (sortOrderVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; });
-        html += '</select></div>';
-
-        var dispModeVal = s.ScrollDirection || '';
-        html += '<div style="margin-bottom:12px;"><label class="selectLabel">Scroll Direction</label>';
-        html += '<select is="emby-select" class="hse-field-str" data-field="ScrollDirection" style="width:100%;"><option value="">(Auto)</option>';
-        [['Horizontal','Horizontal'],['Vertical','Vertical']].forEach(function(o) { html += '<option value="' + o[0] + '"' + (dispModeVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; });
-        html += '</select></div>';
-
-        var playstateVal = '';
-        if (s._queryIsResumable === 'true') playstateVal = 'inprogress';
-        else if (s._queryIsPlayed === 'true') playstateVal = 'played';
-        else if (s._queryIsPlayed === 'false') playstateVal = 'unplayed';
-        html += '<div class="hse-items-only" style="margin-bottom:12px;"><label class="selectLabel">Playstate (per user)</label>';
-        html += '<select is="emby-select" class="hse-field-str" data-field="_hsePlaystate" style="width:100%;">';
-        html += '<option value=""' + (playstateVal === '' ? ' selected' : '') + '>Any</option>';
-        [['played','Played'],['unplayed','Unplayed'],['inprogress','In progress (started, not finished)']].forEach(function(o) { html += '<option value="' + o[0] + '"' + (playstateVal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; });
-        html += '</select></div>';
-
-        // Hidden library selector — used only for boxset type (preserves the collection library ID).
-        var curLibId = savedLibraryId || 'auto';
-        html += '<select class="selHseLibrary" style="display:none;">';
-        html += '<option value="auto"' + (curLibId === 'auto' ? ' selected' : '') + '>auto</option>';
-        (libraryOptions || []).forEach(function (lib) {
-            html += '<option value="' + lib.id + '"' + (curLibId === lib.id ? ' selected' : '') + '>' + lib.name + '</option>';
-        });
-        html += '</select>';
-
-        // Multi-library checkboxes for items type.
-        // Excluded IDs are stored in HomeSectionSettings._queryExcludeViewIds → Query.ExcludeUserViewIds in Emby.
-        // Checked = include (not excluded), unchecked = exclude.
-        if (st !== 'boxset' && (allLibraries || []).length > 0) {
-            var excludedIds = new Set();
-            try {
-                var raw = (s._queryExcludeViewIds || '').split(',').map(function(x) { return x.trim(); }).filter(function(x) { return x; });
-                raw.forEach(function(id) { excludedIds.add(id); });
-            } catch {}
-            // Om inga explicita exkluderingar sparats (ny sektion eller legacy), exkludera alla top-list-bibliotek.
-            // Bakåtkompatibelt: befintliga grupper utan _queryExcludeViewIds får top-list auto-avbockat.
-            if (excludedIds.size === 0) {
-                (allLibraries || []).forEach(function(lib) {
-                    if (lib.isTopList) excludedIds.add(lib.id);
-                });
-            }
-            // Hidden checkboxes — library exclusions managed automatically under the hood
-            html += '<div style="display:none;">';
-            (allLibraries || []).forEach(function (lib) {
-                var isChecked = !excludedIds.has(lib.id);
-                html += '<input type="checkbox" class="chkHseLibrary" value="' + lib.id + '"' + (isChecked ? ' checked' : '') + '/>';
-            });
-            html += '</div>';
-        }
-
-        return html;
-    }
-
-    function updateHseItemsOnlyVisibility(tab) {
-        var stSel = tab.querySelector('.selHseSectionType');
-        var isItems = !stSel || stSel.value !== 'boxset';
-        tab.querySelectorAll('.hse-items-only').forEach(function(el) {
-            el.style.display = isItems ? '' : 'none';
-        });
-    }
-
-    function updateHseImageTypeState(tab) {
-        var stSel = tab.querySelector('.selHseSectionType');
-        var vtSel = tab.querySelector('.selHseViewType');
-        var imgSel = tab.querySelector('.selHseImageType');
-        if (!imgSel) return;
-        var isItems = !stSel || stSel.value !== 'boxset';
-        var isCards = !vtSel || vtSel.value === '' || vtSel.value === 'cards';
-        imgSel.disabled = isItems && !isCards;
-    }
-
-    function wireHomeSectionTypeChange(tab) {
-        var stSel = tab.querySelector('.selHseSectionType');
-        if (!stSel) return;
-        updateHseItemsOnlyVisibility(tab);
-        updateHseImageTypeState(tab);
-        stSel.addEventListener('change', function() {
-            updateHseItemsOnlyVisibility(tab);
-            updateHseImageTypeState(tab);
-        });
-        var vtSel = tab.querySelector('.selHseViewType');
-        if (vtSel) {
-            vtSel.addEventListener('change', function() {
-                updateHseImageTypeState(tab);
-            });
-        }
-    }
-
-    // Hämta live ContentSection från Emby och spegla värdena i formuläret.
-    // Returns a Promise that resolves when sync is complete (or immediately if no tracked section).
-    function syncHomeSectionFromEmby(tab) {
-        var tracked = [];
-        try { tracked = JSON.parse(decodeURIComponent(tab.dataset.hseTracked || '%5B%5D')); } catch {}
-        var entry = tracked.find(function(t) { return t.SectionId && !t.SectionId.startsWith('hsc__'); });
-        if (!entry) return Promise.resolve();
-
-        var syncHeaders = {};
-        var syncToken = window.ApiClient && window.ApiClient.accessToken && window.ApiClient.accessToken();
-        if (syncToken) syncHeaders['X-Emby-Token'] = syncToken;
-        var syncUrl = window.ApiClient
-            ? window.ApiClient.getUrl('HomeScreenCompanion/Hsc/UserSections', { UserId: entry.UserId })
-            : '/HomeScreenCompanion/Hsc/UserSections?UserId=' + encodeURIComponent(entry.UserId);
-
-        return fetch(syncUrl, { headers: syncHeaders })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var sections = (data && data.Sections) || [];
-                var section = sections.find(function(s) { return s.Id === entry.SectionId; });
-                if (!section) return;
-
-                // Fält som kan läsas tillbaka från Emby och ha ett formulärfält
-                var fieldMap = {
-                    SectionType:     section.SectionType || '',
-                    CustomName:      section.CustomName || '',
-                    DisplayMode:     section.DisplayMode || '',
-                    ViewType:        section.ViewType || '',
-                    ImageType:       section.ImageType || '',
-                    SortBy:          section.SortBy || '',
-                    SortOrder:       section.SortOrder || '',
-                    ScrollDirection: (function() {
-                        var sd = section.ScrollDirection;
-                        if (sd === null || sd === undefined) return '';
-                        if (typeof sd === 'number') return sd === 0 ? 'Horizontal' : sd === 1 ? 'Vertical' : '';
-                        return String(sd);
-                    })(),
-                    '_hsePlaystate': (section.Query != null && section.Query.IsResumable === true) ? 'inprogress'
-                                   : (section.Query != null && section.Query.IsPlayed === true) ? 'played'
-                                   : (section.Query != null && (section.Query.IsUnplayed === true || section.Query.IsPlayed === false)) ? 'unplayed'
-                                   : ''
-                };
-
-                Object.keys(fieldMap).forEach(function(field) {
-                    var el = tab.querySelector('[data-field="' + field + '"]');
-                    if (!el) return;
-                    var val = fieldMap[field];
-                    if (el.tagName === 'SELECT') {
-                        for (var i = 0; i < el.options.length; i++) {
-                            if (el.options[i].value === val) { el.selectedIndex = i; break; }
-                        }
-                    } else {
-                        el.value = val;
-                    }
-                });
-
-                // Sync ItemTypes dropdown separately (not a data-field element)
-                var itemTypesSel = tab.querySelector('.selHseItemTypes');
-                if (itemTypesSel && section.ItemTypes && section.ItemTypes.length > 0) {
-                    var itemTypesStr = section.ItemTypes.join(',');
-                    for (var i = 0; i < itemTypesSel.options.length; i++) {
-                        if (itemTypesSel.options[i].value === itemTypesStr) { itemTypesSel.selectedIndex = i; break; }
-                    }
-                }
-
-                // Sync library checkboxes från Emby's ContentSection.ExcludedFolders (källan till sanning).
-                // Om Emby returnerar en array (även tom) används den — annars behålls UI:ts nuvarande state.
-                console.log('[HSC] syncHomeSectionFromEmby ExcludedFolders:', section.ExcludedFolders);
-                if (Array.isArray(section.ExcludedFolders)) {
-                    var embyExcluded = new Set((section.ExcludedFolders || []).map(function(id) { return String(id); }));
-                    tab.querySelectorAll('.chkHseLibrary').forEach(function(chk) {
-                        chk.checked = !embyExcluded.has(chk.value);
-                    });
-                }
-
-                updateHseItemsOnlyVisibility(tab);
-                updateHseImageTypeState(tab);
-            })
-            .catch(function() { return undefined; }); // ignorera nätverksfel tyst
-    }
-
-
-
-    function initPlaylistTab(row) {
-        var tab = row.querySelector('.playlist-tab');
-        if (!tab || tab.dataset.plLoaded === '1') return;
-        tab.dataset.plLoaded = '1';
-        var savedUserIds = [];
-        try { savedUserIds = JSON.parse(decodeURIComponent(tab.dataset.plUserids || '%5B%5D')); } catch {}
-        getHseUsers().then(function(users) {
-            var listEl = tab.querySelector('.playlist-user-list');
-            if (!listEl) return;
-            listEl.innerHTML = buildUserMultiSelectHtml(users, savedUserIds, 'chkPlaylistUser');
-            wireUserMultiSelect(listEl);
-        });
-    }
-
-    function initHomeSectionTab(row) {
-        var tab = row.querySelector('.homescreen-tab');
-        if (!tab || tab.dataset.hseLoaded === '1') return;
-        tab.dataset.hseLoaded = 'loading'; // prevent re-entry while loading
-
-        var savedUserIds = [];
-        var savedSettings = {};
-        try { savedUserIds = JSON.parse(decodeURIComponent(tab.dataset.hseUserids || '%5B%5D')); } catch {}
-        try { savedSettings = JSON.parse(decodeURIComponent(tab.dataset.hseSettings || '%7B%7D')); } catch {}
-        var defaultSectionType = tab.dataset.hseDefaultType || 'items';
-        var savedLibraryId = decodeURIComponent(tab.dataset.hseLibraryid || 'auto');
-
-        Promise.all([getHseUsers(), preFetchLibraryData()])
-            .then(function(results) {
-                var users = results[0];
-                var topListFolderNames = results[1].topListFolderNames;
-                var virtualFolders = results[1].virtualFolders;
-
-                // Build library options for the hidden boxset selector (all non-top-list folders)
-                var libraryOptions = virtualFolders
-                    .filter(function (f) {
-                        return !(f.Locations || []).some(function (loc) {
-                            var parts = loc.replace(/\\/g, '/').split('/');
-                            var folderName = parts[parts.length - 1] || parts[parts.length - 2] || '';
-                            return topListFolderNames.has(folderName.toLowerCase());
-                        });
-                    })
-                    .map(function (f) { return { id: f.ItemId, name: f.Name }; });
-
-                // All libraries with isTopList flag for the multi-checkbox section
-                var allLibraries = virtualFolders.map(function (f) {
-                    var isTopList = (f.Locations || []).some(function (loc) {
-                        var parts = loc.replace(/\\/g, '/').split('/');
-                        var folderName = parts[parts.length - 1] || parts[parts.length - 2] || '';
-                        return topListFolderNames.has(folderName.toLowerCase());
-                    });
-                    return { id: f.ItemId, name: f.Name, isTopList: isTopList };
-                });
-
-                // User list
-                tab.querySelector('.hse-user-list-inner').innerHTML = buildUserMultiSelectHtml(users, savedUserIds, 'chkHseUser');
-                wireUserMultiSelect(tab.querySelector('.hse-user-list-inner'));
-
-                // Structured section settings form
-                var defaultTagName = row.querySelector('.txtEntryLabel').value || row.querySelector('.txtTagName').value || '';
-                var tagEnabled  = !!(row.querySelector('.chkEnableTag') || {}).checked;
-                var collEnabled = !!(row.querySelector('.chkEnableCollection') || {}).checked;
-                var viewerOnly  = ((row.querySelector('.selSourceType') || {}).value || '') === 'MediaInfo' && rowHasViewerCriteria(row);
-
-                // Check dirty state BEFORE rendering — so we know if user had unsaved changes already
-                var _hseView = document.querySelector('#HomeScreenCompanionConfigPage');
-                var _wasAlreadyDirty = _hseView && originalConfigState &&
-                    JSON.stringify(getUiConfig(_hseView, true)) !== originalConfigState;
-
-                tab.querySelector('.hse-fields-inner').innerHTML = buildHomeSectionFormHtml(savedSettings, defaultSectionType, defaultTagName, tagEnabled, collEnabled, libraryOptions, savedLibraryId, allLibraries, viewerOnly);
-                wireHomeSectionTypeChange(tab);
-
-                // Mark as fully loaded only after form is in DOM so getUiConfig reads form values
-                tab.dataset.hseLoaded = '1';
-
-                // Sync live values from Emby, then re-anchor baseline and check form state.
-                // Re-anchoring happens AFTER sync so changes made by sync don't trigger a false dirty state.
-                syncHomeSectionFromEmby(tab).then(function() {
-                    if (!_wasAlreadyDirty && _hseView && originalConfigState) {
-                        try { originalConfigState = JSON.stringify(getUiConfig(_hseView, true)); } catch {}
-                    }
-                    setTimeout(checkFormState, 0);
-                });
-            })
-            .catch(function(e) {
-                tab.querySelector('.hse-fields-inner').innerHTML = '<em style="color:#cc4444">Failed to load: ' + e.message + '</em>';
-                tab.dataset.hseLoaded = '0'; // allow retry
-            });
-    }
-    // A viewer-dependent ("current user") filter is resolved per viewer by the home section query,
-    // so a home section can exist without a tag/collection. DOM-based check for live edits.
-    function rowHasViewerCriteria(row) {
-        var found = false;
-        row.querySelectorAll('.mi-rule').forEach(function(rule) {
-            var prop = (rule.querySelector('.selMiProperty') || {}).value || '';
-            var selUser = rule.querySelector('.selMiUser');
-            if (prop === 'InProgress' || (selUser && selUser.value === '__current__')) found = true;
-        });
-        return found;
-    }
-
-    // Config-object based variant, used when rendering a row from saved configuration.
-    function tagConfigHasViewerCriteria(tagConfig) {
-        if (!tagConfig) return false;
-        var filters = (tagConfig.MediaInfoFilters && tagConfig.MediaInfoFilters.length > 0)
-            ? tagConfig.MediaInfoFilters
-            : ((tagConfig.MediaInfoConditions && tagConfig.MediaInfoConditions.length > 0)
-                ? [{ Criteria: tagConfig.MediaInfoConditions }]
-                : []);
-        var found = false;
-        filters.forEach(function(f) {
-            (f.Criteria || []).forEach(function(c) {
-                var s = c.charAt(0) === '!' ? c.slice(1) : c;
-                if (s === 'InProgress' || s.indexOf(':__current__:') >= 0) found = true;
-            });
-        });
-        return found;
-    }
-
-    function updateHseSectionAvailability(row) {
-        var tagEnabled  = !!(row.querySelector('.chkEnableTag') || {}).checked;
-        var collEnabled = !!(row.querySelector('.chkEnableCollection') || {}).checked;
-        var isMediaInfo = ((row.querySelector('.selSourceType') || {}).value || '') === 'MediaInfo';
-        var viewerOnly  = isMediaInfo && rowHasViewerCriteria(row);
-        var allowed = tagEnabled || collEnabled || viewerOnly;
-        var hseCbx = row.querySelector('.chkEnableHomeSection');
-        if (!hseCbx) return;
-
-        var hint = row.querySelector('.hse-disabled-hint');
-        if (!allowed) {
-            hseCbx.disabled = true;
-            hseCbx.checked = false;
-            if (hint) hint.style.display = 'block';
-            var hseDetails = row.querySelector('.hse-details');
-            if (hseDetails) hseDetails.style.display = 'none';
-            updateBadges(row);
-        } else {
-            hseCbx.disabled = false;
-            if (hint) hint.style.display = 'none';
-        }
-
-        var tab = row.querySelector('.homescreen-tab');
-        if (tab && tab.dataset.hseLoaded === '1') {
-            refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled, viewerOnly);
-        }
-    }
-
-    function refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled, viewerOnly) {
-        var stSel = tab.querySelector('.selHseSectionType');
-        if (!stSel) return;
-        var currentVal = stSel.value;
-        stSel.innerHTML = '';
-        if (collEnabled) { var o1 = document.createElement('option'); o1.value = 'boxset'; o1.textContent = 'Single Collection'; stSel.appendChild(o1); }
-        if (tagEnabled || viewerOnly) {
-            var o2 = document.createElement('option'); o2.value = 'items';
-            o2.textContent = (viewerOnly && !tagEnabled) ? 'Dynamic Media (per user)' : 'Dynamic Media (tag)';
-            stSel.appendChild(o2);
-        }
-        var stillValid = Array.from(stSel.options).some(function(o) { return o.value === currentVal; });
-        if (stillValid) stSel.value = currentVal;
-        updateHseItemsOnlyVisibility(tab);
-    }
-
-    // ---- End Home Section Tab helpers ----
-
-    function getUiConfig(view, forComparison) {
-        var flatTags = [];
-        view.querySelectorAll('.tag-row').forEach(row => {
-            if (!row.querySelector('.txtEntryLabel')) return;
-            var entryLabel = row.querySelector('.txtEntryLabel').value;
-            var name = row.querySelector('.txtTagName').value || entryLabel;
-            var active = row.querySelector('.chkTagActive').checked;
-
-            var blInput = row.querySelector('.txtTagBlacklist');
-            var bl = blInput ? blInput.value.split(/[\n\r]+/).map(s => s.trim()).filter(s => s.length > 0) : [];
-
-            var enableTagChk = row.querySelector('.chkEnableTag').checked;
-            var enableColl = row.querySelector('.chkEnableCollection').checked;
-            var overrideWhenActive = !!(row.querySelector('.chkOverrideWhenActive') || {}).checked;
-
-            var collName = row.querySelector('.txtCollectionName').value;
-            var collDescription = row.querySelector('.txtCollectionDescription') ? row.querySelector('.txtCollectionDescription').value : '';
-            var collPoster = row.querySelector('.hiddenPosterPath') ? row.querySelector('.hiddenPosterPath').value : '';
-
-            var intervals = [];
-            row.querySelectorAll('.date-row').forEach(dr => {
-                var type = dr.querySelector('.selDateType').value;
-                var s = null, e = null, days = "";
-
-                if (type === 'SpecificDate') {
-                    s = dr.querySelector('.txtFullStartDate').value;
-                    e = dr.querySelector('.txtFullEndDate').value;
-                } else if (type === 'EveryYear') {
-                    var sM = dr.querySelector('.selStartMonth').value, sD = dr.querySelector('.selStartDay').value;
-                    var eM = dr.querySelector('.selEndMonth').value, eD = dr.querySelector('.selEndDay').value;
-                    s = `2000-${sM.padStart(2, '0')}-${sD.padStart(2, '0')}`;
-                    e = `2000-${eM.padStart(2, '0')}-${eD.padStart(2, '0')}`;
-                } else if (type === 'Weekly') {
-                    var activeBtns = Array.from(dr.querySelectorAll('.day-toggle.active')).map(b => b.dataset.day);
-                    days = activeBtns.join(',');
-                }
-
-                intervals.push({ Type: type, Start: s || null, End: e || null, DayOfWeek: days });
-            });
-
-            var currentLastMod = row.dataset.lastModified || new Date().toISOString();
-            
-            var st = row.querySelector('.selSourceType').value;
-            var miFilters = [];
-            row.querySelectorAll('.mediainfo-filter-group').forEach(function (group, gi) {
-                var operator = group.dataset.op || 'AND';
-                var groupOp = gi === 0 ? 'AND' : (group.dataset.groupOp || 'AND');
-                var criteria = [];
-                group.querySelectorAll('.mi-rule').forEach(function (rule) {
-                    var prop = (rule.querySelector('.selMiProperty') || {}).value || '';
-                    var selVal = rule.querySelector('.selMiValue');
-                    var txtVal = rule.querySelector('.txtMiValue');
-                    var selOp  = rule.querySelector('.selMiOp');
-                    var txtNum = rule.querySelector('.txtMiNum');
-                    var selUser = rule.querySelector('.selMiUser');
-                    var selTextOp = rule.querySelector('.selMiTextOp');
-                    var val = selVal ? selVal.value : (txtVal ? txtVal.value.replace(/\r?\n/g, '\n').trim() : '');
-                    if (prop === 'MediaType' && val === 'Episode') {
-                        var incParentChk = rule.querySelector('.chkIncludeParentSeries');
-                        if (incParentChk && incParentChk.checked) val = 'EpisodeIncludeSeries';
-                    }
-                    var op2 = selOp ? selOp.value : '';
-                    var textMatchOp = selTextOp ? selTextOp.value : '';
-                    var num = txtNum ? txtNum.value.trim() : '';
-                    var userId = selUser ? selUser.value : '';
-                    var finalOp = op2 || textMatchOp;
-                    var finalVal = op2 ? num : val;
-                    var notBtn = rule.querySelector('.btnNotToggle');
-                    var isNot = notBtn && notBtn.dataset.not === '1';
-                    var crit = buildCriterion(prop, finalOp, finalVal, userId);
-                    if (crit) criteria.push(isNot ? '!' + crit : crit);
-                });
-                if (criteria.length > 0) miFilters.push({ Operator: operator, Criteria: criteria, GroupOperator: groupOp });
-            });
-
-            var plTab2 = row.querySelector('.playlist-tab');
-            var plUserIds2 = plTab2 && plTab2.dataset.plLoaded === '1'
-                ? Array.from(plTab2.querySelectorAll('.chkPlaylistUser:checked')).map(function(c) { return c.value; })
-                : (function() { try { return JSON.parse(decodeURIComponent((plTab2 && plTab2.dataset.plUserids) || '%5B%5D')); } catch { return []; } })();
-
-            var hseTab = row.querySelector('.homescreen-tab');
-            var enableHse = hseTab ? !!(hseTab.querySelector('.chkEnableHomeSection') || {}).checked : false;
-            var hseLibraryId = hseTab && hseTab.dataset.hseLoaded === '1'
-                ? ((hseTab.querySelector('.selHseLibrary') || {}).value || 'auto')
-                : decodeURIComponent((hseTab && hseTab.dataset.hseLibraryid) || 'auto');
-            var hseUserIds = hseTab && hseTab.dataset.hseLoaded === '1'
-                ? Array.from(hseTab.querySelectorAll('.chkHseUser:checked')).map(function(c) { return c.value; })
-                : (function() { try { return JSON.parse(decodeURIComponent((hseTab && hseTab.dataset.hseUserids) || '%5B%5D')); } catch { return []; } })();
-            var hseSettings = {};
-            if (hseTab && hseTab.dataset.hseLoaded === '1') {
-                hseTab.querySelectorAll('[data-field]').forEach(function(el) {
-                    var f = el.dataset.field;
-                    var v = el.type === 'checkbox' ? String(el.checked) : el.value;
-                    hseSettings[f] = v;
-                });
-                var itemTypesVal = (hseTab.querySelector('.selHseItemTypes') || {}).value || 'Movie,Series';
-                hseSettings['ItemTypes'] = JSON.stringify(itemTypesVal.split(','));
-                // Compute excluded library IDs from unchecked boxes → stored in _queryExcludeViewIds → Query.ExcludeUserViewIds
-                // Also stored in ExcludedFolders → ContentSection.ExcludedFolders (visas i Embys native-meny)
-                var _excludedLibIds2 = Array.from(hseTab.querySelectorAll('.chkHseLibrary:not(:checked)')).map(function(c) { return c.value; });
-                if (_excludedLibIds2.length > 0) {
-                    hseSettings['_queryExcludeViewIds'] = _excludedLibIds2.join(',');
-                    hseSettings['ExcludedFolders'] = _excludedLibIds2.join(',');
-                } else {
-                    delete hseSettings['_queryExcludeViewIds'];
-                    delete hseSettings['ExcludedFolders'];
-                }
-            } else {
-                try { hseSettings = JSON.parse(decodeURIComponent((hseTab && hseTab.dataset.hseSettings) || '%7B%7D')); } catch {}
-            }
-            var hseTracked = (function() { try { return JSON.parse(decodeURIComponent((hseTab && hseTab.dataset.hseTracked) || '%5B%5D')); } catch { return []; } })();
-
-            var baseTag = {
-                Name: entryLabel, Tag: name, Active: active, Blacklist: bl, ActiveIntervals: intervals,
-                EnableTag: enableTagChk, EnableCollection: enableColl, CollectionName: collName, CollectionDescription: collDescription, CollectionPosterPath: collPoster, OnlyCollection: false, OverrideWhenActive: overrideWhenActive, LastModified: currentLastMod,
-                SourceType: st, MediaInfoFilters: miFilters, MediaInfoConditions: [],
-                TagTargetEpisode:        !!(row.querySelector('.chkTagTargetEpisode')  || {}).checked,
-                TagTargetSeason:         !!(row.querySelector('.chkTagTargetSeason')   || {}).checked,
-                TagTargetSeries:         !!(row.querySelector('.chkTagTargetSeries')   || {}).checked,
-                CollectionTargetEpisode: !!(row.querySelector('.chkCollTargetEpisode') || {}).checked,
-                CollectionTargetSeason:  !!(row.querySelector('.chkCollTargetSeason')  || {}).checked,
-                CollectionTargetSeries:  !!(row.querySelector('.chkCollTargetSeries')  || {}).checked,
-                MediaInfoTargetEpisode: false, MediaInfoTargetSeason: false, MediaInfoTargetSeries: false,
-                MediaInfoTargetType: '', MediaInfoSeasonMode: false,
-                EnableHomeSection: enableHse, HomeSectionLibraryId: hseLibraryId, HomeSectionUserIds: hseUserIds,
-                HomeSectionSettings: JSON.stringify(hseSettings),
-                HomeSectionTracked: hseTracked,
-                EnablePlaylist:   !!(row.querySelector('.chkEnablePlaylist') || {}).checked,
-                PlaylistName:     (row.querySelector('.txtPlaylistName') || { value: '' }).value,
-                PlaylistUserIds:  plUserIds2,
-                PlaylistMappings: (function() { try { return JSON.parse(decodeURIComponent((plTab2 && plTab2.dataset.plMappings) || '%5B%5D')); } catch { return []; } })()
-            };
-
-            if (st === 'External') {
-                var pushedExternal = false;
-                row.querySelectorAll('.url-row').forEach(uRow => {
-                    var urlVal = uRow.querySelector('.txtTagUrl').value.trim();
-                    var limitVal = parseInt(uRow.querySelector('.txtUrlLimit').value, 10) || 0;
-                    if (urlVal) { flatTags.push(Object.assign({}, baseTag, { Url: urlVal, Limit: limitVal, LocalSourceId: "" })); pushedExternal = true; }
-                });
-                if (forComparison && !pushedExternal) {
-                    flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: 0, LocalSourceId: "" }));
-                }
-            } else if (st === 'LocalCollection' || st === 'LocalPlaylist') {
-                var pushedLocal = false;
-                row.querySelectorAll('.local-row').forEach(lRow => {
-                    var localVal = lRow.querySelector('.selLocalSource').value;
-                    var limitVal = parseInt(lRow.querySelector('.txtLocalLimit').value, 10) || 0;
-                    if (localVal) { flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: limitVal, LocalSourceId: localVal })); pushedLocal = true; }
-                });
-                if (forComparison && !pushedLocal) {
-                    flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: 0, LocalSourceId: "" }));
-                }
-            } else if (st === 'AI') {
-                var aiLimitVal = parseInt((row.querySelector('.txtAiLimit') || {}).value, 10) || 0;
-                flatTags.push(Object.assign({}, baseTag, {
-                    Url: "", Limit: aiLimitVal, LocalSourceId: "",
-                    AiProvider: (row.querySelector('.selAiProvider') || {}).value || 'OpenAI',
-                    AiPrompt: (row.querySelector('.txtAiPrompt') || {}).value || '',
-                    AiIncludeRecentlyWatched: !!(row.querySelector('.chkAiRecentlyWatched') || {}).checked,
-                    AiRecentlyWatchedUserId: (row.querySelector('.selAiWatchedUser') || {}).value || '',
-                    AiRecentlyWatchedCount: parseInt(((row.querySelector('.txtAiWatchedCount') || {}).value || '20'), 10) || 20,
-                    AiRefreshIntervalDays: parseInt(((row.querySelector('.txtAiRefreshInterval') || {}).value || '0'), 10) || 0
-                }));
-            } else {
-                var miLimitVal = parseInt((row.querySelector('.txtMediaInfoLimit') || {}).value, 10) || 0;
-                flatTags.push(Object.assign({}, baseTag, { Url: "", Limit: miLimitVal, LocalSourceId: "" }));
-            }
-        });
-
-        var hscEnabled      = view.querySelector('#chkHscEnabled');
-        var hscSource       = view.querySelector('#selHscSourceUser');
-        var hscLibraryOrder = view.querySelector('#chkHscLibraryOrder');
-
+    function index(view) {
+      const appState = createAppState();
+      function miFilterDeps() {
         return {
-            TraktClientId: view.querySelector('#txtTraktClientId').value,
-            MdblistApiKey: view.querySelector('#txtMdblistApiKey').value,
-            TmdbApiKey: view.querySelector('#txtTmdbApiKey').value,
-            OpenAiApiKey: (view.querySelector('#txtOpenAiApiKey') || {}).value || '',
-            OpenAiModel: (view.querySelector('#txtOpenAiModel') || {}).value || 'gpt-4o-mini',
-            GeminiApiKey: (view.querySelector('#txtGeminiApiKey') || {}).value || '',
-            GeminiModel: (view.querySelector('#txtGeminiModel') || {}).value || 'gemini-2.5-flash-lite',
-            ClaudeApiKey: (view.querySelector('#txtClaudeApiKey') || {}).value || '',
-            ClaudeModel: (view.querySelector('#txtClaudeModel') || {}).value || 'claude-haiku-4-5-20251001',
-            OllamaBaseUrl: (view.querySelector('#txtOllamaBaseUrl') || {}).value || 'http://localhost:11434',
-            OllamaModel: (view.querySelector('#txtOllamaModel') || {}).value || '',
-            AiSystemPrompt: (view.querySelector('#txtAiSystemPrompt') || {}).value || '',
-            ExtendedConsoleOutput: view.querySelector('#chkExtendedConsoleOutput').checked,
-            LogMissingItems: view.querySelector('#chkLogMissingItems').checked,
-            DryRunMode: view.querySelector('#chkDryRunMode').checked,
-            PreserveTagsOnEmptyResult: view.querySelector('#chkPreserveTagsOnEmptyResult').checked,
-            Tags: flatTags,
-            SavedFilters: savedFilters,
-            HomeSyncEnabled: hscEnabled ? hscEnabled.checked : (lastHscConfig.HomeSyncEnabled || false),
-            HomeSyncLibraryOrder: hscLibraryOrder ? hscLibraryOrder.checked : (lastHscConfig.HomeSyncLibraryOrder || false),
-            HomeSyncSourceUserId: hscSource ? (hscSource.value || '') : (lastHscConfig.HomeSyncSourceUserId || ''),
-            HomeSyncTargetUserIds: hscEnabled
-                ? Array.from(view.querySelectorAll('.hsc-target-chk:checked')).map(function(c) { return c.value; })
-                : (lastHscConfig.HomeSyncTargetUserIds || [])
+          users: appState.miUsers.users,
+          collections: appState.libraryCache.collections,
+          playlists: appState.libraryCache.playlists,
+          tags: appState.libraryCache.tags
         };
-    }
-
-    function checkFormState() {
-        var view = document.querySelector('#HomeScreenCompanionConfigPage');
-        if (!view || !originalConfigState) return;
-        
-        var isDirty = false;
-        try {
-            var current = JSON.stringify(getUiConfig(view, true));
-            isDirty = current !== originalConfigState;
-        } catch (e) {
-            isDirty = true;
+      }
+      function hscDeps() {
+        return {
+          getConfig: () => appState.hsc.config,
+          renderTab: legacyRenderHscTab,
+          enforceConflict: legacyEnforceHscSourceTargetConflict,
+          notifyFormChanged: () => {
+            setTimeout(checkFormStateBound, 0);
+          }
+        };
+      }
+      function boundGetUiConfig(view2, forComparison) {
+        return getUiConfig(view2, forComparison, {
+          hsc: appState.hsc,
+          savedFilters: appState.savedFilters});
+      }
+      function checkFormStateBound() {
+        checkFormState({
+          view: currentView,
+          originalConfigState: appState.originalConfigState,
+          getUiConfig: boundGetUiConfig
+        });
+      }
+      function applyFiltersFn(view2) {
+        applyFilters(view2);
+      }
+      function refreshStatusFn(view2) {
+        refreshStatus(view2, {
+          getApiClient: () => ({ getJSON: (n, p) => {
+            const ac = getApi();
+            return ac ? ac.getJSON(n, p) : Promise.resolve({});
+          } }),
+          state: appState.logStatus,
+          checkFormState: checkFormStateBound
+        });
+      }
+      function getSourceBadgeHtml(st) {
+        const map = {
+          "External": { icon: "language", title: "External List" },
+          "LocalCollection": { icon: "folder_special", title: "Local Collection" },
+          "LocalPlaylist": { icon: "playlist_play", title: "Local Playlist" },
+          "MediaInfo": { icon: "tune", title: "Smart Playlist" },
+          "AI": { icon: "auto_awesome", title: "AI created lists" }
+        };
+        const e = map[st];
+        if (!e) return "";
+        return `<span class="tag-indicator source" title="${e.title}"><i class="md-icon" style="font-size:1.1em;">${e.icon}</i></span>`;
+      }
+      function legacyRenderTagGroup(tagConfig, container, prepend, idx, isNew, afterRef) {
+        if (!container) return;
+        const html = renderTagGroup(tagConfig, idx, {
+          miUsers: appState.miUsers,
+          topLists: appState.topLists,
+          getUrlRowHtml,
+          getLocalRowHtml,
+          getDateRowHtml,
+          getMediaInfoFilterGroupHtml: (filter, i, isFirst, md) => getMediaInfoFilterGroupHtml(filter, i, isFirst, md),
+          getMySavedFiltersPanelHtml: (sf) => getMySavedFiltersPanelHtml(sf),
+          tagConfigHasViewerCriteria: (cfg) => tagConfigHasViewerCriteria(cfg),
+          miFilterDeps: miFilterDeps(),
+          savedFilters: appState.savedFilters.filters
+        });
+        if (afterRef) afterRef.insertAdjacentHTML("afterend", html);
+        else if (prepend) container.insertAdjacentHTML("afterbegin", html);
+        else container.insertAdjacentHTML("beforeend", html);
+        const newRow = afterRef ? afterRef.nextElementSibling : prepend ? container.firstElementChild : container.lastElementChild;
+        if (!newRow) return;
+        setupRowEvents(newRow, buildSetupRowDeps(newRow));
+        if (isNew) {
+          newRow.classList.add("just-added");
+          setTimeout(() => newRow.classList.remove("just-added"), 2e3);
         }
-
-        var btnApplyManage = view.querySelector('#btnApplyManage');
-        if (btnApplyManage && !btnApplyManage.disabled) isDirty = true;
-
-        var tcContainer = view.querySelector('#tcManageContainer');
-        if (tcContainer && tcContainer._tcHasPending) isDirty = true;
-
-        var tlContainer = view.querySelector('#tlContainer');
-        if (tlContainer && tlContainer.querySelector('.tag-body[data-dirty="1"]')) isDirty = true;
-
-        var btnSave = view.querySelector('.btn-save');
-        if (btnSave) {
-            var isSyncRunning = (btnSave.querySelector('span').textContent || "").includes("progress");
-            if (isSyncRunning) {
-                btnSave.disabled = true;
-                btnSave.style.opacity = "0.5";
-            } else {
-                btnSave.disabled = !isDirty;
-                btnSave.style.opacity = isDirty ? "1" : "0.5";
+      }
+      function buildSetupRowDeps(row) {
+        const self = {};
+        const api = getApi();
+        const deps = {
+          savedFilters: appState.savedFilters,
+          topLists: appState.topLists,
+          originalConfigState: appState.originalConfigState,
+          miFilterDeps: miFilterDeps(),
+          getApiClient: () => ({
+            getPluginConfiguration: (id) => api ? api.getPluginConfiguration(id) : Promise.resolve({}),
+            updatePluginConfiguration: (id, c) => api ? api.updatePluginConfiguration(id, c) : Promise.resolve({})
+          }),
+          pluginId: PLUGIN_ID,
+          initHomeSectionTab: (r) => initHomeSectionTab(r, {
+            getHseUsers: () => getHseUsers({ getApiClient: () => api, cache: appState.hseUserCache }),
+            buildUserMultiSelectHtml: (users, selIds, chkClass) => buildUserMultiSelectHtml(users, selIds, chkClass),
+            wireUserMultiSelect: (c) => wireUserMultiSelect(c),
+            preFetchLibraryData: () => preFetchLibraryData({ getApiClient: () => api, cache: appState.hseUserCache }),
+            syncHomeSectionFromEmby: (tab, syncDeps) => syncHomeSectionFromEmby(tab, syncDeps),
+            getUiConfig: boundGetUiConfig,
+            checkFormState: checkFormStateBound,
+            originalConfigState: appState.originalConfigState
+          }),
+          initPlaylistTab: (r) => initPlaylistTab(r, {
+            getHseUsers: () => getHseUsers({ getApiClient: () => api, cache: appState.hseUserCache }),
+            buildUserMultiSelectHtml: (users, selIds, chkClass) => buildUserMultiSelectHtml(users, selIds, chkClass),
+            wireUserMultiSelect: (c) => wireUserMultiSelect(c)
+          }),
+          updateHseSectionAvailability: (r) => updateHseSectionAvailability(r, {
+            rowHasViewerCriteria: (r2) => rowHasViewerCriteriaInline(r2),
+            refreshHseSectionTypeOptions: (tab, tagEnabled, collEnabled, viewerOnly) => {
+              const stSel = tab.querySelector(".selHseSectionType");
+              if (!stSel) return;
+              const currentVal = stSel.value;
+              stSel.innerHTML = "";
+              if (collEnabled) {
+                const o1 = document.createElement("option");
+                o1.value = "boxset";
+                o1.textContent = "Single Collection";
+                stSel.appendChild(o1);
+              }
+              if (tagEnabled || viewerOnly) {
+                const o2 = document.createElement("option");
+                o2.value = "items";
+                o2.textContent = viewerOnly && !tagEnabled ? "Dynamic Media (per user)" : "Dynamic Media (tag)";
+                stSel.appendChild(o2);
+              }
+              const stillValid = Array.from(stSel.options).some((o) => o.value === currentVal);
+              if (stillValid) stSel.value = currentVal;
+              const itemsOnlyEls = tab.querySelectorAll(".hse-items-only");
+              const isItems = !stSel || stSel.value !== "boxset";
+              itemsOnlyEls.forEach((el) => {
+                el.style.display = isItems ? "" : "none";
+              });
+            },
+            updateBadges: (r2) => {
+              if (self.updateBadges) self.updateBadges(r2);
             }
-        }
-    }
-
-    function updateDryRunWarning() {
-        var view = document.querySelector('#HomeScreenCompanionConfigPage');
-        if (!view || !originalConfigState) return;
-        var warn = view.querySelector('.dry-run-warning');
-        if (warn) {
+          }),
+          checkFormState: checkFormStateBound,
+          saveSavedFiltersNow: () => saveSavedFiltersNow({
+            getSavedFilters: () => appState.savedFilters.filters,
+            getOriginalConfigState: () => appState.originalConfigState.getOriginalConfigState(),
+            setOriginalConfigState: (v) => appState.originalConfigState.setOriginalConfigState(v),
+            pluginId: PLUGIN_ID,
+            getApiClient: () => ({
+              getPluginConfiguration: (id) => api ? api.getPluginConfiguration(id) : Promise.resolve({}),
+              updatePluginConfiguration: (id, c) => api ? api.updatePluginConfiguration(id, c) : Promise.resolve({})
+            }),
+            checkFormState: checkFormStateBound
+          }),
+          refreshMySavedFiltersPanels: (sf) => refreshMySavedFiltersPanels(sf),
+          getMaxDays,
+          getDayOptions,
+          isScheduleCurrentlyActive,
+          readIntervalsFromRow,
+          getSourceBadgeHtml,
+          renderTagGroup: legacyRenderTagGroup,
+          applyFilters: applyFiltersFn,
+          refreshStatus: refreshStatusFn,
+          miPresets: MI_PRESETS,
+          view: currentView,
+          alert: (msg) => {
+            getDashboard()?.alert(msg);
+          },
+          updateBadges: (r) => {
+            if (self.updateBadges) self.updateBadges(r);
+          },
+          updateRunGroupBtn: (r) => {
+            if (self.updateRunGroupBtn) self.updateRunGroupBtn(r);
+          },
+          updateTagTitle: (r) => {
+            if (self.updateTagTitle) self.updateTagTitle(r);
+          }
+        };
+        setupRowEvents(row, deps);
+        if (deps.updateBadges) self.updateBadges = deps.updateBadges;
+        if (deps.updateRunGroupBtn) self.updateRunGroupBtn = deps.updateRunGroupBtn;
+        if (deps.updateTagTitle) self.updateTagTitle = deps.updateTagTitle;
+        return deps;
+      }
+      function rowHasViewerCriteriaInline(row) {
+        let found = false;
+        row.querySelectorAll(".mi-rule").forEach((rule) => {
+          const ruleEl = rule;
+          const propEl = ruleEl.querySelector(".selMiProperty");
+          const prop = propEl ? propEl.value : "";
+          const selUserEl = ruleEl.querySelector(".selMiUser");
+          if (prop === "InProgress" || selUserEl && selUserEl.value === "__current__") found = true;
+        });
+        return found;
+      }
+      function legacyRenderHscTab(_container, _config, _users) {
+      }
+      function legacyEnforceHscSourceTargetConflict(_container) {
+      }
+      function loadHscManageTabFn(view2) {
+        const api = getApi();
+        const check = () => checkFormState({
+          view: view2,
+          originalConfigState: appState.originalConfigState,
+          getUiConfig: boundGetUiConfig
+        });
+        const deps = {
+          getApiClient: () => api ? {
+            accessToken: () => api.accessToken(),
+            getUrl: (n, p) => api.getUrl(n, p)
+          } : { accessToken: () => "", getUrl: () => "" },
+          fetchFn: (...args) => fetch(...args),
+          renderSections: () => renderManageSections(view2, appState.manage, deps),
+          getManDragAfterElement,
+          checkFormState: check,
+          alert: (msg) => {
+            getDashboard()?.alert(msg);
+          }
+        };
+        loadHscManageTab(view2, appState.manage, {
+          ...deps,
+          getHseUsers: () => getHseUsers({ getApiClient: () => api, cache: appState.hseUserCache }),
+          prompt: (msg, def) => window.prompt(msg, def)
+        });
+      }
+      function loadTopListsTabFn(view2) {
+        const api = getApi();
+        const deps = {
+          getUrl: (path) => api ? api.getUrl(path) : "",
+          getAccessToken: () => api ? api.accessToken() : "",
+          getPluginConfiguration: () => api ? api.getPluginConfiguration(PLUGIN_ID) : Promise.resolve({}),
+          fetch: (...args) => fetch(...args),
+          showCreateTopListChooser: showCreateTopListChooserFactory(),
+          loadInlineEditForm: () => {
+          },
+          unregisterTopList: (tagNameLower) => {
+            appState.topLists.tagNames.delete(tagNameLower);
+            refreshTopListBadges(appState.topLists.tagNames);
+          },
+          confirm: (msg) => window.confirm(msg),
+          alert: (msg) => {
+            getDashboard()?.alert(msg);
+          },
+          reload: () => {
+            const c = view2.querySelector("#tlContainer");
+            if (c) c.dataset.loaded = "";
+            loadTopListsTabFn(view2);
+          }
+        };
+        loadTopListsTab(view2, deps);
+      }
+      function loadTagManageTabFn(view2) {
+        const api = getApi();
+        const deps = {
+          fetch: (...args) => fetch(...args),
+          getApiClient: () => api ? {
+            accessToken: () => api.accessToken(),
+            getUrl: (n, p) => api.getUrl(n, p),
+            getJSON: (n, p) => api.getJSON(n, p),
+            getPluginConfiguration: (id) => api.getPluginConfiguration(id),
+            updatePluginConfiguration: (id, c) => api.updatePluginConfiguration(id, c)
+          } : {
+            accessToken: () => "",
+            getUrl: () => "",
+            getJSON: () => Promise.resolve({}),
+            getPluginConfiguration: () => Promise.resolve({}),
+            updatePluginConfiguration: () => Promise.resolve({})
+          },
+          confirm: (msg) => window.confirm(msg),
+          alert: (msg) => {
+            getDashboard()?.alert(msg);
+          },
+          escapeHtml,
+          getHseUsers: () => getHseUsers({ getApiClient: () => api, cache: appState.hseUserCache }),
+          executeTopListCreationSteps: () => Promise.resolve(void 0),
+          showCreateTopListChooser: showCreateTopListChooserFactory(),
+          loadInlineEditForm: () => {
+          },
+          sortRows: (container, criteria) => sortRows(container, criteria),
+          getDragAfterElement,
+          checkFormState: checkFormStateBound,
+          refreshMySavedFiltersPanels: (sf) => refreshMySavedFiltersPanels(sf),
+          savedFilters: appState.savedFilters.filters,
+          pluginId: PLUGIN_ID
+        };
+        loadTagManageTab(view2, deps);
+      }
+      function applyManageSectionsFn(view2) {
+        const api = getApi();
+        const check = () => checkFormState({
+          view: view2,
+          originalConfigState: appState.originalConfigState,
+          getUiConfig: boundGetUiConfig
+        });
+        const deps = {
+          getApiClient: () => api ? {
+            accessToken: () => api.accessToken(),
+            getUrl: (n, p) => api.getUrl(n, p)
+          } : { accessToken: () => "", getUrl: () => "" },
+          fetchFn: (...args) => fetch(...args),
+          renderSections: () => renderManageSections(view2, appState.manage, deps),
+          getManDragAfterElement,
+          checkFormState: check,
+          alert: (msg) => {
+            getDashboard()?.alert(msg);
+          }
+        };
+        applyManageSections(view2, appState.manage, deps);
+      }
+      function showCreateTopListChooserFactory() {
+        return (tagsData, existingTopLists, onSuccess) => {
+          const api = getApi();
+          const db = getDashboard();
+          const modalDeps = {
+            fetch: (...args) => fetch(...args),
+            getApiClient: () => api ? {
+              accessToken: () => api.accessToken(),
+              getUrl: (n, p) => api.getUrl(n, p),
+              getJSON: (n, p) => api.getJSON(n, p),
+              updatePluginConfiguration: (id, c) => api.updatePluginConfiguration(id, c),
+              getPluginConfiguration: (id) => api.getPluginConfiguration(id)
+            } : {
+              accessToken: () => "",
+              getUrl: () => "",
+              getJSON: () => Promise.resolve({}),
+              updatePluginConfiguration: () => Promise.resolve({}),
+              getPluginConfiguration: () => Promise.resolve({})
+            },
+            alert: (msg) => {
+              db?.alert(msg);
+            },
+            confirm: (msg) => window.confirm(msg),
+            closeModal: () => {
+            },
+            escapeHtml,
+            executeTopListCreationSteps: () => {
+              throw new Error("executeTopListCreationSteps not bound");
+            },
+            getHseUsers: () => getHseUsers({ getApiClient: () => api, cache: appState.hseUserCache }),
+            buildUserMultiSelectHtml,
+            wireUserMultiSelect,
+            buildBadgePickerHtml: (sv) => `<div data-badge-picker="${sv || "neutral"}"></div>`,
+            initBadgePicker: () => {
+            },
+            readBadgeStyle: () => "neutral",
+            showTopListModal: () => {
+              throw new Error("showTopListModal not bound");
+            },
+            showManualTopListModal: () => {
+              throw new Error("showManualTopListModal not bound");
+            },
+            loadInlineEditForm: () => {
+              throw new Error("loadInlineEditForm not bound");
+            },
+            state: {
+              topLists: appState.topLists,
+              hseUserCache: appState.hseUserCache
+            },
+            pluginId: PLUGIN_ID
+          };
+          showCreateTopListChooser(tagsData.Tags || [], existingTopLists, onSuccess, modalDeps);
+        };
+      }
+      function backupDeps() {
+        const api = getApi();
+        const db = getDashboard();
+        return {
+          fetch: (...args) => fetch(...args),
+          getApiClient: () => api ? {
+            accessToken: () => api.accessToken(),
+            getUrl: (n, p) => api.getUrl(n, p),
+            getJSON: (n, p) => api.getJSON(n, p),
+            updatePluginConfiguration: (id, c) => api.updatePluginConfiguration(id, c),
+            getPluginConfiguration: (id) => api.getPluginConfiguration(id)
+          } : {
+            accessToken: () => "",
+            getUrl: () => "",
+            getJSON: () => Promise.resolve({}),
+            updatePluginConfiguration: () => Promise.resolve({}),
+            getPluginConfiguration: () => Promise.resolve({})
+          },
+          alert: (msg) => {
+            db?.alert(msg);
+          },
+          state: {
+            originalConfigState: appState.originalConfigState,
+            hsc: appState.hsc,
+            savedFilters: appState.savedFilters,
+            topLists: appState.topLists,
+            manage: appState.manage,
+            libraryCache: appState.libraryCache
+          },
+          pluginId: PLUGIN_ID
+        };
+      }
+      let currentView = null;
+      function loadConfigFn() {
+        if (!currentView) return Promise.resolve();
+        const view2 = currentView;
+        const api = getApi();
+        if (!api) return Promise.resolve();
+        appState.hseUserCache.libraryPromise = null;
+        void preFetchLibraryData({ getApiClient: () => api, cache: appState.hseUserCache });
+        return api.getPluginConfiguration(PLUGIN_ID).then((config) => {
+          const cfg = config;
+          appState.hsc.config = {
+            HomeSyncEnabled: cfg.HomeSyncEnabled || false,
+            HomeSyncLibraryOrder: cfg.HomeSyncLibraryOrder || false,
+            HomeSyncSourceUserId: cfg.HomeSyncSourceUserId || "",
+            HomeSyncTargetUserIds: cfg.HomeSyncTargetUserIds || []
+          };
+          appState.savedFilters.filters = cfg.SavedFilters || [];
+          const container = view2.querySelector("#tagListContainer");
+          if (container) container.innerHTML = "";
+          const setVal = (sel, val) => {
+            const el = view2.querySelector(sel);
+            if (el) el.value = val;
+          };
+          setVal("#txtTraktClientId", cfg.TraktClientId || "");
+          setVal("#txtMdblistApiKey", cfg.MdblistApiKey || "");
+          setVal("#txtTmdbApiKey", cfg.TmdbApiKey || "");
+          setVal("#txtOpenAiApiKey", cfg.OpenAiApiKey || "");
+          setVal("#txtOpenAiModel", cfg.OpenAiModel || "gpt-4o-mini");
+          setVal("#txtGeminiApiKey", cfg.GeminiApiKey || "");
+          setVal("#txtGeminiModel", cfg.GeminiModel || "gemini-2.5-flash-lite");
+          setVal("#txtClaudeApiKey", cfg.ClaudeApiKey || "");
+          setVal("#txtClaudeModel", cfg.ClaudeModel || "claude-haiku-4-5-20251001");
+          setVal("#txtOllamaBaseUrl", cfg.OllamaBaseUrl || "http://localhost:11434");
+          setVal("#txtOllamaModel", cfg.OllamaModel || "");
+          const spEl = view2.querySelector("#txtAiSystemPrompt");
+          if (spEl) spEl.value = cfg.AiSystemPrompt || "";
+          updateSystemPromptResetBtn(view2);
+          const setChk = (sel, val) => {
+            const el = view2.querySelector(sel);
+            if (el) el.checked = val;
+          };
+          setChk("#chkExtendedConsoleOutput", !!cfg.ExtendedConsoleOutput);
+          setChk("#chkLogMissingItems", !!cfg.LogMissingItems);
+          setChk("#chkDryRunMode", !!cfg.DryRunMode);
+          setChk("#chkPreserveTagsOnEmptyResult", !!cfg.PreserveTagsOnEmptyResult);
+          const ts = view2.querySelector("#txtSearchTags");
+          if (ts) ts.value = "";
+          const btnClear = view2.querySelector("#btnClearSearch");
+          if (btnClear) btnClear.style.display = "none";
+          [
+            "#chkFilterTag",
+            "#chkFilterCollection",
+            "#chkFilterSchedule",
+            "#chkFilterHomeScreen",
+            "#chkFilterSrcExternal",
+            "#chkFilterSrcMediaInfo",
+            "#chkFilterSrcCollection",
+            "#chkFilterSrcPlaylist",
+            "#chkFilterSrcAI",
+            "#chkFilterActive",
+            "#chkFilterInactive"
+          ].forEach((id) => {
+            const el = view2.querySelector(id);
+            if (el) el.checked = false;
+          });
+          const lbl = view2.querySelector("#filterDropdownLabel");
+          if (lbl) lbl.textContent = "Filter";
+          const btn = view2.querySelector("#btnFilterDropdown");
+          if (btn) btn.classList.remove("active");
+          appState.topLists.tagNames = new Set((cfg.TopLists || []).map((tl) => (tl.TagName || "").toLowerCase()).filter(Boolean));
+          const grouped = groupConfigTags(cfg.Tags || []);
+          const c2 = view2.querySelector("#tagListContainer");
+          if (!c2) return;
+          const keys = Object.keys(grouped);
+          keys.forEach((k, i) => {
+            legacyRenderTagGroup(grouped[k], c2, false, i, false, null);
+          });
+          if (keys.length === 0) {
+            legacyRenderTagGroup({ Tag: "", Urls: [{ url: "", limit: 0 }], Active: true }, c2, false, 0, false, null);
+          }
+          const savedSort = localStorage.getItem("HomeScreenCompanion_SortBy") || "Manual";
+          sortRows(c2, savedSort);
+          applyFilters(view2);
+          requestAnimationFrame(() => {
             try {
-                var savedConfig = JSON.parse(originalConfigState);
-                warn.style.display = savedConfig.DryRunMode ? 'flex' : 'none';
-            } catch (e) {
-                warn.style.display = 'none';
+              appState.originalConfigState.setOriginalConfigState(JSON.stringify(boundGetUiConfig(view2, true)));
+            } catch {
+              appState.originalConfigState.setOriginalConfigState(null);
             }
+            checkFormStateBound();
+            updateDryRunWarning(appState.originalConfigState.getOriginalConfigState());
+          });
+        });
+      }
+      function hasDirtyStateFn() {
+        if (!currentView) return false;
+        const btnSave = currentView.querySelector(".btn-save");
+        if (btnSave && !btnSave.disabled) return true;
+        const tcContainer = currentView.querySelector("#tcManageContainer");
+        if (tcContainer && tcContainer._tcHasPending) return true;
+        return false;
+      }
+      function doSaveFn() {
+        const view2 = currentView;
+        if (!view2) return;
+        const cleanupTab = view2.querySelector("#tabCleanup");
+        const tcContainer = view2.querySelector("#tcManageContainer");
+        if (cleanupTab && cleanupTab.style.display !== "none" && tcContainer && tcContainer._tcHasPending && tcContainer._tcShowModal) {
+          tcContainer._tcShowModal();
+          return;
         }
-    }
-
-    function applyFilters(view) {
-        var container = view.querySelector('#tagListContainer');
-        var rows = container.querySelectorAll('.tag-row');
-
-        var searchTerm = (view.querySelector('#txtSearchTags').value || "").toLowerCase();
-
-        var fTag        = view.querySelector('#chkFilterTag')?.checked;
-        var fColl       = view.querySelector('#chkFilterCollection')?.checked;
-        var fSched      = view.querySelector('#chkFilterSchedule')?.checked;
-        var fHome       = view.querySelector('#chkFilterHomeScreen')?.checked;
-        var fSrcExt     = view.querySelector('#chkFilterSrcExternal')?.checked;
-        var fSrcMI      = view.querySelector('#chkFilterSrcMediaInfo')?.checked;
-        var fSrcColl    = view.querySelector('#chkFilterSrcCollection')?.checked;
-        var fSrcPlay    = view.querySelector('#chkFilterSrcPlaylist')?.checked;
-        var fSrcAI      = view.querySelector('#chkFilterSrcAI')?.checked;
-        var fActive     = view.querySelector('#chkFilterActive')?.checked;
-        var fInactive   = view.querySelector('#chkFilterInactive')?.checked;
-
-        var anyFeature  = fTag || fColl || fSched || fHome;
-        var anySrc      = fSrcExt || fSrcMI || fSrcColl || fSrcPlay || fSrcAI;
-        var anyStatus   = fActive || fInactive;
-
-        // Update button appearance
-        var btn = view.querySelector('#btnFilterDropdown');
-        var lbl = view.querySelector('#filterDropdownLabel');
-        if (btn && lbl) {
-            var activeCount = [fTag, fColl, fSched, fHome, fSrcExt, fSrcMI, fSrcColl, fSrcPlay, fSrcAI, fActive, fInactive].filter(Boolean).length;
-            lbl.textContent = activeCount > 0 ? 'Filter (' + activeCount + ')' : 'Filter';
-            btn.classList.toggle('active', activeCount > 0);
-        }
-
-        rows.forEach(row => {
-            var tagName  = (row.querySelector('.txtTagName').value || "").toLowerCase();
-            var entryLbl = (row.querySelector('.txtEntryLabel').value || "").toLowerCase();
-            var matchesSearch = !searchTerm || tagName.includes(searchTerm) || entryLbl.includes(searchTerm);
-
-            var matchesFeature = true;
-            if (anyFeature) {
-                var hasTag   = row.querySelector('.chkEnableTag')?.checked;
-                var hasColl  = row.querySelector('.chkEnableCollection')?.checked;
-                var hasSched = row.querySelectorAll('.date-row').length > 0;
-                var hasHome  = row.querySelector('.chkEnableHomeSection')?.checked;
-                matchesFeature = (fTag && hasTag) || (fColl && hasColl) || (fSched && hasSched) || (fHome && hasHome);
-            }
-
-            var matchesSrc = true;
-            if (anySrc) {
-                var src = row.querySelector('.selSourceType')?.value || '';
-                matchesSrc = (fSrcExt && src === 'External') || (fSrcMI && src === 'MediaInfo') ||
-                             (fSrcColl && src === 'LocalCollection') || (fSrcPlay && src === 'LocalPlaylist') ||
-                             (fSrcAI && src === 'AI');
-            }
-
-            var matchesStatus = true;
-            if (anyStatus) {
-                var isActive = row.querySelector('.chkTagActive')?.checked;
-                matchesStatus = (fActive && isActive) || (fInactive && !isActive);
-            }
-
-            row.style.display = (matchesSearch && matchesFeature && matchesSrc && matchesStatus) ? 'block' : 'none';
+        const btnApplyManage = view2.querySelector("#btnApplyManage");
+        if (btnApplyManage && !btnApplyManage.disabled) applyManageSectionsFn(view2);
+        const configObj = boundGetUiConfig(view2, false);
+        const originalConfStr = appState.originalConfigState.getOriginalConfigState();
+        if (!originalConfStr) return;
+        const originalConf = JSON.parse(originalConfStr);
+        const originalTags = groupConfigTags(originalConf.Tags || []);
+        (configObj.Tags || []).forEach((tag) => {
+          const tagAny = tag;
+          const key = tagAny.Name ? tagAny.Name + "" + tagAny.Tag : tagAny.Tag;
+          const originalTag = originalTags[key];
+          const currentTagForCompare = Object.assign({}, tag, { LastModified: "CONSTANT_FOR_COMPARISON" });
+          const originalTagForCompare = originalTag ? Object.assign({}, originalTag, { LastModified: "CONSTANT_FOR_COMPARISON" }) : null;
+          if (!originalTag || JSON.stringify(currentTagForCompare) !== JSON.stringify(originalTagForCompare)) {
+            tag.LastModified = (/* @__PURE__ */ new Date()).toISOString();
+          } else {
+            tag.LastModified = originalTag.LastModified;
+          }
         });
-    }
-
-    function checkForUpdates(view) {
-        window.ApiClient.getJSON(window.ApiClient.getUrl("HomeScreenCompanion/Version")).then(function (result) {
-            var currentVer = result.Version || '';
-            var footerVer = document.getElementById('footerVersionText');
-            if (footerVer && currentVer) {
-                var releaseUrl = 'https://github.com/soderlund91/HomeScreenCompanion/releases/tag/v' + currentVer;
-                footerVer.innerHTML = '<a href="' + releaseUrl + '" target="_blank" style="color:inherit;text-decoration:none;">v' + currentVer + '</a>';
+        const api = getApi();
+        if (!api) return;
+        api.getPluginConfiguration(PLUGIN_ID).catch(() => ({ Tags: [] })).then((currentConfig) => {
+          const cc = currentConfig;
+          const currentGrouped = groupConfigTags(cc.Tags || []);
+          (configObj.Tags || []).forEach((t) => {
+            const tAny = t;
+            const key = tAny.Name ? tAny.Name + "" + tAny.Tag : tAny.Tag;
+            const existing = currentGrouped[key];
+            if (existing && existing.HomeSectionTracked && existing.HomeSectionTracked.length > 0 && (!t.HomeSectionTracked || t.HomeSectionTracked.length === 0)) {
+              t.HomeSectionTracked = existing.HomeSectionTracked;
             }
-            if (!currentVer) return;
-
-            fetch('https://api.github.com/repos/soderlund91/HomeScreenCompanion/releases/latest')
-                .then(function (r) { return r.json(); })
-                .then(function (release) {
-                    var latestTag = (release.tag_name || '').replace(/^v/i, '');
-                    if (!latestTag) return;
-                    var a = latestTag.split('.').map(Number);
-                    var b = currentVer.split('.').map(Number);
-                    var isNewer = false;
-                    for (var i = 0; i < Math.max(a.length, b.length); i++) {
-                        if ((a[i] || 0) > (b[i] || 0)) { isNewer = true; break; }
-                        if ((a[i] || 0) < (b[i] || 0)) break;
-                    }
-                    if (isNewer) {
-                        var footerUpdate = document.getElementById('footerUpdateInfo');
-                        if (footerUpdate) {
-                            footerUpdate.innerHTML = '<a href="' + release.html_url + '"'
-                                + ' target="_blank" class="footer-update-link">Update available: v' + latestTag + '</a>';
-                            var footerUpdateSep = document.getElementById('footerUpdateSep');
-                            if (footerUpdateSep) footerUpdateSep.style.display = '';
-                        }
-                    }
-                })
-                .catch(function () {});
-        }).catch(function () {});
-    }
-
-    window._testUpdateBanner = function (mode) {
-        var fakeTag = '99.99.99';
-        var fakeUrl = 'https://github.com/soderlund91/HomeScreenCompanion/releases';
-        var footerUpdate = document.getElementById('footerUpdateInfo');
-        if (!footerUpdate) { console.warn('_testUpdateBanner: #footerUpdateInfo not found'); return; }
-        var footerUpdateSep = document.getElementById('footerUpdateSep');
-        if (mode === 'banner' || mode === 'discreet') {
-            footerUpdate.innerHTML = '<a href="' + fakeUrl + '"'
-                + ' target="_blank" class="footer-update-link">Update available: v' + fakeTag + '</a>';
-            if (footerUpdateSep) footerUpdateSep.style.display = '';
-        } else if (mode === 'reset') {
-            footerUpdate.innerHTML = '';
-            if (footerUpdateSep) footerUpdateSep.style.display = 'none';
-        }
-    };
-
-    function groupConfigTags(tags) {
-        var grouped = {};
-        (tags || []).forEach(t => {
-            var key = t.Name ? t.Name + '\x1F' + t.Tag : t.Tag;
-            if (!grouped[key]) {
-                grouped[key] = {
-                    Tag: t.Tag, Name: t.Name || '', Urls: [], LocalSources: [], Active: t.Active !== false, Blacklist: t.Blacklist, ActiveIntervals: t.ActiveIntervals,
-                    EnableTag: t.EnableTag !== false, EnableCollection: t.EnableCollection, CollectionName: t.CollectionName, CollectionDescription: t.CollectionDescription || '', CollectionPosterPath: t.CollectionPosterPath || '', OnlyCollection: t.OnlyCollection, OverrideWhenActive: t.OverrideWhenActive || false, LastModified: t.LastModified,
-                    SourceType: t.SourceType || "External", MediaInfoConditions: t.MediaInfoConditions || [], MediaInfoFilters: t.MediaInfoFilters || [],
-                    Limit: t.Limit || 0,
-                    EnableHomeSection: t.EnableHomeSection || false, HomeSectionLibraryId: t.HomeSectionLibraryId || 'auto',
-                    HomeSectionUserIds: t.HomeSectionUserIds || [], HomeSectionSettings: t.HomeSectionSettings || '{}',
-                    HomeSectionTracked: t.HomeSectionTracked || [],
-                    AiProvider: t.AiProvider || 'OpenAI',
-                    AiPrompt: t.AiPrompt || '',
-                    AiIncludeRecentlyWatched: t.AiIncludeRecentlyWatched || false,
-                    AiRecentlyWatchedUserId: t.AiRecentlyWatchedUserId || '',
-                    AiRecentlyWatchedCount: t.AiRecentlyWatchedCount || 20,
-                    TagTargetEpisode: t.TagTargetEpisode || false,
-                    TagTargetSeason:  t.TagTargetSeason  || false,
-                    TagTargetSeries:  t.TagTargetSeries  || false,
-                    CollectionTargetEpisode: t.CollectionTargetEpisode || false,
-                    CollectionTargetSeason:  t.CollectionTargetSeason  || false,
-                    CollectionTargetSeries:  t.CollectionTargetSeries  || false,
-                    EnablePlaylist:   t.EnablePlaylist   || false,
-                    PlaylistName:     t.PlaylistName     || '',
-                    PlaylistUserIds:  t.PlaylistUserIds  || [],
-                    PlaylistMappings: t.PlaylistMappings || [],
-                };
+            if (existing && existing.PlaylistMappings && existing.PlaylistMappings.length > 0 && (!t.PlaylistMappings || t.PlaylistMappings.length === 0)) {
+              t.PlaylistMappings = existing.PlaylistMappings;
             }
-            if (t.SourceType === 'External' && t.Url) grouped[key].Urls.push({ url: t.Url, limit: t.Limit });
-            if ((t.SourceType === 'LocalCollection' || t.SourceType === 'LocalPlaylist') && t.LocalSourceId) grouped[key].LocalSources.push({ id: t.LocalSourceId, limit: t.Limit });
-            if (t.SourceType === 'MediaInfo') grouped[key].Limit = t.Limit;
-            if (t.SourceType === 'AI') grouped[key].Limit = t.Limit;
-        });
-        return grouped;
-    }
-
-
-    function renderHscTab(container, config, users) {
-        var sourceOptions = users.map(function (u) {
-            return '<option value="' + u.Id + '"' + (config.HomeSyncSourceUserId === u.Id ? ' selected' : '') + '>' + u.Name + '</option>';
-        }).join('');
-
-        var targetRows = users.map(function (u) {
-            var checked = (config.HomeSyncTargetUserIds || []).indexOf(u.Id) >= 0 ? ' checked' : '';
-            return '<div class="hsc-user-row"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;width:100%;">' +
-                '<input is="emby-checkbox" type="checkbox" class="hsc-target-chk" value="' + u.Id + '"' + checked + ' />' +
-                '<span>' + u.Name + '</span>' +
-                '</label></div>';
-        }).join('');
-
-        var enabled      = config.HomeSyncEnabled ? ' checked' : '';
-        var libOrderChk  = config.HomeSyncLibraryOrder ? ' checked' : '';
-
-        var syncDisplay = config.HomeSyncEnabled ? '' : 'none';
-
-        container.innerHTML = [
-            '<div class="hsc-card">',
-            '<h3 class="hsc-section-title">Configuration</h3>',
-            '<div class="checkboxContainer checkboxContainer-withDescription">',
-            '<label><input is="emby-checkbox" type="checkbox" id="chkHscEnabled"' + enabled + ' /><span>Enable Home Screen sync</span></label>',
-            '<div class="fieldDescription">When enabled, the plugin syncs all Home Sections from the target user and applies it to those selected. When disabled, the task always skips — even if triggered manually.</div>',
-            '</div>',
-            '<div id="hscSyncConfig" style="display:' + syncDisplay + '">',
-            '<div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:8px;">',
-            '<label><input is="emby-checkbox" type="checkbox" id="chkHscLibraryOrder"' + libOrderChk + ' /><span>Also copy library order</span></label>',
-            '<div class="fieldDescription">Also syncs the order of media libraries in the navigation sidebar.</div>',
-            '</div>',
-            '<div class="inputContainer" style="margin-top:16px;">',
-            '<select is="emby-select" id="selHscSourceUser" label="Source User">',
-            '<option value="">— Select source user —</option>',
-            sourceOptions,
-            '</select>',
-            '<div class="fieldDescription">Home screen sections will be copied FROM this user to all users selected below.</div>',
-            '</div>',
-            '</div>',
-            '</div>',
-
-            '<div class="hsc-card" id="hscSyncToCard" style="display:' + syncDisplay + '">',
-            '<h3 class="hsc-section-title">Sync to</h3>',
-            '<p class="textMuted" style="font-size:0.88em;margin-bottom:12px;">These users will receive the source user\'s home screen layout on each sync.</p>',
-            '<div class="hsc-user-list" id="hscTargetList">',
-            targetRows || '<p class="textMuted" style="font-size:0.85em;">No users found.</p>',
-            '</div>',
-            '</div>',
-
-        ].join('');
-
-        container.dataset.loaded = '1';
-    }
-
-    function enforceHscSourceTargetConflict(container) {
-        var sourceId = (container.querySelector('#selHscSourceUser') || {}).value || '';
-        container.querySelectorAll('.hsc-target-chk').forEach(function (chk) {
-            var isConflict = sourceId && chk.value === sourceId;
-            if (isConflict) {
-                chk.checked = false;
-                chk.disabled = true;
-                chk.closest('.hsc-user-row').title = 'Cannot sync a user to themselves';
-                chk.closest('.hsc-user-row').style.opacity = '0.45';
-            } else {
-                chk.disabled = false;
-                chk.closest('.hsc-user-row').title = '';
-                chk.closest('.hsc-user-row').style.opacity = '';
-            }
-        });
-    }
-
-    function loadHscUsers(view) {
-        var container = view.querySelector('#hscContainer');
-        if (!container) return;
-
-        window.ApiClient.getJSON(window.ApiClient.getUrl('Users', { IsDisabled: false }))
-            .then(function (users) {
-                renderHscTab(container, lastHscConfig, users || []);
-
-                enforceHscSourceTargetConflict(container);
-
-                var enableChk = container.querySelector('#chkHscEnabled');
-                if (enableChk) {
-                    enableChk.addEventListener('change', function () {
-                        var show = this.checked;
-                        var syncConfig = container.querySelector('#hscSyncConfig');
-                        var syncToCard = container.querySelector('#hscSyncToCard');
-                        if (syncConfig) syncConfig.style.display = show ? '' : 'none';
-                        if (syncToCard) syncToCard.style.display = show ? '' : 'none';
-                        setTimeout(checkFormState, 0);
-                    });
-                }
-
-                var sourceSelect = container.querySelector('#selHscSourceUser');
-                if (sourceSelect) {
-                    sourceSelect.addEventListener('change', function () {
-                        enforceHscSourceTargetConflict(container);
-                        setTimeout(checkFormState, 0);
-                    });
-                }
-
-                container.querySelectorAll('.hsc-target-chk').forEach(function (chk) {
-                    chk.addEventListener('change', function () {
-                        enforceHscSourceTargetConflict(container);
-                        setTimeout(checkFormState, 0);
-                    });
+          });
+          configObj.TopLists = cc.TopLists || [];
+          return preFetchLibraryData({ getApiClient: () => api, cache: appState.hseUserCache }).then((libData) => {
+            const ld = libData;
+            const topListIds = new Set(
+              (ld.virtualFolders || []).filter((f) => {
+                return (f.Locations || []).some((loc) => {
+                  const parts = loc.replace(/\\/g, "/").split("/");
+                  const fn = (parts[parts.length - 1] || parts[parts.length - 2] || "").toLowerCase();
+                  return ld.topListFolderNames.has(fn);
                 });
-
-                container.querySelectorAll('input:not(.hsc-target-chk), select:not(#selHscSourceUser)').forEach(function (el) {
-                    el.addEventListener('change', function () { setTimeout(checkFormState, 0); });
-                    el.addEventListener('input',  function () { setTimeout(checkFormState, 0); });
-                });
-
-            })
-            .catch(function () {
-                container.innerHTML = '<p class="textMuted" style="padding:20px;">Failed to load users. Check server connection.</p>';
-            });
-    }
-
-
-    function getManDragAfterElement(container, y) {
-        var els = [...container.querySelectorAll('.man-section-row:not(.man-dragging)')];
-        return els.reduce(function (closest, child) {
-            var box = child.getBoundingClientRect();
-            var offset = y - box.top - box.height / 2;
-            if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
-            return closest;
-        }, { offset: Number.NEGATIVE_INFINITY }).element;
-    }
-
-    function loadTagManageTab(view) {
-        var container = view.querySelector('#tcManageContainer');
-        if (!container) return;
-
-        container.innerHTML = '<div style="padding:20px;color:var(--theme-text-secondary);display:flex;align-items:center;gap:10px;">Loading <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>';
-
-        var token = window.ApiClient.accessToken();
-        var pendingTagDeletes = {};       // tagName.toLowerCase() -> { name, itemCount }
-        var pendingCollDeletes = {};      // collectionId -> { id, name, itemCount }
-
-        Promise.all([
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Manage/Tags'), { headers: { 'X-MediaBrowser-Token': token } }).then(function (r) { return r.json(); }),
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Manage/Collections'), { headers: { 'X-MediaBrowser-Token': token } }).then(function (r) { return r.json(); }),
-            window.ApiClient.getPluginConfiguration(pluginId).catch(function () { return { Tags: [] }; })
-        ]).then(function (results) {
-            var tagsData = results[0];
-            var collectionsData = results[1];
-            var pluginConfig = results[2];
-
-            // Build maps: which tags/collections are managed by a plugin group
-            // Each logical group may appear multiple times in cfg.Tags (one entry per URL/source).
-            // Deduplicate by Tag value so we get one entry per logical group.
-            var managedTagMap = {};   // tagName.toLowerCase() -> [{ displayName, groupIndex, groupActive }, ...]
-            var managedCollMap = {};  // collectionName.toLowerCase() -> [{ displayName, groupIndex, groupActive }, ...]
-            var seenGroupByTag = {};  // tKey -> Set of first-seen indices (to deduplicate multi-URL groups)
-            (pluginConfig.Tags || []).forEach(function (t, idx) {
-                if (!t.Tag) return;
-                var tName = t.Tag.trim();
-                var tKey = tName.toLowerCase();
-                // Skip if we already recorded an entry for this exact tag from a previous URL-row of the same group
-                if (seenGroupByTag[tKey]) return;
-                seenGroupByTag[tKey] = true;
-                var groupLabel = (t.Name && t.Name.trim() && t.Name.trim().toLowerCase() !== tKey) ? t.Name.trim() : tName;
-                var entry = { displayName: groupLabel, groupIndex: idx, groupActive: !!t.Active };
-                if (!managedTagMap[tKey]) managedTagMap[tKey] = [];
-                managedTagMap[tKey].push(entry);
-                if (t.EnableCollection) {
-                    var cName = (t.CollectionName && t.CollectionName.trim()) ? t.CollectionName.trim() : tName;
-                    var cKey = cName.toLowerCase();
-                    if (!managedCollMap[cKey]) managedCollMap[cKey] = [];
-                    managedCollMap[cKey].push(entry);
-                }
-            });
-
-            function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-            function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-
-            var btnStyle = 'cursor:pointer;border:none;border-radius:3px;padding:4px 12px;font-size:0.82em;font-weight:500;';
-
-            function renderSection(title, items, isTagSection, headerExtra) {
-                var sectionId = isTagSection ? 'tcTagSection' : 'tcCollSection';
-                var rows = items.length === 0
-                    ? '<div style="color:var(--theme-text-secondary);padding:8px 0;">No items found.</div>'
-                    : items.map(function (item) {
-                        var id = item.Id || '';
-                        var name = item.Name || '';
-                        var count = item.ItemCount != null ? item.ItemCount : 0;
-                        var managed = isTagSection ? managedTagMap[name.toLowerCase()] : managedCollMap[name.toLowerCase()];
-                        var badge = managed && managed.length > 0
-                            ? '<span style="font-size:0.75em;background:#52B54B22;color:#52B54B;border:1px solid #52B54B55;border-radius:4px;padding:1px 6px;margin-left:8px;white-space:nowrap;">Managed by HSC Plugin</span>'
-                            : '';
-                        var typesVal = isTagSection ? (item.ItemTypes || []).map(function (t) { return t.toLowerCase(); }).join(',') : '';
-                        return '<tr class="tc-manage-row" data-rowname="' + escAttr(name.toLowerCase()) + '" data-managed="' + (managed && managed.length > 0 ? '1' : '0') + '" data-count="' + count + '" data-types="' + escAttr(typesVal) + '">' +
-                            '<td style="padding:9px 4px;border-bottom:1px solid var(--line-color);width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
-                            (id
-                                ? '<a class="tc-item-name tc-nav-link" href="javascript:void(0)" data-navid="' + escAttr(id) + '" style="color:inherit;text-decoration:none;cursor:pointer;" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + escHtml(name) + '</a>'
-                                : '<span class="tc-item-name">' + escHtml(name) + '</span>') +
-                            badge +
-                            '</td>' +
-                            '<td style="padding:9px 4px 9px 16px;border-bottom:1px solid var(--line-color);white-space:nowrap;color:var(--theme-text-secondary);font-size:0.88em;">' + count + ' items</td>' +
-                            '<td style="padding:9px 4px 9px 8px;border-bottom:1px solid var(--line-color);white-space:nowrap;">' +
-                            '<button type="button" class="btnTcMark" style="' + btnStyle + 'background:#cc3333;color:#fff;" data-id="' + escAttr(id) + '" data-name="' + escAttr(name) + '" data-count="' + count + '" data-type="' + (isTagSection ? 'tag' : 'coll') + '">Remove</button>' +
-                            '</td>' +
-                            '</tr>';
-                    }).join('');
-
-                return '<div id="' + sectionId + '" style="flex:1 1 300px;min-width:0;">' +
-                    '<div style="display:flex;align-items:center;gap:30px;margin-bottom:12px;">' + 
-                    '<h3 style="margin:0;font-size:1em;text-transform:uppercase;letter-spacing:1px;color:#52B54B;">' + escHtml(title) + '</h3>' +
-                    (headerExtra || '') +
-                    '<button type="button" class="btnTcRefresh" style="' + btnStyle + 'background:transparent;color:var(--theme-text-secondary);border:1px solid var(--line-color);margin-left:auto;"><i class="md-icon" style="font-size:1em;vertical-align:middle;">refresh</i></button>' +
-                    '</div>' +
-                    '<table class="tc-manage-list" style="width:100%;border-collapse:collapse;"><tbody>' + rows + '</tbody></table>' +
-                    '</div>';
-            }
-
-            var searchInputStyle = 'background:rgba(128,128,128,0.08);border:1px solid var(--line-color);border-radius:4px;padding:5px 10px;font-size:0.9em;color:inherit;width:400px;max-width:100%;';
-
-            var tcTypeGroups = [
-                { label: 'Movies',       types: ['movie'] },
-                { label: 'Series',       types: ['series'] },
-                { label: 'Episodes',     types: ['episode'] },
-                { label: 'Seasons',      types: ['season'] },
-                { label: 'Music',        types: ['audio', 'musicvideo', 'musicalbum', 'musicartist'] },
-                { label: 'Books',        types: ['book'] },
-                { label: 'Games',        types: ['game'] },
-                { label: 'Trailers',     types: ['trailer'] },
-                { label: 'Theme songs',  types: ['themesong'] },
-                { label: 'Theme videos', types: ['themevideo', 'video'] },
-                { label: 'Extras',       types: ['behindthescenes', 'deletedscene', 'interview', 'scene', 'clip', 'featurette', 'short'] },
-                { label: 'People',       types: ['person'] },
-                { label: 'Collections',  types: ['boxset'] },
-                { label: 'Photos',       types: ['photo', 'photoalbum'] },
-                { label: 'Playlists',    types: ['playlist'] },
-                { label: 'Recordings',   types: ['recording'] },
-                { label: 'Studios',      types: ['studio'] }
-            ];
-
-            var tcExtraTypes = ['themesong', 'themevideo', 'trailer', 'behindthescenes', 'deletedscene', 'interview', 'scene', 'clip', 'featurette', 'short'];
-
-            var presentGroups = tcTypeGroups.filter(function (g) {
-                return (tagsData.Tags || []).some(function (tag) {
-                    return (tag.ItemTypes || []).some(function (t) {
-                        return g.types.indexOf(t.toLowerCase()) !== -1;
-                    });
-                });
-            });
-
-            var typeFilterDropdownHtml = presentGroups.length > 0
-                ? '<div class="filter-dropdown-wrapper" id="tcTypeFilterWrap">' +
-                  '<div class="filter-dropdown-btn" id="tcTypeFilterBtn">' +
-                  '<i class="md-icon" style="font-size:1.1em;">filter_list</i>' +
-                  '<span id="tcTypeFilterLabel">Filter tags</span>' +
-                  '<i class="md-icon" style="font-size:0.9em;opacity:0.6;" id="tcTypeFilterCaret">expand_more</i>' +
-                  '</div>' +
-                  '<div class="filter-dropdown-panel" id="tcTypeFilterDropdown">' +
-                  '<div class="filter-dropdown-label">Media type</div>' +
-                  presentGroups.map(function (g) {
-                      return '<label class="filter-chk-row"><input type="checkbox" class="cbTypeFilter" data-group="' + escAttr(g.label) + '"> <span>' + escHtml(g.label) + '</span></label>';
-                  }).join('') +
-                  '</div></div>'
-                : '';
-
-            var extrasCheckboxHtml =
-                '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.9em;white-space:nowrap;opacity:0.8;">' +
-                '<input type="checkbox" id="cbIncludeExtras" style="cursor:pointer;margin:0;">' +
-                '<span>Include extras</span>' +
-                '</label>';
-
-            container.innerHTML =
-                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">' +
-                '<input type="text" id="tcSearch" placeholder="Search…" style="' + searchInputStyle + '" />' +
-                '<select is="emby-select" id="tcSort" style="color:inherit;background:rgba(128,128,128,0.08);border:1px solid var(--line-color);padding:5px;border-radius:4px;font-size:0.9em;cursor:pointer;">' +
-                '<option value="name-asc">Name A–Z</option>' +
-                '<option value="name-desc">Name Z–A</option>' +
-                '<option value="count-desc">Most items</option>' +
-                '<option value="count-asc">Fewest items</option>' +
-                '<option value="managed">Managed first</option>' +
-                '</select>' +
-                '</div>' +
-                '<div id="tcSectionsWrap" style="display:flex;gap:40px;align-items:flex-start;">' +
-                renderSection('Tags', tagsData.Tags || [], true, typeFilterDropdownHtml + extrasCheckboxHtml) +
-                renderSection('Collections', collectionsData.Collections || [], false) +
-                '</div>';
-
-            container.dataset.loaded = '1';
-
-            function getSelectedTypeGroups() {
-                return Array.from(container.querySelectorAll('.cbTypeFilter:checked')).map(function (cb) { return cb.dataset.group; });
-            }
-
-            function rowMatchesTypeFilter(row, selectedGroups) {
-                if (selectedGroups.length === 0) return true;
-                var rowTypes = (row.dataset.types || '').split(',').filter(Boolean);
-                return selectedGroups.some(function (groupLabel) {
-                    var group = tcTypeGroups.find(function (g) { return g.label === groupLabel; });
-                    if (!group) return false;
-                    return rowTypes.some(function (t) { return group.types.indexOf(t) !== -1; });
-                });
-            }
-
-            function updateTypeFilterBtn() {
-                var btn = container.querySelector('#tcTypeFilterBtn');
-                var lbl = container.querySelector('#tcTypeFilterLabel');
-                if (!btn || !lbl) return;
-                var selected = getSelectedTypeGroups();
-                lbl.textContent = selected.length === 0 ? 'Filter tags' : selected.length + ' type' + (selected.length > 1 ? 's' : '');
-                if (selected.length > 0) btn.classList.add('active');
-                else btn.classList.remove('active');
-            }
-
-            function applySearchSort() {
-                var query = (container.querySelector('#tcSearch').value || '').toLowerCase();
-                var sort = container.querySelector('#tcSort').value;
-                var selectedGroups = getSelectedTypeGroups();
-                var includeExtras = !!(container.querySelector('#cbIncludeExtras') || {}).checked;
-
-                ['tcTagSection', 'tcCollSection'].forEach(function (sectionId) {
-                    var section = container.querySelector('#' + sectionId);
-                    if (!section) return;
-                    var rows = Array.from(section.querySelectorAll('.tc-manage-row'));
-                    var isTagSection = sectionId === 'tcTagSection';
-
-                    rows.forEach(function (row) {
-                        var rowName = row.dataset.rowname || '';
-                        var nameMatch = !query || rowName.indexOf(query) !== -1;
-                        var typeMatch = !isTagSection || rowMatchesTypeFilter(row, selectedGroups);
-                        var extrasOk = !isTagSection || includeExtras || (function () {
-                            var types = (row.dataset.types || '').split(',').filter(Boolean);
-                            return types.length === 0 || !types.every(function (t) { return tcExtraTypes.indexOf(t) !== -1; });
-                        })();
-                        row.style.display = (nameMatch && typeMatch && extrasOk) ? '' : 'none';
-                    });
-
-                    var list = section.querySelector('.tc-manage-list');
-                    if (!list) return;
-                    var visibleRows = rows.filter(function (r) { return r.style.display !== 'none'; });
-                    visibleRows.sort(function (a, b) {
-                        var nameA = a.dataset.rowname || '';
-                        var nameB = b.dataset.rowname || '';
-                        var countA = parseInt(a.dataset.count || '0', 10);
-                        var countB = parseInt(b.dataset.count || '0', 10);
-                        var managedA = a.dataset.managed === '1';
-                        var managedB = b.dataset.managed === '1';
-                        if (sort === 'name-asc') return nameA.localeCompare(nameB);
-                        if (sort === 'name-desc') return nameB.localeCompare(nameA);
-                        if (sort === 'count-desc') return countB - countA;
-                        if (sort === 'count-asc') return countA - countB;
-                        if (sort === 'managed') return (managedB ? 1 : 0) - (managedA ? 1 : 0) || nameA.localeCompare(nameB);
-                        return 0;
-                    });
-                    visibleRows.forEach(function (r) { list.appendChild(r); });
-                });
-            }
-
-            container.querySelector('#tcSearch').addEventListener('input', applySearchSort);
-            container.querySelector('#tcSort').addEventListener('change', applySearchSort);
-            var cbIncludeExtras = container.querySelector('#cbIncludeExtras');
-            if (cbIncludeExtras) cbIncludeExtras.addEventListener('change', applySearchSort);
-
-            var typeFilterBtn = container.querySelector('#tcTypeFilterBtn');
-            var typeFilterDropdown = container.querySelector('#tcTypeFilterDropdown');
-            var typeFilterCaret = container.querySelector('#tcTypeFilterCaret');
-            if (typeFilterBtn && typeFilterDropdown) {
-                typeFilterBtn.addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    var open = typeFilterDropdown.classList.toggle('open');
-                    if (typeFilterCaret) typeFilterCaret.textContent = open ? 'expand_less' : 'expand_more';
-                });
-                typeFilterDropdown.addEventListener('change', function (e) {
-                    if (e.target.classList.contains('cbTypeFilter')) {
-                        updateTypeFilterBtn();
-                        applySearchSort();
-                    }
-                });
-                document.addEventListener('click', function closeTypeFilter(e) {
-                    if (!typeFilterDropdown.contains(e.target) && !typeFilterBtn.contains(e.target)) {
-                        typeFilterDropdown.classList.remove('open');
-                        if (typeFilterCaret) typeFilterCaret.textContent = 'expand_more';
-                    }
-                    if (!container.isConnected) document.removeEventListener('click', closeTypeFilter);
-                });
-            }
-
-            applySearchSort();
-
-            // ── Hover tooltip: visar vilka objekttyper en tagg finns på ──
-            var tcTooltip = document.createElement('div');
-            tcTooltip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none;' +
-                'background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#eee);' +
-                'border:1px solid var(--plugin-popup-border,#444);border-radius:6px;' +
-                'padding:8px 12px;font-size:0.82em;line-height:1.6;max-width:210px;' +
-                'box-shadow:0 4px 14px rgba(0,0,0,0.4);';
-            document.body.appendChild(tcTooltip);
-
-            // Ta bort tooltip när containern lämnar DOM
-            var tcTooltipObserver = new MutationObserver(function () {
-                if (!container.isConnected) { tcTooltip.remove(); tcTooltipObserver.disconnect(); }
-            });
-            if (container.parentNode) tcTooltipObserver.observe(container.parentNode, { childList: true });
-
-            function getTypeLabels(typesStr) {
-                var rawTypes = (typesStr || '').split(',').filter(Boolean);
-                if (!rawTypes.length) return null;
-                var seen = {};
-                var labels = [];
-                tcTypeGroups.forEach(function (g) {
-                    if (!seen[g.label] && rawTypes.some(function (t) { return g.types.indexOf(t) !== -1; })) {
-                        seen[g.label] = true;
-                        labels.push(g.label);
-                    }
-                });
-                return labels.length ? labels : null;
-            }
-
-            var tcTagSection = container.querySelector('#tcTagSection');
-            if (tcTagSection) {
-                tcTagSection.addEventListener('mouseover', function (e) {
-                    var nameEl = e.target.closest('.tc-item-name');
-                    if (!nameEl) { tcTooltip.style.display = 'none'; return; }
-                    var row = nameEl.closest('.tc-manage-row');
-                    if (!row) return;
-                    var labels = getTypeLabels(row.dataset.types);
-                    if (!labels) { tcTooltip.style.display = 'none'; return; }
-                    tcTooltip.innerHTML =
-                        '<div style="font-weight:600;opacity:0.55;font-size:0.85em;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:5px;">Found in</div>' +
-                        labels.map(function (l) {
-                            return '<div style="display:flex;align-items:center;gap:6px;">' +
-                                '<i class="md-icon" style="font-size:0.95em;opacity:0.7;">label</i>' +
-                                escHtml(l) + '</div>';
-                        }).join('');
-                    tcTooltip.style.display = 'block';
-                });
-                tcTagSection.addEventListener('mousemove', function (e) {
-                    var nameEl = e.target.closest('.tc-item-name');
-                    if (!nameEl) { tcTooltip.style.display = 'none'; return; }
-                    tcTooltip.style.left = (e.clientX + 16) + 'px';
-                    tcTooltip.style.top = (e.clientY + 12) + 'px';
-                    var rect = tcTooltip.getBoundingClientRect();
-                    if (rect.right > window.innerWidth - 8) tcTooltip.style.left = (e.clientX - rect.width - 16) + 'px';
-                    if (rect.bottom > window.innerHeight - 8) tcTooltip.style.top = (e.clientY - rect.height - 12) + 'px';
-                });
-                tcTagSection.addEventListener('mouseout', function (e) {
-                    var nameEl = e.target.closest('.tc-item-name');
-                    if (!nameEl) return;
-                    if (e.relatedTarget && nameEl.contains(e.relatedTarget)) return;
-                    tcTooltip.style.display = 'none';
-                });
-            }
-
-            function updateSaveButton() {
-                var hasPending = Object.keys(pendingTagDeletes).length > 0 || Object.keys(pendingCollDeletes).length > 0;
-                container._tcHasPending = hasPending;
-                checkFormState();
-            }
-
-            if (container._tcClickHandler) container.removeEventListener('click', container._tcClickHandler);
-            container._tcClickHandler = function (e) {
-                var navLink = e.target.closest('.tc-nav-link');
-                if (navLink) {
-                    var navId = navLink.dataset.navid;
-                    var baseUrl = window.location.href.split('#')[0];
-                    var serverId = (window.ApiClient && window.ApiClient.serverId) ? window.ApiClient.serverId() : '';
-                    var url = baseUrl + '#!/item?id=' + encodeURIComponent(navId) +
-                              (serverId ? '&serverId=' + encodeURIComponent(serverId) : '');
-                    window.open(url, '_blank');
-                    return;
-                }
-
-                var btn = e.target.closest('button');
-                if (!btn) return;
-
-                // Mark for deletion
-                if (btn.classList.contains('btnTcMark')) {
-                    var type = btn.dataset.type;
-                    var id = btn.dataset.id;
-                    var name = btn.dataset.name;
-                    var count = parseInt(btn.dataset.count || '0', 10);
-                    if (type === 'tag') pendingTagDeletes[id.toLowerCase()] = { name: name, itemCount: count };
-                    else pendingCollDeletes[id] = { id: id, name: name, itemCount: count };
-                    var row = btn.closest('.tc-manage-row');
-                    if (row) {
-                        row.style.opacity = '0.45';
-                        var nameEl = row.querySelector('.tc-item-name');
-                        if (nameEl) nameEl.style.textDecoration = 'line-through';
-                        btn.textContent = 'Undo';
-                        btn.classList.remove('btnTcMark');
-                        btn.classList.add('btnTcUndo');
-                        btn.style.background = '#555';
-                    }
-                    updateSaveButton();
-                    return;
-                }
-
-                // Undo pending deletion
-                if (btn.classList.contains('btnTcUndo')) {
-                    var type = btn.dataset.type;
-                    var id = btn.dataset.id;
-                    if (type === 'tag') delete pendingTagDeletes[id.toLowerCase()];
-                    else delete pendingCollDeletes[id];
-                    var row = btn.closest('.tc-manage-row');
-                    if (row) {
-                        row.style.opacity = '1';
-                        var nameEl = row.querySelector('.tc-item-name');
-                        if (nameEl) nameEl.style.textDecoration = '';
-                        btn.textContent = 'Remove';
-                        btn.classList.remove('btnTcUndo');
-                        btn.classList.add('btnTcMark');
-                        btn.style.background = '#cc3333';
-                    }
-                    updateSaveButton();
-                    return;
-                }
-
-                // Refresh
-                if (btn.classList.contains('btnTcRefresh')) {
-                    container.dataset.loaded = '';
-                    loadTagManageTab(view);
-                    return;
-                }
-
-            };
-            container.addEventListener('click', container._tcClickHandler);
-
-            container._tcShowModal = function () { showSummaryModal(); };
-
-            function showSummaryModal() {
-                var undoBtnStyle = 'cursor:pointer;border:none;background:transparent;color:#cc2222;border-radius:3px;padding:2px 6px;font-size:1.1em;line-height:1;margin-right:8px;flex-shrink:0;';
-
-                function buildRows(items, isTag) {
-                    return items.map(function (item) {
-                        var name = item.name;
-                        var key = isTag ? item.name.toLowerCase() : item.id;
-                        var managed = isTag ? managedTagMap[name.toLowerCase()] : managedCollMap[name.toLowerCase()];
-                        var warning = '';
-                        var activeManaged = managed ? managed.filter(function (m) { return m.groupActive; }) : [];
-                        if (activeManaged.length > 0) {
-                            var what = isTag ? 'recreate this tag' : 'recreate this collection';
-                            var warningText = activeManaged.length === 1
-                                ? 'Group <strong>' + escHtml(activeManaged[0].displayName) + '</strong> is active and may ' + what + ' on next sync.'
-                                : activeManaged.length + ' active groups may ' + what + ' on next sync.';
-                            var checkboxes = activeManaged.map(function (m) {
-                                return '<label style="display:flex;align-items:center;gap:6px;margin-top:5px;cursor:pointer;">' +
-                                    '<input type="checkbox" class="cbInactivateGroup" data-group-indices="' + escAttr(JSON.stringify([m.groupIndex])) + '"> ' +
-                                    'Deactivate <strong>' + escHtml(m.displayName) + '</strong>' +
-                                    '</label>';
-                            }).join('');
-                            warning =
-                                '<div style="color:#f0a000;margin-top:6px;font-size:0.88em;">' +
-                                '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:4px;">warning</i>' +
-                                warningText + checkboxes + '</div>';
-                        }
-                        return '<div style="padding:10px 0;border-bottom:1px solid var(--line-color);display:flex;align-items:flex-start;">' +
-                            '<button type="button" class="btnModalUndo" style="' + undoBtnStyle + '" data-key="' + escAttr(key) + '" data-type="' + (isTag ? 'tag' : 'coll') + '" title="Keep this one">✕</button>' +
-                            '<div style="flex:1;">' +
-                            '<span style="font-weight:500;">' + escHtml(name) + '</span>' +
-                            '<span style="color:var(--theme-text-secondary);font-size:0.88em;margin-left:8px;">(' + item.itemCount + ' items)</span>' +
-                            warning +
-                            '</div>' +
-                            '</div>';
-                    }).join('');
-                }
-
-                function buildContent() {
-                    var tagList = Object.values(pendingTagDeletes);
-                    var collList = Object.values(pendingCollDeletes);
-                    var tagSection = tagList.length > 0
-                        ? '<div style="margin-bottom:20px;"><h4 style="margin:0 0 8px;color:#52B54B;">Tags to remove (' + tagList.length + ')</h4>' + buildRows(tagList, true) + '</div>'
-                        : '';
-                    var collSection = collList.length > 0
-                        ? '<div style="margin-bottom:20px;"><h4 style="margin:0 0 8px;color:#52B54B;">Collections to remove (' + collList.length + ')</h4>' + buildRows(collList, false) + '</div>'
-                        : '';
-                    return tagSection + collSection;
-                }
-
-                var modal = document.createElement('div');
-                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
-
-                function renderModal() {
-                    var tagList = Object.values(pendingTagDeletes);
-                    var collList = Object.values(pendingCollDeletes);
-                    if (tagList.length === 0 && collList.length === 0) { modal.remove(); updateSaveButton(); return; }
-                    modal.innerHTML =
-                        '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;padding:28px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;">' +
-                        '<h3 style="margin:0 0 20px;font-size:1.1em;color:#52B54B;">Summary — Pending changes</h3>' +
-                        '<div id="tcModalBody">' + buildContent() + '</div>' +
-                        '<div style="display:flex;justify-content:flex-end;gap:12px;margin-top:20px;border-top:1px solid var(--line-color);padding-top:16px;">' +
-                        '<button type="button" id="tcModalCancel" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;">Cancel</button>' +
-                        '<button type="button" id="tcModalConfirm" style="cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:3px;padding:8px 18px;font-size:0.9em;font-weight:500;"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:5px;">check</i>Confirm &amp; Save</button>' +
-                        '</div></div>';
-
-                    modal.querySelector('#tcModalCancel').addEventListener('click', function () { modal.remove(); });
-
-                    modal.addEventListener('click', function (e) {
-                        var undoBtn = e.target.closest('.btnModalUndo');
-                        if (!undoBtn) return;
-                        var type = undoBtn.dataset.type;
-                        var key = undoBtn.dataset.key;
-                        if (type === 'tag') delete pendingTagDeletes[key];
-                        else delete pendingCollDeletes[key];
-
-                        // Restore the row in the main list directly (no .click() to avoid re-triggering handler)
-                        var keyLower = key.toLowerCase();
-                        var mainBtn = Array.from(container.querySelectorAll('.btnTcUndo')).find(function (b) { return b.dataset.id.toLowerCase() === keyLower; });
-                        if (mainBtn) {
-                            var row = mainBtn.closest('.tc-manage-row');
-                            if (row) {
-                                row.style.opacity = '1';
-                                var nameEl = row.querySelector('.tc-item-name');
-                                if (nameEl) nameEl.style.textDecoration = '';
-                            }
-                            mainBtn.textContent = 'Remove';
-                            mainBtn.classList.remove('btnTcUndo');
-                            mainBtn.classList.add('btnTcMark');
-                            mainBtn.style.background = '#cc3333';
-                        }
-
-                        updateSaveButton();
-                        renderModal();
-                    });
-
-                    modal.querySelector('#tcModalConfirm').addEventListener('click', function () {
-                        var confirmBtn = modal.querySelector('#tcModalConfirm');
-                        confirmBtn.disabled = true;
-                        confirmBtn.innerHTML = 'Saving <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-
-                        var tagList = Object.values(pendingTagDeletes);
-                        var collList = Object.values(pendingCollDeletes);
-
-                        var groupsToInactivate = new Set();
-                        modal.querySelectorAll('.cbInactivateGroup:checked').forEach(function (cb) {
-                            var indices = cb.dataset.groupIndices ? JSON.parse(cb.dataset.groupIndices) : [];
-                            indices.forEach(function (idx) { groupsToInactivate.add(idx); });
-                        });
-
-                        var tok = window.ApiClient.accessToken();
-
-                        // All tags in one batch request — avoids race conditions when items carry multiple managed tags
-                        var tagBatchPromise = tagList.length === 0 ? Promise.resolve() :
-                            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Manage/DeleteTags'), {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'X-MediaBrowser-Token': tok },
-                                body: JSON.stringify({ TagNames: tagList.map(function (t) { return t.name; }) })
-                            }).then(function (r) { return r.json(); });
-
-                        // Collections are independent — run sequentially after tags
-                        var collOps = [];
-                        collList.forEach(function (c) {
-                            collOps.push(function () {
-                                return fetch(window.ApiClient.getUrl('HomeScreenCompanion/Manage/DeleteCollection'), {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json', 'X-MediaBrowser-Token': tok },
-                                    body: JSON.stringify({ CollectionId: c.id })
-                                }).then(function (r) { return r.json(); });
-                            });
-                        });
-
-                        tagBatchPromise.then(function () {
-                            return collOps.reduce(function (chain, op) { return chain.then(op); }, Promise.resolve());
-                        }).then(function () {
-                            if (groupsToInactivate.size === 0) return Promise.resolve();
-                            return window.ApiClient.getPluginConfiguration(pluginId).then(function (cfg) {
-                                // Collect the Tag values for the seed indices, then inactivate ALL rows sharing that Tag
-                                var tagsToInactivate = new Set();
-                                groupsToInactivate.forEach(function (idx) {
-                                    if (cfg.Tags && cfg.Tags[idx] && cfg.Tags[idx].Tag)
-                                        tagsToInactivate.add(cfg.Tags[idx].Tag.trim().toLowerCase());
-                                });
-                                (cfg.Tags || []).forEach(function (t) {
-                                    if (t.Tag && tagsToInactivate.has(t.Tag.trim().toLowerCase()))
-                                        t.Active = false;
-                                });
-                                return window.ApiClient.updatePluginConfiguration(pluginId, cfg);
-                            });
-                        }).then(function () {
-                            modal.remove();
-                            // Update SOURCES tab rows for deactivated groups immediately.
-                            // groupsToInactivate holds seed indices; find all rows sharing the same Tag value.
-                            var inactivatedTagKeys = new Set();
-                            groupsToInactivate.forEach(function (idx) {
-                                var seedRow = view.querySelector('#tagListContainer .tag-row[data-index="' + idx + '"]');
-                                if (seedRow && seedRow.dataset.tag) inactivatedTagKeys.add(seedRow.dataset.tag.toLowerCase());
-                            });
-                            view.querySelectorAll('#tagListContainer .tag-row').forEach(function (sourceRow) {
-                                var rowTag = (sourceRow.dataset.tag || '').toLowerCase();
-                                if (!inactivatedTagKeys.has(rowTag)) return;
-                                var chk = sourceRow.querySelector('.chkTagActive');
-                                var lbl = sourceRow.querySelector('.lblActiveStatus');
-                                if (chk) chk.checked = false;
-                                if (lbl) { lbl.textContent = 'Disabled'; lbl.style.color = 'var(--theme-text-secondary)'; }
-                                sourceRow.classList.add('inactive');
-                                var runBtn = sourceRow.querySelector('.btnRunEntry');
-                                if (runBtn) { runBtn.disabled = true; runBtn.style.opacity = '0.4'; }
-                            });
-                            pendingTagDeletes = {};
-                            pendingCollDeletes = {};
-                            container._tcHasPending = false;
-                            checkFormState();
-                            container.dataset.loaded = '';
-                            loadTagManageTab(view);
-                        }).catch(function (err) {
-                            modal.remove();
-                            alert('Error saving: ' + err);
-                        });
-                    });
-                }
-
-                renderModal();
-                document.body.appendChild(modal);
-            }
-
-        }).catch(function (err) {
-            container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + err + '</div>';
-        });
-    }
-
-    function executeTopListCreationSteps(tagName, displayName, selectedUserIds, displayMode, customName, imageType, maxItems, prepareResult, ui, onSuccess) {
-        var saveBtn    = ui.saveBtn;
-        var errEl      = ui.errEl;
-        var modal      = ui.modal;
-        var badgeStyle = ui.badgeStyle || 'neutral';
-        var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-        var snapshotId = null;
-        var pendingLibraryId = null;
-
-        saveBtn.innerHTML = 'Creating library <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-
-        // Step 0: Snapshot all user policies server-side BEFORE library creation.
-        // POST Library/VirtualFolders causes Emby to set EnableAllFolders=true for all users.
-        // The server stores the exact per-user state and restores it in step 4b.
-        // The chain is returned so silent callers (backup restore) can await it.
-        return fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/SnapshotPolicies'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
-            body: JSON.stringify({})
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(result) {
-            if (result && result.SnapshotId) {
-                snapshotId = result.SnapshotId;
-                console.log('[HSC] Policy snapshot taken:', result.UserCount, 'users, id:', snapshotId);
-            }
-        }).catch(function() {})
-        .then(function() {
-
-        // Steps 2+3: Check if the virtual library already exists before creating it.
-        // POSTing to Library/VirtualFolders — even for an already-existing library — causes
-        // Emby to update all users' policies and fire "User Policy Updated" notifications.
-        // By skipping the POST when the library is already present we avoid spurious notifications.
-        return fetch(window.ApiClient.getUrl('Library/VirtualFolders'), {
-            headers: { 'X-MediaBrowser-Token': tok }
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (existingFolders) {
-            // Normalize path separators and strip trailing slashes before comparing,
-            // since the C# backend uses backslashes on Windows while Emby's API may
-            // return forward slashes (or vice versa).
-            function normLibPath(p) { return (p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); }
-            var targetPath = normLibPath(prepareResult.FolderPath);
-            // Record all library IDs before creation so we can find the new one by diff
-            // if path matching fails (Emby may not register the library synchronously).
-            var preCreationIds = new Set((existingFolders || []).map(function (f) { return f.ItemId; }).filter(Boolean));
-            var alreadyExists = (existingFolders || []).some(function (f) {
-                return (f.Locations || []).some(function (loc) {
-                    return normLibPath(loc) === targetPath;
-                });
-            });
-            if (alreadyExists) {
-                return { folders: existingFolders, preCreationIds: new Set() };
-            }
-            // Library doesn't exist yet — create it, then re-fetch the updated list.
-            return fetch(window.ApiClient.getUrl('Library/VirtualFolders'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
-                body: JSON.stringify({
-                    Name: customName,
-                    CollectionType: 'movies',
-                    RefreshLibrary: false,
-                    Paths: [prepareResult.FolderPath],
-                    LibraryOptions: {
-                        EnableInternetProviders: true,
-                        TypeOptions: [{
-                            Type: 'Movie',
-                            MetadataFetchers: ['Nfo', 'TheMovieDb', 'TheTVDB'],
-                            MetadataFetcherOrder: ['Nfo', 'TheMovieDb', 'TheTVDB'],
-                            ImageFetchers: ['TheMovieDb', 'TheTVDB'],
-                            ImageFetcherOrder: ['TheMovieDb', 'TheTVDB']
-                        }]
-                    }
-                })
-            }).catch(function () {})
-            .then(function () {
-                return fetch(window.ApiClient.getUrl('Library/VirtualFolders'), {
-                    headers: { 'X-MediaBrowser-Token': tok }
-                }).then(function (r) { return r.json(); });
-            })
-            .then(function (newFolders) {
-                return { folders: newFolders, preCreationIds: preCreationIds };
-            });
-        })
-        .then(function (result) {
-            saveBtn.innerHTML = 'Saving settings <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-
-            var folders = result.folders;
-            var preCreationIds = result.preCreationIds;
-
-            // Find the library by its folder path to get its ItemId
-            function normLibPath2(p) { return (p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); }
-            var match = (folders || []).find(function (f) {
-                return (f.Locations || []).some(function (loc) {
-                    return normLibPath2(loc) === normLibPath2(prepareResult.FolderPath);
-                });
-            });
-            var newLibId = match ? match.ItemId : null;
-
-            // Fallback: if path matching failed (timing issue), find the new library by
-            // comparing current IDs against the pre-creation snapshot.
-            if (!newLibId && preCreationIds.size > 0) {
-                var diffMatch = (folders || []).find(function (f) {
-                    return f.ItemId && !preCreationIds.has(f.ItemId);
-                });
-                if (diffMatch) newLibId = diffMatch.ItemId;
-            }
-
-            var userId = selectedUserIds[0];
-            var viewsPromise = userId
-                ? fetch(window.ApiClient.getUrl('Users/' + userId + '/Views'), { headers: { 'X-MediaBrowser-Token': tok } })
-                    .then(function (r) { return r.json(); })
-                    .catch(function () { return { Items: [] }; })
-                : Promise.resolve({ Items: [] });
-
-            return viewsPromise.then(function (viewsResult) {
-                var allViewIds = new Set();
-                (folders || []).forEach(function (f) { if (f.ItemId) allViewIds.add(f.ItemId); });
-                ((viewsResult && viewsResult.Items) || []).forEach(function (v) { if (v.Id) allViewIds.add(v.Id); });
-                var excludedViewIds = Array.from(allViewIds)
-                    .filter(function (id) { return !newLibId || id !== newLibId; })
-                    .join(',');
-                return { prepareResult: prepareResult, libraryItemId: newLibId, excludedViewIds: excludedViewIds };
-            });
-        })
-        .then(function (ctx) {
-            // Step 4: Save top-list home section config
-            return window.ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                var topLists = config.TopLists || [];
-                var existing = topLists.find(function (t) {
-                    return (t.TagName || '').toLowerCase() === tagName.toLowerCase();
-                });
-                var hseSettings = JSON.stringify({
-                    SectionType: 'items',
-                    DisplayMode: displayMode,
-                    CustomName: customName,
-                    MaxItems: String(maxItems),
-                    ViewType: '',
-                    ImageType: imageType,
-                    BadgeStyle: badgeStyle,
-                    SortBy: 'SortName',
-                    SortOrder: 'Ascending',
-                    ScrollDirection: '',
-                    ItemTypes: JSON.stringify(['Movie']),
-                    _queryIsPlayed: '',
-                    _queryExcludeViewIds: ctx.excludedViewIds,
-                    ExcludedFolders: ctx.excludedViewIds
-                });
-                if (existing) {
-                    existing.HomeSectionUserIds = selectedUserIds;
-                    existing.HomeSectionLibraryId = ctx.libraryItemId || 'auto';
-                    existing.HomeSectionSettings = hseSettings;
-                    existing.HomeSectionTracked = existing.HomeSectionTracked || [];
-                    existing.MaxItems = maxItems;
-                } else {
-                    topLists.push({
-                        TagName: tagName,
-                        MaxItems: maxItems,
-                        HomeSectionUserIds: selectedUserIds,
-                        HomeSectionLibraryId: ctx.libraryItemId || 'auto',
-                        HomeSectionSettings: hseSettings,
-                        HomeSectionTracked: []
-                    });
-                }
-                config.TopLists = topLists;
-                return window.ApiClient.updatePluginConfiguration(pluginId, config)
-                    .then(function () { return { prepareResult: ctx.prepareResult, libraryItemId: ctx.libraryItemId }; });
-            });
-        })
-        .then(function (ctx2) {
-            // Step 4b: Store the library ID for the final access-restore step.
-            // RestoreAndGrantAccess runs AFTER the library scan (last step) to ensure Emby
-            // has fully registered the new library before we write it to EnabledFolders.
-            if (ctx2.libraryItemId) pendingLibraryId = ctx2.libraryItemId;
-            return ctx2;
-        })
-        .then(function (ctx2) {
-            // Step 5: Create home sections immediately
-            saveBtn.innerHTML = 'Creating home sections <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-            var tok5 = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-            return fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/SyncHomeSections'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok5 },
-                body: JSON.stringify({ TagName: tagName })
-            })
-            .then(function (r) { return r.json(); })
-            .then(function (syncResult) {
-                if (!syncResult.Success) throw new Error(syncResult.Message || 'Failed to create home sections.');
-                return ctx2;
-            });
-        })
-        .then(function (ctx2) {
-            // Step 6: Scan the newly created library only
-            if (ctx2.libraryItemId) {
-                saveBtn.innerHTML = 'Scanning library <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-                var tok6 = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-                return fetch(window.ApiClient.getUrl('Items/' + ctx2.libraryItemId + '/Refresh') + '?Recursive=true&MetadataRefreshMode=Default&ImageRefreshMode=Default', {
-                    method: 'POST',
-                    headers: { 'X-MediaBrowser-Token': tok6 }
-                }).catch(function () {}).then(function () { return ctx2.prepareResult; });
-            }
-            return ctx2.prepareResult;
-        })
-        .then(function (prepareResult) {
-            // NOTE: Linking each .strm as an alternate version of its original movie AND probing it
-            // for a real RunTimeTicks (so resume works instead of marking the film fully-watched) is
-            // handled automatically server-side by the ItemAdded/ItemUpdated hook in ServerEntryPoint,
-            // which fires as Emby indexes each .strm. No UI step is needed here — hence the
-            // "finishing touches will continue in the background" note on the success screen.
-            // Step 7: Sync all top-list home sections so exclusion lists are up to date
-            var tok7 = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-            return fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/SyncAllSections'), {
-                method: 'POST',
-                headers: { 'X-MediaBrowser-Token': tok7 }
-            }).catch(function () {}).then(function () { return prepareResult; });
-        })
-        .then(function (prepareResult) {
-            // Step 8: Grant library access to all restricted users via Emby's standard
-            // user-policy API (GET /Users + POST /Users/{Id}/Policy).
-            // This avoids server-side reflection entirely and works with any Emby version.
-            // Users with EnableAllFolders=true already have access — skip them.
-            // Users with EnableAllFolders=false get the new library added to EnabledFolders
-            // without touching any of their other existing settings.
-            if (!pendingLibraryId) return prepareResult;
-            var tok8 = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-            var libIdLower = pendingLibraryId.toLowerCase();
-            return fetch(window.ApiClient.getUrl('Users'), {
-                headers: { 'X-MediaBrowser-Token': tok8 }
-            })
-            .then(function (r) { return r.json(); })
-            .then(function (users) {
-                // GET /Users may return Policy=null for users other than the caller in
-                // some Emby versions. Fetch each user individually to guarantee full Policy data.
-                return Promise.all((users || []).map(function (u) {
-                    if (u && u.Policy) return Promise.resolve(u);
-                    return fetch(window.ApiClient.getUrl('Users/' + u.Id), {
-                        headers: { 'X-MediaBrowser-Token': tok8 }
-                    }).then(function (r) { return r.json(); }).catch(function () { return u; });
-                }));
-            })
-            .then(function (users) {
-                var updates = (users || [])
-                    .filter(function (u) {
-                        return u && u.Policy && !u.Policy.EnableAllFolders &&
-                            selectedUserIds.some(function (id) { return id.toLowerCase() === (u.Id || '').toLowerCase(); }) &&
-                            !(u.Policy.EnabledFolders || []).some(function (f) {
-                                return (f || '').toLowerCase() === libIdLower;
-                            });
-                    })
-                    .map(function (u) {
-                        var pol = JSON.parse(JSON.stringify(u.Policy));
-                        pol.EnabledFolders = (u.Policy.EnabledFolders || []).concat([pendingLibraryId]);
-                        return fetch(window.ApiClient.getUrl('Users/' + u.Id + '/Policy'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'X-MediaBrowser-Token': tok8 },
-                            body: JSON.stringify(pol)
-                        }).catch(function () {});
-                    });
-                return Promise.all(updates);
-            })
-            .catch(function () {})
-            .then(function () { return prepareResult; });
-        })
-        .then(function (prepareResult) {
-            _topListTagNames.add(tagName.toLowerCase());
-            refreshTopListBadges();
-            if (ui.silent && typeof ui.closeHandler === 'function') { ui.closeHandler(); return; }
-            var innerBox = ui.innerBox || modal.querySelector('div');
-            innerBox.innerHTML =
-                '<div style="text-align:center;padding:10px 0 20px;">' +
-                '<i class="md-icon" style="font-size:2.5em;color:#52B54B;display:block;margin-bottom:12px;">check_circle</i>' +
-                '<p style="margin:0 0 6px;font-size:1.05em;font-weight:500;">Top-list created!</p>' +
-                '<p style="margin:0;opacity:0.65;font-size:0.9em;">' + prepareResult.FilesCreated + ' movie' + (prepareResult.FilesCreated !== 1 ? 's' : '') + ' included.</p>' +
-                '<p style="margin:8px 0 0;opacity:0.5;font-size:0.82em;font-style:italic;">Finishing touches will continue in the background.</p>' +
-                '</div>' +
-                '<div style="display:flex;justify-content:center;padding-top:16px;border-top:1px solid var(--line-color);margin-top:20px;">' +
-                '<button type="button" class="btnTlmDone" style="cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:3px;padding:8px 22px;font-size:0.9em;font-weight:500;">Close</button>' +
-                '</div>';
-            innerBox.querySelector('.btnTlmDone').addEventListener('click', function () {
-                if (typeof ui.closeHandler === 'function') { ui.closeHandler(); }
-                else { modal.remove(); if (typeof onSuccess === 'function') onSuccess(); }
-            });
-        })
-        .catch(function (err) {
-            saveBtn.disabled = false;
-            saveBtn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">check</i>Save and apply';
-            errEl.textContent = err.message || String(err);
-            if (ui.silent) throw err;
-        });
-        }); // end step 0 wrapper
-    }
-
-    var _badgeStyles = [
-        { val: 'neutral',    label: 'Neutral',    bg: 'rgba(0,0,0,0.82)',        textColor: '#fff' },
-        { val: 'slate-grey', label: 'Slate grey', bg: 'rgba(65,65,75,0.88)',     textColor: '#fff' },
-        { val: 'emby-green', label: 'Emby green', bg: 'rgba(82,181,75,0.78)',    textColor: '#fff' },
-        { val: 'ocean-blue', label: 'Ocean blue', bg: 'rgba(46,134,193,0.82)',   textColor: '#fff' },
-        { val: 'soft-red',   label: 'Soft red',   bg: 'rgba(201,69,69,0.82)',    textColor: '#fff' },
-        { val: 'violet',     label: 'Violet',     bg: 'rgba(123,82,181,0.82)',   textColor: '#fff' },
-        { val: 'none',       label: 'No number',  bg: 'transparent',             textColor: '#fff', noNumber: true }
-    ];
-
-    function buildBadgePickerHtml(selectedVal) {
-        var sel = selectedVal || 'neutral';
-        var cardBase = 'cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 12px;border-radius:6px;border:2px solid transparent;transition:border-color 0.15s;';
-        var cardActive = cardBase + 'border-color:#52B54B;';
-        var cardInactive = cardBase + 'border-color:var(--line-color,rgba(255,255,255,0.12));';
-        return '<div style="margin-bottom:16px;">' +
-            '<span style="font-size:0.82em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:8px;">Badge Style</span>' +
-            '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-            _badgeStyles.map(function (s) {
-                var active = s.val === sel;
-                return '<label class="tl-badge-opt" style="' + (active ? cardActive : cardInactive) + '">' +
-                    '<input type="radio" name="tlBadgeStyle" value="' + s.val + '" style="position:absolute;opacity:0;pointer-events:none;"' + (active ? ' checked' : '') + '>' +
-                    '<div style="width:46px;height:46px;border-radius:50%;background:' + s.bg + ';display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:' + s.textColor + ';font-family:sans-serif;">' + (s.noNumber ? '' : '7') + '</div>' +
-                    '<span style="font-size:0.78em;opacity:0.8;white-space:nowrap;">' + s.label + '</span>' +
-                    '</label>';
-            }).join('') +
-            '</div></div>';
-    }
-
-    function initBadgePicker(container) {
-        var cardBase = 'cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 12px;border-radius:6px;border:2px solid transparent;transition:border-color 0.15s;';
-        var opts = Array.from(container.querySelectorAll('.tl-badge-opt'));
-        opts.forEach(function (label) {
-            label.addEventListener('click', function () {
-                opts.forEach(function (l) { l.style.borderColor = 'var(--line-color,rgba(255,255,255,0.12))'; });
-                label.style.borderColor = '#52B54B';
-            });
-        });
-    }
-
-    function readBadgeStyle(container) {
-        var checked = container.querySelector('input[name="tlBadgeStyle"]:checked');
-        return checked ? checked.value : 'neutral';
-    }
-
-    function showTopListModal(tagName, displayName, onSuccess, existingData) {
-        function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-
-        var inputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:6px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:100%;box-sizing:border-box;';
-        var labelStyle = 'font-size:0.82em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:5px;';
-        var fieldStyle = 'margin-bottom:16px;';
-
-        var modal = document.createElement('div');
-        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
-
-        function renderBox(content) {
-            modal.innerHTML =
-                '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);' +
-                'border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;' +
-                'padding:28px;max-width:520px;width:90%;max-height:85vh;overflow-y:auto;">' +
-                content + '</div>';
-        }
-
-        renderBox('<div style="padding:10px 0;display:flex;align-items:center;gap:10px;">Loading <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>');
-        document.body.appendChild(modal);
-
-        getHseUsers().then(function (users) {
-            var usersHtml = buildUserMultiSelectHtml(
-                users,
-                existingData ? (existingData.userIds || []) : [],
-                'chkTlmUser'
+              }).map((f) => f.ItemId)
             );
-
-
-            var html =
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;">' +
-                '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">' + (existingData ? 'Edit' : 'Create') + ' Top-List: ' + escHtml(displayName) + '</h3>' +
-                '<button type="button" class="btnTlmClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button>' +
-                '</div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<span style="' + labelStyle + '">Target Users</span>' +
-                '<div class="tlm-user-list">' + usersHtml + '</div>' +
-                '</div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Show this section</label>' +
-                '<select is="emby-select" class="tlm-display-mode" style="width:100%;">' +
-                '<option value="">Always</option>' +
-                '<option value="tv">When TV Display Mode is on</option>' +
-                '<option value="mobile,desktop">When TV Display Mode is off</option>' +
-                '</select></div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Custom Title</label>' +
-                '<input type="text" class="tlm-custom-name" style="' + inputStyle + '" placeholder="' + escAttr(displayName) + '" />' +
-                '</div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Image Type</label>' +
-                '<select is="emby-select" class="tlm-image-type" style="width:100%;">' +
-                '<option value="">Auto</option>' +
-                '<option value="Primary">Primary</option>' +
-                '<option value="Thumb">Thumb</option>' +
-                '</select></div>' +
-
-                buildBadgePickerHtml(existingData ? existingData.badgeStyle : 'neutral') +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Max items <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:0.7;">(0 = all)</span></label>' +
-                '<input type="number" class="tlm-max-items" min="0" step="1" style="' + inputStyle + '" placeholder="0" />' +
-                '</div>' +
-
-                '<div class="tlm-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:4px;"></div>' +
-                '<div style="border-top:1px solid var(--line-color);padding-top:16px;display:flex;gap:10px;align-items:center;justify-content:flex-end;">' +
-                '<button type="button" class="btnTlmCancel" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;">Cancel</button>' +
-                '<button type="button" class="btnTlmSave" style="cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:4px;padding:10px 26px;font-size:0.95em;font-weight:600;">' +
-                '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">check</i>Save and apply</button>' +
-                '</div>';
-
-            renderBox(html);
-            initBadgePicker(modal);
-            wireUserMultiSelect(modal);
-
-            if (existingData) {
-                if (existingData.customName) modal.querySelector('.tlm-custom-name').value = existingData.customName;
-                if (existingData.displayMode) modal.querySelector('.tlm-display-mode').value = existingData.displayMode;
-                if (existingData.imageType) modal.querySelector('.tlm-image-type').value = existingData.imageType;
-                if (existingData.maxItems && existingData.maxItems !== '0') modal.querySelector('.tlm-max-items').value = existingData.maxItems;
-            }
-
-            modal.querySelector('.btnTlmClose').addEventListener('click', function () { modal.remove(); });
-            modal.querySelector('.btnTlmCancel').addEventListener('click', function () { modal.remove(); });
-            modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
-
-            modal.querySelector('.btnTlmSave').addEventListener('click', function () {
-                var saveBtn = this;
-                var errEl = modal.querySelector('.tlm-error');
-                errEl.textContent = '';
-
-                var selectedUserIds = Array.from(modal.querySelectorAll('.chkTlmUser:checked')).map(function (c) { return c.value; });
-                if (selectedUserIds.length === 0) {
-                    errEl.textContent = 'Please select at least one target user.';
-                    return;
+            if (topListIds.size > 0) {
+              (configObj.Tags || []).forEach((tag) => {
+                const tagAny = tag;
+                if (!tagAny.EnableHomeSection) return;
+                let settings = {};
+                try {
+                  settings = JSON.parse(tagAny.HomeSectionSettings || "{}");
+                } catch {
                 }
-
-                var customName    = modal.querySelector('.tlm-custom-name').value.trim() || displayName;
-                var displayMode   = modal.querySelector('.tlm-display-mode').value;
-                var imageType     = modal.querySelector('.tlm-image-type').value;
-                var badgeStyle    = readBadgeStyle(modal);
-                var maxItems      = Math.max(0, parseInt(modal.querySelector('.tlm-max-items').value, 10) || 0);
-                var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-
-                saveBtn.disabled = true;
-                saveBtn.innerHTML = 'Preparing files <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-
-                // Step 1: Create folder + write .strm files
-                fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/PrepareFolder'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
-                    body: JSON.stringify({ TagName: tagName, MaxItems: maxItems, BadgeStyle: badgeStyle })
-                })
-                .then(function (r) { return r.json(); })
-                .then(function (prepareResult) {
-                    if (!prepareResult.Success) throw new Error(prepareResult.Message || 'Failed to create folder.');
-                    executeTopListCreationSteps(
-                        tagName, displayName, selectedUserIds, displayMode, customName, imageType, maxItems,
-                        prepareResult, { saveBtn: saveBtn, errEl: errEl, modal: modal, badgeStyle: badgeStyle }, onSuccess
-                    );
-                })
-                .catch(function (err) {
-                    saveBtn.disabled = false;
-                    saveBtn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">check</i>Save and apply';
-                    errEl.textContent = err.message || String(err);
+                if ((settings["SectionType"] || "items") !== "items") return;
+                const excluded = new Set(
+                  String(settings["_queryExcludeViewIds"] || "").split(",").map((id) => id.trim()).filter(Boolean)
+                );
+                let changed = false;
+                topListIds.forEach((id) => {
+                  if (!excluded.has(id)) {
+                    excluded.add(id);
+                    changed = true;
+                  }
                 });
+                if (changed) {
+                  const excStr = Array.from(excluded).join(",");
+                  settings["_queryExcludeViewIds"] = excStr;
+                  settings["ExcludedFolders"] = excStr;
+                  tag.HomeSectionSettings = JSON.stringify(settings);
+                }
+              });
+            }
+            return api.updatePluginConfiguration(PLUGIN_ID, configObj);
+          });
+        }).then((r) => {
+          getDashboard()?.processPluginConfigurationUpdateResult(r);
+          appState.topLists.tagNames = new Set((configObj.TopLists || []).map((tl) => {
+            const t = tl;
+            return (t.TagName || "").toLowerCase();
+          }).filter(Boolean));
+          const newGrouped = groupConfigTags(configObj.Tags || []);
+          view2.querySelectorAll(".tag-row").forEach((row) => {
+            const lblInput = row.querySelector(".txtEntryLabel");
+            if (!lblInput) return;
+            const name = lblInput.value;
+            const tagNameEl = row.querySelector(".txtTagName");
+            const tagName = tagNameEl ? tagNameEl.value || name : name;
+            const key = name ? name + "" + tagName : tagName;
+            const tc = newGrouped[key];
+            if (tc) {
+              row.dataset.lastModified = String(tc.LastModified || "");
+              const hseTab = row.querySelector(".homescreen-tab");
+              if (hseTab) {
+                hseTab.dataset.hseTracked = encodeURIComponent(JSON.stringify(tc.HomeSectionTracked || []));
+                hseTab.dataset.hseSettings = encodeURIComponent(tc.HomeSectionSettings || "{}");
+                hseTab.dataset.hseUserids = encodeURIComponent(JSON.stringify(tc.HomeSectionUserIds || []));
+              }
+            }
+          });
+          appState.originalConfigState.setOriginalConfigState(JSON.stringify(boundGetUiConfig(view2, true)));
+          checkFormStateBound();
+          updateDryRunWarning(appState.originalConfigState.getOriginalConfigState());
+          (configObj.Tags || []).forEach((tcRaw) => {
+            const tc = tcRaw;
+            if (!tc.EnableHomeSection) return;
+            const hasTracked = (tc.HomeSectionTracked || []).some((t) => t.SectionId && !t.SectionId.startsWith("hsc__"));
+            if (!hasTracked) return;
+            const applyUrl = api.getUrl("HomeScreenCompanion/Hsc/ApplyTagHomeSections");
+            const tok = api.accessToken();
+            fetch(applyUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Emby-Token": tok },
+              body: JSON.stringify({ TagName: tc.Name || tc.Tag })
+            }).then((rr) => rr.json()).then((res) => {
+              console.log("[HSC] ApplyTagHomeSections", tc.Name || tc.Tag, res);
+            }).catch((e) => {
+              console.warn("[HSC] ApplyTagHomeSections failed", tc.Name || tc.Tag, e);
             });
-        }).catch(function (err) {
-            renderBox('<div style="color:#cc3333;padding:10px 0;">Failed to load: ' + (err.message || err) + '</div>' +
-                '<div style="margin-top:16px;text-align:right;"><button type="button" class="btnTlmClose" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:inherit;border-radius:3px;padding:6px 14px;font-size:0.9em;">Close</button></div>');
-            modal.querySelector('.btnTlmClose').addEventListener('click', function () { modal.remove(); });
+          });
         });
-    }
-
-    // existingData = { listName, customName, displayMode, imageType, userIds: [], movies: [{ItemId,ImdbId,Name,Year}] }
-    function showManualTopListModal(onSuccess, existingData) {
-        function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-
-        var isEdit = !!existingData;
-        var inputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:6px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:100%;box-sizing:border-box;';
-        var labelStyle = 'font-size:0.82em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:5px;';
-        var fieldStyle = 'margin-bottom:14px;';
-        var colHeaderStyle = 'font-size:0.75em;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#52B54B;padding-bottom:10px;margin-bottom:12px;border-bottom:1px solid rgba(82,181,75,0.3);';
-
-        var modal = document.createElement('div');
-        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
-        modal.innerHTML =
-            '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);' +
-            'border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;' +
-            'padding:28px;max-width:720px;width:95%;max-height:90vh;overflow-y:auto;">' +
-            '<div style="padding:10px 0;display:flex;align-items:center;gap:10px;">Loading <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>' +
-            '</div>';
-        document.body.appendChild(modal);
-
-        function onEsc(e) { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', onEsc); } }
-        document.addEventListener('keydown', onEsc);
-        modal.addEventListener('click', function (e) { if (e.target === modal) { modal.remove(); document.removeEventListener('keydown', onEsc); } });
-
-        var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-
-        Promise.all([
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/AllMovies'), {
-                headers: { 'X-MediaBrowser-Token': tok }
-            }).then(function (r) { return r.json(); }),
-            getHseUsers()
-        ])
-        .then(function (results) {
-            var allMovies = (results[0].Movies || []);
-            var users     = results[1];
-
-            var presetUserIds = (existingData && existingData.userIds) || [];
-
-            var usersHtml = buildUserMultiSelectHtml(users, presetUserIds, 'chkMtlUser');
-
-
-            var presetName       = (existingData && existingData.listName)    || '';
-            var presetCustomName = (existingData && existingData.customName)  || '';
-            var presetDisplay    = (existingData && existingData.displayMode) || '';
-            var presetImageType  = (existingData && existingData.imageType)   || '';
-            var presetBadgeStyle = (existingData && existingData.badgeStyle)  || 'neutral';
-
-            var displayOptions = [
-                { val: '',               label: 'Always' },
-                { val: 'tv',             label: 'When TV Display Mode is on' },
-                { val: 'mobile,desktop', label: 'When TV Display Mode is off' }
-            ].map(function (o) {
-                return '<option value="' + escAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
-            }).join('');
-
-            var imageOptions = [
-                { val: '',        label: 'Auto' },
-                { val: 'Primary', label: 'Primary' },
-                { val: 'Thumb',   label: 'Thumb' }
-            ].map(function (o) {
-                return '<option value="' + escAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
-            }).join('');
-
-            var titleText    = isEdit ? 'Edit Manual Top-List' : 'Create Manual Top-List';
-            var createBtnLabel = isEdit ? 'Save changes' : 'Create top-list';
-
-            var innerBox = modal.querySelector('div');
-            innerBox.innerHTML =
-                // ── Header ──────────────────────────────────────────────────
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">' +
-                '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">' + escHtml(titleText) + '</h3>' +
-                '<button type="button" class="btnMtlClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button>' +
-                '</div>' +
-
-                // ── Two columns ──────────────────────────────────────────────
-                '<div style="display:flex;gap:0;align-items:stretch;">' +
-
-                // LEFT column: home section settings
-                '<div style="flex:1;min-width:0;padding-right:20px;border-right:1px solid var(--line-color);">' +
-                '<div style="' + colHeaderStyle + '"><i class="md-icon" style="font-size:0.9em;vertical-align:middle;margin-right:5px;">home</i>Home Section Settings</div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">List Name</label>' +
-                '<input type="text" class="mtlListName" style="' + inputStyle + '" placeholder="e.g. My Favorites"' + (isEdit ? ' readonly style="' + inputStyle + 'opacity:0.6;cursor:not-allowed;"' : '') + ' value="' + escAttr(presetName) + '" /></div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Custom Title <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:0.7;">(shown on home screen)</span></label>' +
-                '<input type="text" class="mtlCustomName" style="' + inputStyle + '" placeholder="Defaults to list name" value="' + escAttr(presetCustomName) + '" /></div>' +
-
-                '<div style="' + fieldStyle + '"><span style="' + labelStyle + '">Target Users</span>' +
-                '<div>' + usersHtml + '</div></div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Show this section</label>' +
-                '<select is="emby-select" class="mtlDisplayMode" style="width:100%;">' + displayOptions + '</select></div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Image Type</label>' +
-                '<select is="emby-select" class="mtlImageType" style="width:100%;">' + imageOptions + '</select></div>' +
-
-                '</div>' +
-
-                // RIGHT column: movie list
-                '<div style="flex:1;min-width:0;padding-left:20px;">' +
-                '<div style="' + colHeaderStyle + '"><i class="md-icon" style="font-size:0.9em;vertical-align:middle;margin-right:5px;">format_list_numbered</i>Movie List</div>' +
-
-                '<div style="' + fieldStyle + '">' +
-                '<label style="' + labelStyle + '">Add Movie</label>' +
-                '<div style="position:relative;">' +
-                '<input type="text" class="mtlMovieSearch" autocomplete="off" style="' + inputStyle + '" placeholder="Type to search…" />' +
-                '<div class="mtlSearchResults" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--plugin-popup-bg,#2a2a2a);border:1px solid var(--line-color);border-radius:4px;max-height:200px;overflow-y:auto;margin-top:2px;box-shadow:0 4px 12px rgba(0,0,0,0.45);"></div>' +
-                '</div></div>' +
-
-                '<div class="mtlSelectedList" style="max-height:500px;overflow-y:auto;border:1px solid var(--line-color);border-radius:4px;padding:4px 8px;min-height:60px;"></div>' +
-                '</div>' +
-
-                '</div>' +
-
-                '<div style="border-top:1px solid var(--line-color);padding-top:14px;margin-top:4px;">' +
-                buildBadgePickerHtml(presetBadgeStyle) +
-                '</div>' +
-
-                '<div class="mtl-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-top:12px;margin-bottom:4px;"></div>' +
-                '<div style="border-top:1px solid var(--line-color);padding-top:16px;margin-top:8px;display:flex;gap:10px;align-items:center;justify-content:flex-end;">' +
-                '<button type="button" class="btnMtlCancel" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;">Cancel</button>' +
-                '<button type="button" class="btnMtlCreate" disabled style="cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:4px;padding:10px 26px;font-size:0.95em;font-weight:600;display:flex;align-items:center;gap:6px;">' +
-                '<i class="md-icon" style="font-size:1em;">playlist_add</i>' + escHtml(createBtnLabel) + '</button>' +
-                '</div>';
-
-            initBadgePicker(modal);
-            wireUserMultiSelect(modal);
-
-            // In edit mode, set list name field readonly again (the value= attr trick above may not
-            // work if the readonly attr comes after a style attr — set it via JS to be safe)
-            if (isEdit) {
-                var nameInput = modal.querySelector('.mtlListName');
-                nameInput.readOnly = true;
-                nameInput.style.opacity = '0.6';
-                nameInput.style.cursor  = 'not-allowed';
+      }
+      function submitFormHandler(e) {
+        e.preventDefault();
+        if (!currentView) return;
+        const view2 = currentView;
+        const tlCont = view2.querySelector("#tlContainer");
+        const dirtyBodies = tlCont ? Array.from(tlCont.querySelectorAll('.tag-body[data-dirty="1"]')) : [];
+        if (dirtyBodies.length > 0) {
+          const btn = view2.querySelector(".btn-save");
+          const origHtml = btn ? btn.innerHTML : "";
+          if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="md-icon" style="margin-right:5px;">hourglass_empty</i><span>Saving\u2026</span>';
+          }
+          dirtyBodies.reduce((p, b) => {
+            return p.then(() => {
+              const tlSaveForm = b.tlSaveForm;
+              return typeof tlSaveForm === "function" ? tlSaveForm() : Promise.resolve();
+            });
+          }, Promise.resolve()).then(() => {
+            dirtyBodies.forEach((b) => {
+              delete b.dataset.dirty;
+            });
+            if (btn) {
+              btn.innerHTML = origHtml;
+              btn.disabled = false;
             }
-
-            var selectedMovies = (existingData && existingData.movies) ? existingData.movies.slice() : [];
-
-            function renderSelectedList() {
-                var listEl = modal.querySelector('.mtlSelectedList');
-                if (selectedMovies.length === 0) {
-                    listEl.innerHTML = '<div style="padding:8px 4px;opacity:0.5;font-size:0.9em;">No movies added yet.</div>';
-                    return;
-                }
-                listEl.innerHTML = selectedMovies.map(function (m, idx) {
-                    var label = escHtml(m.Name) + (m.Year ? ' (' + escHtml(String(m.Year)) + ')' : '');
-                    var upDis  = idx === 0 ? ' disabled' : '';
-                    var dnDis  = idx === selectedMovies.length - 1 ? ' disabled' : '';
-                    return '<div style="display:flex;align-items:center;gap:5px;padding:5px 2px;border-bottom:1px solid rgba(128,128,128,0.15);">' +
-                        '<span style="min-width:22px;font-size:0.8em;opacity:0.55;font-weight:600;text-align:right;">' + (idx + 1) + '.</span>' +
-                        '<span style="flex:1;font-size:0.88em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(m.Name) + '">' + label + '</span>' +
-                        '<button type="button" class="btnMtlUp" data-idx="' + idx + '"' + upDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move up">▲</button>' +
-                        '<button type="button" class="btnMtlDown" data-idx="' + idx + '"' + dnDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move down">▼</button>' +
-                        '<button type="button" class="btnMtlRemove" data-idx="' + idx + '" style="cursor:pointer;border:none;background:transparent;color:#cc3333;padding:2px 4px;font-size:0.9em;line-height:1;" title="Remove">✕</button>' +
-                        '</div>';
-                }).join('');
+            doSaveFn();
+          }).catch((err) => {
+            if (btn) {
+              btn.innerHTML = origHtml;
+              btn.disabled = false;
             }
-
-            function updateCreateBtn() {
-                var nameVal  = (modal.querySelector('.mtlListName').value || '').trim();
-                var hasUsers = modal.querySelectorAll('.chkMtlUser:checked').length > 0;
-                modal.querySelector('.btnMtlCreate').disabled = (nameVal.length === 0 || selectedMovies.length === 0 || !hasUsers);
-            }
-
-            renderSelectedList();
-            updateCreateBtn();
-
-            modal.querySelector('.btnMtlClose').addEventListener('click', function () { modal.remove(); document.removeEventListener('keydown', onEsc); });
-            modal.querySelector('.btnMtlCancel').addEventListener('click', function () { modal.remove(); document.removeEventListener('keydown', onEsc); });
-
-            modal.querySelector('.mtlListName').addEventListener('input', updateCreateBtn);
-
-            modal.querySelectorAll('.chkMtlUser').forEach(function (cb) {
-                cb.addEventListener('change', updateCreateBtn);
-            });
-
-            var searchInput  = modal.querySelector('.mtlMovieSearch');
-            var resultsBox   = modal.querySelector('.mtlSearchResults');
-
-            function showSearchResults(q) {
-                q = (q || '').trim().toLowerCase();
-                if (q.length < 1) { resultsBox.style.display = 'none'; resultsBox.innerHTML = ''; return; }
-                var hits = allMovies.filter(function (m) {
-                    return m.Name.toLowerCase().indexOf(q) !== -1 ||
-                           (m.Year && String(m.Year).indexOf(q) !== -1);
-                }).slice(0, 20);
-                if (hits.length === 0) { resultsBox.style.display = 'none'; return; }
-                var alreadyIds = new Set(selectedMovies.map(function (m) { return m.ItemId; }));
-                resultsBox.innerHTML = hits.map(function (m) {
-                    var added = alreadyIds.has(m.ItemId);
-                    var label = escHtml(m.Name) + (m.Year ? ' (' + m.Year + ')' : '');
-                    return '<div class="mtlSearchResult" data-itemid="' + escAttr(m.ItemId) + '"' +
-                        ' data-imdbid="' + escAttr(m.ImdbId) + '"' +
-                        ' data-name="' + escAttr(m.Name) + '"' +
-                        ' data-year="' + escAttr(String(m.Year || '')) + '"' +
-                        ' style="padding:7px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid rgba(128,128,128,0.12);' +
-                        (added ? 'opacity:0.42;pointer-events:none;' : '') + '">' +
-                        label + (added ? ' <span style="font-size:0.8em;">(already added)</span>' : '') + '</div>';
-                }).join('');
-                resultsBox.style.display = 'block';
-            }
-
-            searchInput.addEventListener('input', function () { showSearchResults(this.value); });
-            searchInput.addEventListener('focus',  function () { showSearchResults(this.value); });
-
-            resultsBox.addEventListener('mousedown', function (e) {
-                // mousedown fires before blur so we can intercept before the field loses focus
-                var row = e.target.closest('.mtlSearchResult');
-                if (!row || !row.dataset.itemid) return;
-                e.preventDefault(); // keep focus on searchInput
-                if (selectedMovies.some(function (m) { return m.ItemId === row.dataset.itemid; })) return;
-                selectedMovies.push({
-                    ItemId: row.dataset.itemid,
-                    ImdbId: row.dataset.imdbid || '',
-                    Name:   row.dataset.name   || '',
-                    Year:   row.dataset.year   ? parseInt(row.dataset.year, 10) : null
-                });
-                searchInput.value = '';
-                resultsBox.style.display = 'none';
-                renderSelectedList();
-                updateCreateBtn();
-            });
-
-            searchInput.addEventListener('blur', function () {
-                setTimeout(function () { resultsBox.style.display = 'none'; }, 150);
-            });
-
-            modal.querySelector('.mtlSelectedList').addEventListener('click', function (e) {
-                var btn = e.target.closest('button');
-                if (!btn) return;
-                var idx = parseInt(btn.dataset.idx, 10);
-                if (isNaN(idx)) return;
-                var tmp;
-                if (btn.classList.contains('btnMtlUp') && idx > 0) {
-                    tmp = selectedMovies[idx - 1];
-                    selectedMovies[idx - 1] = selectedMovies[idx];
-                    selectedMovies[idx] = tmp;
-                } else if (btn.classList.contains('btnMtlDown') && idx < selectedMovies.length - 1) {
-                    tmp = selectedMovies[idx + 1];
-                    selectedMovies[idx + 1] = selectedMovies[idx];
-                    selectedMovies[idx] = tmp;
-                } else if (btn.classList.contains('btnMtlRemove')) {
-                    selectedMovies.splice(idx, 1);
-                }
-                renderSelectedList();
-                updateCreateBtn();
-            });
-
-            modal.querySelector('.btnMtlCreate').addEventListener('click', function () {
-                var createBtn  = this;
-                var errEl      = modal.querySelector('.mtl-error');
-                errEl.textContent = '';
-
-                var listName        = (modal.querySelector('.mtlListName').value || '').trim();
-                var customNameVal   = (modal.querySelector('.mtlCustomName').value || '').trim() || listName;
-                var displayMode     = modal.querySelector('.mtlDisplayMode').value;
-                var imageType       = modal.querySelector('.mtlImageType').value;
-                var badgeStyle      = readBadgeStyle(modal);
-                var selectedUserIds = Array.from(modal.querySelectorAll('.chkMtlUser:checked')).map(function (c) { return c.value; });
-
-                if (!listName)                    { errEl.textContent = 'Please enter a name for the list.'; return; }
-                if (selectedUserIds.length === 0) { errEl.textContent = 'Please select at least one target user.'; return; }
-                if (selectedMovies.length === 0)  { errEl.textContent = 'Please add at least one movie.'; return; }
-
-                createBtn.disabled = true;
-                createBtn.innerHTML = 'Preparing files <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-
-                var tok2 = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-                fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/PrepareManualFolder'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok2 },
-                    body: JSON.stringify({
-                        ListName: listName,
-                        BadgeStyle: badgeStyle,
-                        Items: selectedMovies.map(function (m) { return { ImdbId: m.ImdbId, ItemId: m.ItemId }; })
-                    })
-                })
-                .then(function (r) { return r.json(); })
-                .then(function (prepareResult) {
-                    if (!prepareResult.Success) throw new Error(prepareResult.Message || 'Failed to create folder.');
-                    executeTopListCreationSteps(
-                        listName, customNameVal, selectedUserIds, displayMode, customNameVal, imageType, 0,
-                        prepareResult, { saveBtn: createBtn, errEl: errEl, modal: modal, badgeStyle: badgeStyle }, function () {
-                            document.removeEventListener('keydown', onEsc);
-                            if (typeof onSuccess === 'function') onSuccess();
-                        }
-                    );
-                })
-                .catch(function (err) {
-                    createBtn.disabled = false;
-                    createBtn.innerHTML = '<i class="md-icon" style="font-size:1em;">playlist_add</i>' + escHtml(createBtnLabel);
-                    errEl.textContent = err.message || String(err);
-                });
-            });
-        })
-        .catch(function (err) {
-            var innerBox = modal.querySelector('div');
-            innerBox.innerHTML =
-                '<div style="color:#cc3333;padding:10px 0;">Failed to load: ' + (err.message || String(err)).replace(/</g, '&lt;') + '</div>' +
-                '<div style="margin-top:16px;text-align:right;">' +
-                '<button type="button" class="btnMtlClose" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:inherit;border-radius:3px;padding:6px 14px;font-size:0.9em;">Close</button>' +
-                '</div>';
-            modal.querySelector('.btnMtlClose').addEventListener('click', function () { modal.remove(); document.removeEventListener('keydown', onEsc); });
-        });
-    }
-
-    function loadInlineEditForm(row, body, onSuccess) {
-        var editJson;
-        try { editJson = JSON.parse(row.dataset.editjson || '{}'); } catch (e) { editJson = {}; }
-
-        var tagName     = editJson.tagName     || '';
-        var isManual    = !!editJson.isManual;
-        var displayName = editJson.displayName || editJson.customName || tagName;
-
-        function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-
-        var inputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:6px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:100%;box-sizing:border-box;';
-        var labelStyle = 'font-size:0.82em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:5px;';
-        var fieldStyle = 'margin-bottom:14px;';
-
-        var deleteHtml = '<button type="button" is="emby-button" class="raised btnTlDelete" data-name="' + escAttr(tagName) + '" style="background:#cc3333 !important;color:#fff;"><i class="md-icon" style="margin-right:5px;">delete</i>Delete top-list</button>';
-
-        body.innerHTML = '<div style="padding:8px 0;opacity:0.6;font-size:0.9em;">Loading… <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>';
-
-        var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-
-        if (isManual) {
-            Promise.all([
-                fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/AllMovies'), {
-                    headers: { 'X-MediaBrowser-Token': tok }
-                }).then(function (r) { return r.json(); }),
-                getHseUsers(),
-                fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/ManualItems') + '?ListName=' + encodeURIComponent(tagName), {
-                    headers: { 'X-MediaBrowser-Token': tok }
-                }).then(function (r) { return r.json(); })
-            ]).then(function (res) {
-                var allMovies = res[0].Movies || [];
-                var users     = res[1];
-                var data      = res[2];
-
-                if (!data.Success) {
-                    body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load: ' + escHtml(data.Message || 'Unknown error') + '</div>';
-                    return;
-                }
-
-                var presetUserIds    = data.UserIds      || editJson.userIds      || [];
-                var presetDisplay    = data.DisplayMode  || editJson.displayMode  || '';
-                var presetImageType  = data.ImageType    || editJson.imageType    || '';
-                var presetBadgeStyle = data.BadgeStyle   || editJson.badgeStyle   || 'neutral';
-                var presetCustomName = data.CustomName   || editJson.customName   || '';
-                var presetMovies     = data.Movies       || [];
-
-                var colHeaderStyle = 'font-size:0.75em;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#52B54B;padding-bottom:10px;margin-bottom:12px;border-bottom:1px solid rgba(82,181,75,0.3);';
-
-                var usersHtml = buildUserMultiSelectHtml(users, presetUserIds, 'chkMtlUser');
-
-                var displayOptions = [
-                    { val: '',               label: 'Always' },
-                    { val: 'tv',             label: 'When TV Display Mode is on' },
-                    { val: 'mobile,desktop', label: 'When TV Display Mode is off' }
-                ].map(function (o) {
-                    return '<option value="' + escAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
-                }).join('');
-
-                var imageOptions = [
-                    { val: '',        label: 'Auto' },
-                    { val: 'Primary', label: 'Primary' },
-                    { val: 'Thumb',   label: 'Thumb' }
-                ].map(function (o) {
-                    return '<option value="' + escAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
-                }).join('');
-
-                var wrapper = document.createElement('div');
-                wrapper.innerHTML =
-                    '<div style="display:flex;gap:0;align-items:stretch;">' +
-
-                    '<div style="flex:1;min-width:0;padding-right:20px;border-right:1px solid var(--line-color);">' +
-                    '<div style="' + colHeaderStyle + '"><i class="md-icon" style="font-size:0.9em;vertical-align:middle;margin-right:5px;">home</i>Home Section Settings</div>' +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Custom Title <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:0.7;">(shown on home screen)</span></label>' +
-                    '<input type="text" class="mtlCustomName" style="' + inputStyle + '" placeholder="Defaults to list name" value="' + escAttr(presetCustomName) + '" /></div>' +
-
-                    '<div style="' + fieldStyle + '"><span style="' + labelStyle + '">Target Users</span>' +
-                    '<div>' + usersHtml + '</div></div>' +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Show this section</label>' +
-                    '<select is="emby-select" class="mtlDisplayMode" style="width:100%;">' + displayOptions + '</select></div>' +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Image Type</label>' +
-                    '<select is="emby-select" class="mtlImageType" style="width:100%;">' + imageOptions + '</select></div>' +
-
-                    '</div>' +
-
-                    '<div style="flex:1;min-width:0;padding-left:20px;">' +
-                    '<div style="' + colHeaderStyle + '"><i class="md-icon" style="font-size:0.9em;vertical-align:middle;margin-right:5px;">format_list_numbered</i>Movie List</div>' +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Add Movie</label>' +
-                    '<div style="position:relative;">' +
-                    '<input type="text" class="mtlMovieSearch" autocomplete="off" style="' + inputStyle + '" placeholder="Type to search…" />' +
-                    '<div class="mtlSearchResults" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--plugin-popup-bg,#2a2a2a);border:1px solid var(--line-color);border-radius:4px;max-height:200px;overflow-y:auto;margin-top:2px;box-shadow:0 4px 12px rgba(0,0,0,0.45);"></div>' +
-                    '</div></div>' +
-
-                    '<div class="mtlSelectedList" style="max-height:280px;overflow-y:auto;border:1px solid var(--line-color);border-radius:4px;padding:4px 8px;min-height:60px;"></div>' +
-                    '</div>' +
-
-                    '</div>' +
-
-                    '<div style="border-top:1px solid var(--line-color);padding-top:14px;margin-top:4px;">' +
-                    buildBadgePickerHtml(presetBadgeStyle) +
-                    '</div>' +
-
-                    '<div class="mtl-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-top:12px;margin-bottom:4px;"></div>' +
-                    '<div style="border-top:1px solid var(--line-color);padding-top:16px;margin-top:8px;display:flex;gap:10px;align-items:center;justify-content:flex-end;">' +
-                    deleteHtml +
-                    '</div>';
-
-                body.innerHTML = '';
-                body.appendChild(wrapper);
-                initBadgePicker(body);
-                wireUserMultiSelect(wrapper);
-
-                var selectedMovies = presetMovies.slice();
-                var originalManualState;
-
-                function renderSelectedList() {
-                    var listEl = wrapper.querySelector('.mtlSelectedList');
-                    if (selectedMovies.length === 0) {
-                        listEl.innerHTML = '<div style="padding:8px 4px;opacity:0.5;font-size:0.9em;">No movies added yet.</div>';
-                        updateManualDirty();
-                        return;
-                    }
-                    listEl.innerHTML = selectedMovies.map(function (m, idx) {
-                        var label = escHtml(m.Name) + (m.Year ? ' (' + escHtml(String(m.Year)) + ')' : '');
-                        var upDis = idx === 0 ? ' disabled' : '';
-                        var dnDis = idx === selectedMovies.length - 1 ? ' disabled' : '';
-                        return '<div style="display:flex;align-items:center;gap:5px;padding:5px 2px;border-bottom:1px solid rgba(128,128,128,0.15);">' +
-                            '<span style="min-width:22px;font-size:0.8em;opacity:0.55;font-weight:600;text-align:right;">' + (idx + 1) + '.</span>' +
-                            '<span style="flex:1;font-size:0.88em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(m.Name) + '">' + label + '</span>' +
-                            '<button type="button" class="btnMtlUp" data-idx="' + idx + '"' + upDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move up">▲</button>' +
-                            '<button type="button" class="btnMtlDown" data-idx="' + idx + '"' + dnDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move down">▼</button>' +
-                            '<button type="button" class="btnMtlRemove" data-idx="' + idx + '" style="cursor:pointer;border:none;background:transparent;color:#cc3333;padding:2px 4px;font-size:0.9em;line-height:1;" title="Remove">✕</button>' +
-                            '</div>';
-                    }).join('');
-                    updateManualDirty();
-                }
-
-                renderSelectedList();
-                originalManualState = getManualFormState();
-
-                var searchInput = wrapper.querySelector('.mtlMovieSearch');
-                var resultsBox  = wrapper.querySelector('.mtlSearchResults');
-
-                function showSearchResults(q) {
-                    q = (q || '').trim().toLowerCase();
-                    if (q.length < 1) { resultsBox.style.display = 'none'; resultsBox.innerHTML = ''; return; }
-                    var alreadyIds = new Set(selectedMovies.map(function (m) { return m.ItemId; }));
-                    var hits = allMovies.filter(function (m) {
-                        return m.Name.toLowerCase().indexOf(q) !== -1 || (m.Year && String(m.Year).indexOf(q) !== -1);
-                    }).slice(0, 20);
-                    if (hits.length === 0) { resultsBox.style.display = 'none'; return; }
-                    resultsBox.innerHTML = hits.map(function (m) {
-                        var added = alreadyIds.has(m.ItemId);
-                        var lbl = escHtml(m.Name) + (m.Year ? ' (' + m.Year + ')' : '');
-                        return '<div class="mtlSearchResult" data-itemid="' + escAttr(m.ItemId) + '" data-imdbid="' + escAttr(m.ImdbId) + '" data-name="' + escAttr(m.Name) + '" data-year="' + escAttr(String(m.Year || '')) + '" style="padding:7px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid rgba(128,128,128,0.12);' + (added ? 'opacity:0.42;pointer-events:none;' : '') + '">' + lbl + (added ? ' <span style="font-size:0.8em;">(already added)</span>' : '') + '</div>';
-                    }).join('');
-                    resultsBox.style.display = 'block';
-                }
-
-                searchInput.addEventListener('input', function () { showSearchResults(this.value); });
-                searchInput.addEventListener('focus', function () { showSearchResults(this.value); });
-                searchInput.addEventListener('blur',  function () { setTimeout(function () { resultsBox.style.display = 'none'; }, 150); });
-
-                resultsBox.addEventListener('mousedown', function (e) {
-                    var resultRow = e.target.closest('.mtlSearchResult');
-                    if (!resultRow || !resultRow.dataset.itemid) return;
-                    e.preventDefault();
-                    if (selectedMovies.some(function (m) { return m.ItemId === resultRow.dataset.itemid; })) return;
-                    selectedMovies.push({
-                        ItemId: resultRow.dataset.itemid,
-                        ImdbId: resultRow.dataset.imdbid || '',
-                        Name:   resultRow.dataset.name   || '',
-                        Year:   resultRow.dataset.year   ? parseInt(resultRow.dataset.year, 10) : null
-                    });
-                    searchInput.value = '';
-                    resultsBox.style.display = 'none';
-                    renderSelectedList();
-                });
-
-                wrapper.querySelector('.mtlSelectedList').addEventListener('click', function (e) {
-                    var btn = e.target.closest('button');
-                    if (!btn) return;
-                    var idx = parseInt(btn.dataset.idx, 10);
-                    if (isNaN(idx)) return;
-                    var tmp;
-                    if (btn.classList.contains('btnMtlUp') && idx > 0) {
-                        tmp = selectedMovies[idx - 1]; selectedMovies[idx - 1] = selectedMovies[idx]; selectedMovies[idx] = tmp;
-                    } else if (btn.classList.contains('btnMtlDown') && idx < selectedMovies.length - 1) {
-                        tmp = selectedMovies[idx + 1]; selectedMovies[idx + 1] = selectedMovies[idx]; selectedMovies[idx] = tmp;
-                    } else if (btn.classList.contains('btnMtlRemove')) {
-                        selectedMovies.splice(idx, 1);
-                    }
-                    renderSelectedList();
-                });
-
-                function getManualFormState() {
-                    return JSON.stringify({
-                        customName: (wrapper.querySelector('.mtlCustomName').value || '').trim(),
-                        displayMode: wrapper.querySelector('.mtlDisplayMode').value,
-                        imageType: wrapper.querySelector('.mtlImageType').value,
-                        badgeStyle: readBadgeStyle(body),
-                        userIds: Array.from(wrapper.querySelectorAll('.chkMtlUser:checked')).map(function (c) { return c.value; }).sort(),
-                        movies: selectedMovies.map(function (m) { return m.ItemId; })
-                    });
-                }
-                function updateManualDirty() {
-                    if (!originalManualState) return;
-                    body.dataset.dirty = getManualFormState() !== originalManualState ? '1' : '0';
-                    checkFormState();
-                }
-                wrapper.querySelectorAll('input, select').forEach(function (el) {
-                    el.addEventListener('change', updateManualDirty);
-                });
-                wrapper.querySelectorAll('input[type="text"], input[type="number"]').forEach(function (el) {
-                    el.addEventListener('input', updateManualDirty);
-                });
-
-                body.tlSaveForm = function () {
-                    return new Promise(function (resolve, reject) {
-                        var customNameVal   = (wrapper.querySelector('.mtlCustomName').value || '').trim() || tagName;
-                        var displayMode     = wrapper.querySelector('.mtlDisplayMode').value;
-                        var imageType       = wrapper.querySelector('.mtlImageType').value;
-                        var badgeStyle      = readBadgeStyle(body);
-                        var userIds         = Array.from(wrapper.querySelectorAll('.chkMtlUser:checked')).map(function (c) { return c.value; });
-
-                        if (userIds.length === 0)      { reject(new Error('Please select at least one target user.')); return; }
-                        if (selectedMovies.length === 0) { reject(new Error('Please add at least one movie.')); return; }
-
-                        var tok2 = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-                        fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/PrepareManualFolder'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok2 },
-                            body: JSON.stringify({
-                                ListName: tagName, BadgeStyle: badgeStyle,
-                                Items: selectedMovies.map(function (m) { return { ImdbId: m.ImdbId, ItemId: m.ItemId }; })
-                            })
-                        })
-                        .then(function (r) { return r.json(); })
-                        .then(function (prepareResult) {
-                            if (!prepareResult.Success) throw new Error(prepareResult.Message || 'Failed to prepare folder.');
-                            var fakeBtn = { disabled: false, innerHTML: '' };
-                            var errEl = wrapper.querySelector('.mtl-error');
-                            executeTopListCreationSteps(
-                                tagName, customNameVal, userIds, displayMode, customNameVal, imageType, 0,
-                                prepareResult, { saveBtn: fakeBtn, errEl: errEl, modal: body, innerBox: wrapper, badgeStyle: badgeStyle, closeHandler: resolve, silent: true },
-                                resolve
-                            );
-                        })
-                        .catch(reject);
-                    });
-                };
-
-            }).catch(function (err) {
-                body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load: ' + escHtml(err.message || String(err)) + '</div>';
-            });
-
-        } else {
-            getHseUsers().then(function (users) {
-                var presetUserIds    = editJson.userIds     || [];
-                var presetDisplay    = editJson.displayMode || '';
-                var presetImageType  = editJson.imageType   || '';
-                var presetBadgeStyle = editJson.badgeStyle  || 'neutral';
-                var presetCustomName = editJson.customName  || '';
-                var presetMaxItems   = editJson.maxItems    || '0';
-
-                var usersHtml = buildUserMultiSelectHtml(users, presetUserIds, 'chkTlmUser');
-
-                var wrapper = document.createElement('div');
-                wrapper.innerHTML =
-                    '<div style="' + fieldStyle + '">' +
-                    '<span style="' + labelStyle + '">Target Users</span>' +
-                    '<div>' + usersHtml + '</div>' +
-                    '</div>' +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Show this section</label>' +
-                    '<select is="emby-select" class="tlm-display-mode" style="width:100%;">' +
-                    '<option value="">Always</option>' +
-                    '<option value="tv">When TV Display Mode is on</option>' +
-                    '<option value="mobile,desktop">When TV Display Mode is off</option>' +
-                    '</select></div>' +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Custom Title</label>' +
-                    '<input type="text" class="tlm-custom-name" style="' + inputStyle + '" placeholder="' + escAttr(displayName) + '" />' +
-                    '</div>' +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Image Type</label>' +
-                    '<select is="emby-select" class="tlm-image-type" style="width:100%;">' +
-                    '<option value="">Auto</option>' +
-                    '<option value="Primary">Primary</option>' +
-                    '<option value="Thumb">Thumb</option>' +
-                    '</select></div>' +
-
-                    buildBadgePickerHtml(presetBadgeStyle) +
-
-                    '<div style="' + fieldStyle + '">' +
-                    '<label style="' + labelStyle + '">Max items <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:0.7;">(0 = all)</span></label>' +
-                    '<input type="number" class="tlm-max-items" min="0" step="1" style="' + inputStyle + '" placeholder="0" />' +
-                    '</div>' +
-
-                    '<div class="tlm-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:4px;"></div>' +
-                    '<div style="border-top:1px solid var(--line-color);padding-top:16px;display:flex;gap:10px;align-items:center;justify-content:flex-end;">' +
-                    deleteHtml +
-                    '</div>';
-
-                body.innerHTML = '';
-                body.appendChild(wrapper);
-                initBadgePicker(body);
-                wireUserMultiSelect(wrapper);
-
-                if (presetCustomName) wrapper.querySelector('.tlm-custom-name').value = presetCustomName;
-                if (presetDisplay)    wrapper.querySelector('.tlm-display-mode').value = presetDisplay;
-                if (presetImageType)  wrapper.querySelector('.tlm-image-type').value = presetImageType;
-                if (presetMaxItems && presetMaxItems !== '0') wrapper.querySelector('.tlm-max-items').value = presetMaxItems;
-
-                function getRegularFormState() {
-                    return JSON.stringify({
-                        customName: (wrapper.querySelector('.tlm-custom-name').value || '').trim(),
-                        displayMode: wrapper.querySelector('.tlm-display-mode').value,
-                        imageType: wrapper.querySelector('.tlm-image-type').value,
-                        badgeStyle: readBadgeStyle(body),
-                        maxItems: wrapper.querySelector('.tlm-max-items').value,
-                        userIds: Array.from(wrapper.querySelectorAll('.chkTlmUser:checked')).map(function (c) { return c.value; }).sort()
-                    });
-                }
-                var originalRegularState = getRegularFormState();
-                function updateRegularDirty() {
-                    body.dataset.dirty = getRegularFormState() !== originalRegularState ? '1' : '0';
-                    checkFormState();
-                }
-                wrapper.querySelectorAll('input, select').forEach(function (el) {
-                    el.addEventListener('change', updateRegularDirty);
-                });
-                wrapper.querySelectorAll('input[type="text"], input[type="number"]').forEach(function (el) {
-                    el.addEventListener('input', updateRegularDirty);
-                });
-
-                body.tlSaveForm = function () {
-                    return new Promise(function (resolve, reject) {
-                        var userIds       = Array.from(wrapper.querySelectorAll('.chkTlmUser:checked')).map(function (c) { return c.value; });
-                        if (userIds.length === 0) { reject(new Error('Please select at least one target user.')); return; }
-
-                        var customNameVal = wrapper.querySelector('.tlm-custom-name').value.trim() || displayName;
-                        var displayMode   = wrapper.querySelector('.tlm-display-mode').value;
-                        var imageType     = wrapper.querySelector('.tlm-image-type').value;
-                        var badgeStyle    = readBadgeStyle(body);
-                        var maxItems      = Math.max(0, parseInt(wrapper.querySelector('.tlm-max-items').value, 10) || 0);
-                        var tok2 = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-
-                        fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/PrepareFolder'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok2 },
-                            body: JSON.stringify({ TagName: tagName, MaxItems: maxItems, BadgeStyle: badgeStyle })
-                        })
-                        .then(function (r) { return r.json(); })
-                        .then(function (prepareResult) {
-                            if (!prepareResult.Success) throw new Error(prepareResult.Message || 'Failed to prepare folder.');
-                            var fakeBtn = { disabled: false, innerHTML: '' };
-                            var errEl = wrapper.querySelector('.tlm-error');
-                            executeTopListCreationSteps(
-                                tagName, customNameVal, userIds, displayMode, customNameVal, imageType, maxItems,
-                                prepareResult, { saveBtn: fakeBtn, errEl: errEl, modal: body, innerBox: wrapper, badgeStyle: badgeStyle, closeHandler: resolve, silent: true },
-                                resolve
-                            );
-                        })
-                        .catch(reject);
-                    });
-                };
-
-            }).catch(function (err) {
-                body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load users: ' + escHtml(err.message || String(err)) + '</div>';
-            });
+            const errMsg = err instanceof Error ? err.message : String(err);
+            alert("Failed to save top-list changes: " + errMsg);
+          });
+          return;
         }
-    }
-
-    function showCreateTopListChooser(tagsData, existingTopLists, onSuccess) {
-        function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-        function sanitizeName(name) {
-            var safe = (name || 'unknown').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+|\.+$/g, '').trim();
-            return safe.length === 0 ? 'unknown' : safe;
+        doSaveFn();
+      }
+      currentView = view;
+      view.addEventListener("viewshow", () => {
+        if (!document.getElementById("homeScreenCompanionCustomCss")) {
+          document.body.insertAdjacentHTML("beforeend", customCss);
         }
-
-        var modal = document.createElement('div');
-        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
-        document.body.appendChild(modal);
-
-        function onEsc(e) { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', onEsc); } }
-        document.addEventListener('keydown', onEsc);
-        modal.addEventListener('click', function (e) { if (e.target === modal) { modal.remove(); document.removeEventListener('keydown', onEsc); } });
-
-        var innerStyle = 'background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);' +
-            'border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;' +
-            'padding:28px;max-width:480px;width:90%;max-height:85vh;overflow-y:auto;';
-
-        function renderStep1() {
-            modal.innerHTML =
-                '<div style="' + innerStyle + '">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">' +
-                '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">Create Top-List</h3>' +
-                '<button type="button" class="btnChooserClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button>' +
-                '</div>' +
-                '<p style="margin:0 0 20px;font-size:0.9em;color:var(--theme-text-secondary);">How do you want to create this top-list?</p>' +
-                '<div style="display:flex;gap:16px;">' +
-                '<button type="button" class="btnChooseManual" style="flex:1;cursor:pointer;background:var(--plugin-input-bg,rgba(255,255,255,0.05));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.12));border-radius:8px;padding:20px 16px;text-align:left;color:inherit;">' +
-                '<div style="font-size:1.4em;margin-bottom:10px;color:#52B54B;"><i class="md-icon">format_list_numbered</i></div>' +
-                '<div style="font-weight:600;font-size:0.95em;margin-bottom:6px;">Manual</div>' +
-                '<div style="font-size:0.82em;color:var(--theme-text-secondary);line-height:1.5;">Pick movies manually and build a custom list</div>' +
-                '</button>' +
-                '<button type="button" class="btnChooseByTag" style="flex:1;cursor:pointer;background:var(--plugin-input-bg,rgba(255,255,255,0.05));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.12));border-radius:8px;padding:20px 16px;text-align:left;color:inherit;">' +
-                '<div style="font-size:1.4em;margin-bottom:10px;color:#52B54B;"><i class="md-icon">label</i></div>' +
-                '<div style="font-weight:600;font-size:0.95em;margin-bottom:6px;">By tag</div>' +
-                '<div style="font-size:0.82em;color:var(--theme-text-secondary);line-height:1.5;">Create from an existing tag in your library</div>' +
-                '</button>' +
-                '</div>' +
-                '</div>';
-
-            modal.querySelector('.btnChooserClose').addEventListener('click', function () { modal.remove(); document.removeEventListener('keydown', onEsc); });
-
-            var btnManualCard = modal.querySelector('.btnChooseManual');
-            var btnByTagCard  = modal.querySelector('.btnChooseByTag');
-
-            [btnManualCard, btnByTagCard].forEach(function (btn) {
-                btn.addEventListener('mouseover', function () { this.style.borderColor = '#52B54B'; });
-                btn.addEventListener('mouseout',  function () { this.style.borderColor = 'var(--plugin-input-border,rgba(255,255,255,0.12))'; });
-            });
-
-            btnManualCard.addEventListener('click', function () {
-                modal.remove();
-                document.removeEventListener('keydown', onEsc);
-                showManualTopListModal(onSuccess);
-            });
-
-            btnByTagCard.addEventListener('click', function () { renderStep2(); });
-        }
-
-        function renderStep2() {
-            var tags = (tagsData.Tags || []);
-            var inputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:6px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:100%;box-sizing:border-box;';
-
-            var tagRowsHtml = tags.length === 0
-                ? '<p style="padding:12px 4px;color:var(--theme-text-secondary);font-size:0.88em;font-style:italic;">No tags found.</p>'
-                : tags.map(function (tag) {
-                    var name  = tag.Name || '';
-                    var count = tag.MovieCount != null ? tag.MovieCount : (tag.ItemCount != null ? tag.ItemCount : 0);
-                    var hasTopList = existingTopLists.has(sanitizeName(name).toLowerCase());
-                    var badge = hasTopList
-                        ? '<span style="font-size:0.72em;background:rgba(180,140,50,0.18);color:#c9a84c;border-radius:3px;padding:1px 6px;margin-left:6px;white-space:nowrap;">top-list</span>'
-                        : '';
-                    return '<button type="button" class="btnSelectTag" data-name="' + escAttr(name) + '" ' +
-                        'style="width:100%;cursor:pointer;background:transparent;border:none;border-bottom:1px solid var(--line-color);' +
-                        'padding:10px 4px;display:flex;align-items:center;color:inherit;text-align:left;">' +
-                        '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(name) + badge + '</span>' +
-                        '<span style="margin-left:12px;white-space:nowrap;font-size:0.85em;color:var(--theme-text-secondary);">' + count + ' movies</span>' +
-                        '</button>';
-                }).join('');
-
-            modal.innerHTML =
-                '<div style="' + innerStyle + 'max-width:520px;">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
-                '<div style="display:flex;align-items:center;gap:10px;">' +
-                '<button type="button" class="btnChooserBack" style="background:transparent;border:none;color:var(--theme-text-secondary);cursor:pointer;padding:2px;line-height:1;opacity:0.7;"><i class="md-icon">arrow_back</i></button>' +
-                '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">Select Tag</h3>' +
-                '</div>' +
-                '<button type="button" class="btnChooserClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button>' +
-                '</div>' +
-                '<div style="margin-bottom:14px;">' +
-                '<input type="text" id="tlChooserSearch" placeholder="Search tags…" style="' + inputStyle + '" />' +
-                '</div>' +
-                '<div id="tlChooserTagList" style="max-height:50vh;overflow-y:auto;">' +
-                tagRowsHtml +
-                '</div>' +
-                '</div>';
-
-            modal.querySelector('.btnChooserClose').addEventListener('click', function () { modal.remove(); document.removeEventListener('keydown', onEsc); });
-            modal.querySelector('.btnChooserBack').addEventListener('click', function () { renderStep1(); });
-
-            modal.querySelector('#tlChooserSearch').addEventListener('input', function () {
-                var q = this.value.toLowerCase();
-                modal.querySelectorAll('.btnSelectTag').forEach(function (btn) {
-                    btn.style.display = (!q || (btn.dataset.name || '').toLowerCase().indexOf(q) !== -1) ? '' : 'none';
-                });
-            });
-
-            modal.querySelectorAll('.btnSelectTag').forEach(function (btn) {
-                btn.addEventListener('mouseover', function () { this.style.background = 'rgba(82,181,75,0.08)'; });
-                btn.addEventListener('mouseout',  function () { this.style.background = 'transparent'; });
-                btn.addEventListener('click', function () {
-                    var tagName = this.dataset.name;
-                    modal.remove();
-                    document.removeEventListener('keydown', onEsc);
-                    showTopListModal(tagName, tagName, onSuccess);
-                });
-            });
-        }
-
-        renderStep1();
-    }
-
-    // ── Backup & Restore ─────────────────────────────────────────────────────────────
-    // Sections mirror the server's BackupFile. Only configuration is exported; everything the
-    // sync tasks generate (tags, collections, playlists, top-list files, images) is rebuilt on run.
-    var _backupSections = [
-        { key: 'Settings',     label: 'General settings',          desc: 'AI models, system prompt, logging, dry run, preserve-on-empty.' },
-        { key: 'ApiKeys',      label: 'API keys',                  desc: 'Trakt, MDBList, TMDB, OpenAI, Gemini, Claude. Stored in plain text in the file.' },
-        { key: 'Tags',         label: 'Tag & collection groups',   desc: 'All source groups incl. schedules, blacklists, filters, collection settings, home sections and playlists.' },
-        { key: 'SavedFilters', label: 'Saved media-info filters',  desc: 'Your saved filter presets.' },
-        { key: 'TopLists',     label: 'Top lists',                 desc: 'Top-list settings and the movie lists of manual top-lists.' },
-        { key: 'HomeSync',     label: 'Home screen sync',          desc: 'Source user, target users and library-order sync.' }
-    ];
-
-    function buildBackupModalShell() {
-        var modal = document.createElement('div');
-        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
-        modal.renderBox = function (content) {
-            modal.innerHTML =
-                '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);' +
-                'border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;' +
-                'padding:28px;max-width:560px;width:90%;max-height:85vh;overflow-y:auto;">' +
-                content + '</div>';
+        applyPluginTheme();
+        const form = view.querySelector(".HomeScreenCompanionForm");
+        if (!form) return;
+        const isFirstVisit = !view.dataset.hscInit;
+        if (isFirstVisit) view.dataset.hscInit = "1";
+        appState.originalConfigState.setOriginalConfigState(null);
+        const changeHandler = () => {
+          setTimeout(checkFormStateBound, 0);
         };
-        function onEsc(e) { if (e.key === 'Escape') modal.close(); }
-        modal.close = function () { modal.remove(); document.removeEventListener('keydown', onEsc); };
-        document.addEventListener('keydown', onEsc);
-        modal.addEventListener('click', function (e) { if (e.target === modal && !modal.dataset.busy) modal.close(); });
-        document.body.appendChild(modal);
-        return modal;
-    }
-
-    // available: null = every section selectable; otherwise a Set of section keys present in the file
-    function buildBackupSectionsHtml(available, chkClass) {
-        return _backupSections.map(function (s) {
-            var present = !available || available.has(s.key);
-            var rowStyle = 'display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-color,rgba(255,255,255,0.08));' + (present ? '' : 'opacity:0.45;');
-            return '<label style="' + rowStyle + 'cursor:' + (present ? 'pointer' : 'default') + ';">' +
-                '<input type="checkbox" class="' + chkClass + '" data-section="' + s.key + '"' + (present ? ' checked' : ' disabled') + ' style="margin-top:3px;" />' +
-                '<span style="flex:1;">' +
-                '<span style="display:block;font-weight:600;font-size:0.95em;">' + s.label + (present ? '' : ' <span style="font-weight:400;opacity:0.7;">(not in file)</span>') + '</span>' +
-                '<span style="display:block;font-size:0.82em;opacity:0.65;margin-top:2px;">' + s.desc + '</span>' +
-                '</span></label>';
-        }).join('');
-    }
-
-    function readBackupSectionFlags(modal, chkClass) {
-        var flags = {};
-        modal.querySelectorAll('.' + chkClass).forEach(function (c) { flags[c.dataset.section] = !c.disabled && c.checked; });
-        return flags;
-    }
-
-    var _backupBtnPrimary = 'cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:4px;padding:10px 26px;font-size:0.95em;font-weight:600;';
-    var _backupBtnSecondary = 'cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;';
-    var _backupTitleStyle = 'margin:0 0 6px;font-size:1.15em;font-weight:600;';
-    var _backupHintStyle = 'font-size:0.88em;opacity:0.7;margin:0 0 14px;line-height:1.45;';
-
-    function showBackupModal() {
-        var modal = buildBackupModalShell();
-        modal.renderBox(
-            '<h3 style="' + _backupTitleStyle + '">Download Backup</h3>' +
-            '<p style="' + _backupHintStyle + '">Choose what to include. Only configuration is saved – tags, collections, playlists, top-list files and images are recreated by the plugin on the next sync run.</p>' +
-            '<div style="margin-bottom:16px;">' + buildBackupSectionsHtml(null, 'chkBackupSection') + '</div>' +
-            '<div class="backup-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:6px;"></div>' +
-            '<div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">' +
-            '<button type="button" class="btnBackupCancel" style="' + _backupBtnSecondary + '">Cancel</button>' +
-            '<button type="button" class="btnBackupDownload" style="' + _backupBtnPrimary + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">download</i>Download</button>' +
-            '</div>'
-        );
-        modal.querySelector('.btnBackupCancel').addEventListener('click', modal.close);
-        modal.querySelector('.btnBackupDownload').addEventListener('click', function () {
-            var btn = this;
-            var errEl = modal.querySelector('.backup-error');
-            var flags = readBackupSectionFlags(modal, 'chkBackupSection');
-            if (!Object.keys(flags).some(function (k) { return flags[k]; })) { errEl.textContent = 'Select at least one section.'; return; }
-            errEl.textContent = '';
-            btn.disabled = true;
-            btn.innerHTML = 'Preparing <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-            modal.dataset.busy = '1';
-            var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Backup/Export'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
-                body: JSON.stringify(flags)
-            })
-            .then(function (r) { if (!r.ok) throw new Error('Server returned ' + r.status); return r.json(); })
-            .then(function (backup) {
-                var json = JSON.stringify(backup, null, 2);
-                var blob = new Blob([json], { type: 'application/json' });
-                var url = URL.createObjectURL(blob);
-                var a = document.createElement('a');
-                a.href = url; a.download = 'HSC_Backup_' + new Date().toISOString().split('T')[0] + '.json';
-                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-                modal.close();
-            })
-            .catch(function (err) {
-                delete modal.dataset.busy;
-                btn.disabled = false;
-                btn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">download</i>Download';
-                errEl.textContent = 'Backup failed: ' + (err.message || err);
-            });
-        });
-    }
-
-    // Reads which sections a backup file contains. Current files list them; legacy files were a
-    // raw config dump, so infer from the keys that are present.
-    function detectBackupSections(parsed) {
-        var info = { legacy: false, sections: new Set(), createdUtc: '', pluginVersion: '' };
-        if (parsed && typeof parsed.BackupVersion === 'number') {
-            (parsed.Sections || []).forEach(function (s) { info.sections.add(s); });
-            info.createdUtc = parsed.CreatedUtc || '';
-            info.pluginVersion = parsed.PluginVersion || '';
-            return info;
+        if (appState.viewShow.formAc) appState.viewShow.formAc.abort();
+        const formAc = new AbortController();
+        appState.viewShow.formAc = formAc;
+        const signal = formAc.signal;
+        form.addEventListener("input", changeHandler, { signal });
+        form.addEventListener("change", changeHandler, { signal });
+        form.addEventListener("input", (e) => {
+          const target = e.target;
+          if (!target) return;
+          const ta = target.closest("textarea.txtMiValue, textarea.txtTagBlacklist");
+          if (!ta) return;
+          ta.style.height = "auto";
+          ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+          ta.style.overflowY = ta.scrollHeight > 120 ? "auto" : "hidden";
+        }, { signal });
+        const settingsTab = view.querySelector("#tabSettings");
+        if (settingsTab) {
+          settingsTab.addEventListener("input", changeHandler, { signal });
+          settingsTab.addEventListener("change", changeHandler, { signal });
         }
-        info.legacy = true;
-        info.sections.add('Settings');
-        info.sections.add('ApiKeys');
-        if (Array.isArray(parsed.Tags)) info.sections.add('Tags');
-        if (Array.isArray(parsed.SavedFilters)) info.sections.add('SavedFilters');
-        return info;
-    }
-
-    // onRestored(result) is called after a successful import so the page can reload its state.
-    function showRestoreModal(rawText, onRestored) {
-        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-
-        var parsed;
-        try { parsed = JSON.parse(rawText); } catch (err) {
-            window.Dashboard.alert('Failed to parse configuration file. The file may be corrupt or not a valid backup file. Error: ' + err.message);
-            return;
+        const spTa = view.querySelector("#txtAiSystemPrompt");
+        const resetBtn = view.querySelector("#btnResetAiSystemPrompt");
+        if (spTa && resetBtn) {
+          spTa.addEventListener("input", () => {
+            updateSystemPromptResetBtn(view);
+          }, { signal });
+          resetBtn.addEventListener("click", () => {
+            spTa.value = DEFAULT_AI_SYSTEM_PROMPT;
+            updateSystemPromptResetBtn(view);
+            changeHandler();
+          }, { signal });
         }
-        if (!parsed || typeof parsed !== 'object') {
-            window.Dashboard.alert('The selected file is not a Home Screen Companion backup.');
-            return;
-        }
-        var info = detectBackupSections(parsed);
-
-        var fileInfo = info.legacy
-            ? 'Legacy backup (created by an older plugin version)'
-            : 'Created ' + (info.createdUtc ? new Date(info.createdUtc).toLocaleString() : 'unknown') + (info.pluginVersion ? ' · plugin v' + escHtml(info.pluginVersion) : '');
-
-        var modal = buildBackupModalShell();
-        modal.renderBox(
-            '<h3 style="' + _backupTitleStyle + '">Restore Backup</h3>' +
-            '<p style="' + _backupHintStyle + 'margin-bottom:6px;">' + fileInfo + '</p>' +
-            '<p style="' + _backupHintStyle + '">Select what to restore. Each selected section <strong>replaces</strong> the current configuration on the server immediately. Sections you leave unchecked are not touched.</p>' +
-            '<div style="margin-bottom:16px;">' + buildBackupSectionsHtml(info.sections, 'chkRestoreSection') + '</div>' +
-            '<div class="backup-error" style="color:#cc3333;font-size:0.85em;min-height:1.2em;margin-bottom:6px;"></div>' +
-            '<div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">' +
-            '<button type="button" class="btnRestoreCancel" style="' + _backupBtnSecondary + '">Cancel</button>' +
-            '<button type="button" class="btnRestoreApply" style="' + _backupBtnPrimary + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">upload</i>Restore</button>' +
-            '</div>'
-        );
-        modal.querySelector('.btnRestoreCancel').addEventListener('click', modal.close);
-        modal.querySelector('.btnRestoreApply').addEventListener('click', function () {
-            var btn = this;
-            var errEl = modal.querySelector('.backup-error');
-            var flags = readBackupSectionFlags(modal, 'chkRestoreSection');
-            if (!Object.keys(flags).some(function (k) { return flags[k]; })) { errEl.textContent = 'Select at least one section.'; return; }
-            errEl.textContent = '';
-            btn.disabled = true;
-            btn.innerHTML = 'Restoring <span class="tc-dot-loader"><span></span><span></span><span></span></span>';
-            modal.dataset.busy = '1';
-            var body = Object.assign({ BackupJson: rawText }, flags);
-            var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Backup/Import'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
-                body: JSON.stringify(body)
-            })
-            .then(function (r) { if (!r.ok) throw new Error('Server returned ' + r.status); return r.json(); })
-            .then(function (result) {
-                if (!result || !result.Success) throw new Error((result && result.Message) || 'Unknown error');
-                delete modal.dataset.busy;
-                if (typeof onRestored === 'function') onRestored(result);
-                renderRestoreResult(modal, result);
-            })
-            .catch(function (err) {
-                delete modal.dataset.busy;
-                btn.disabled = false;
-                btn.innerHTML = '<i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">upload</i>Restore';
-                errEl.textContent = 'Restore failed: ' + (err.message || err);
-            });
-        });
-    }
-
-    function renderRestoreResult(modal, result) {
-        function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-        var pending = result.TopListsNeedingLibrary || [];
-        var listStyle = 'margin:0 0 14px;padding-left:20px;font-size:0.9em;line-height:1.5;';
-
-        var html =
-            '<div style="text-align:center;padding:4px 0 14px;">' +
-            '<i class="md-icon" style="font-size:2.5em;color:#52B54B;display:block;margin-bottom:8px;">check_circle</i>' +
-            '<p style="margin:0;font-size:1.05em;font-weight:500;">Backup restored</p>' +
-            '</div>' +
-            '<span style="font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:4px;">Applied</span>' +
-            '<ul style="' + listStyle + '">' + (result.Applied || []).map(function (a) { return '<li>' + escHtml(a) + '</li>'; }).join('') + '</ul>';
-
-        if ((result.Warnings || []).length > 0) {
-            html += '<span style="font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:#e0a030;display:block;margin-bottom:4px;">Warnings</span>' +
-                '<ul style="' + listStyle + 'opacity:0.85;">' + result.Warnings.map(function (w) { return '<li>' + escHtml(w) + '</li>'; }).join('') + '</ul>';
-        }
-
-        if (pending.length > 0) {
-            html += '<div style="border:1px solid rgba(224,160,48,0.5);background:rgba(224,160,48,0.08);border-radius:6px;padding:12px 14px;margin-bottom:14px;font-size:0.9em;line-height:1.5;">' +
-                '<strong>' + pending.length + ' top-list' + (pending.length !== 1 ? 's' : '') + ' need' + (pending.length === 1 ? 's' : '') + ' an Emby library:</strong> ' +
-                pending.map(function (p) { return escHtml(p.CustomName || p.TagName); }).join(', ') + '.<br/>' +
-                'Their settings and files are restored, but no library exists for them on this server yet. Create them now (this creates the libraries, home sections and access rights exactly like <em>+ Create New</em>), or later by opening each list in the Top Lists tab and clicking Save.' +
-                '<div class="restore-tl-progress" style="margin-top:8px;font-size:0.88em;opacity:0.8;"></div>' +
-                '</div>';
-        }
-
-        html += '<p style="' + _backupHintStyle + '">Run a sync afterwards to rebuild tags, collections, playlists and home sections from the restored configuration.</p>' +
-            '<div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;padding-top:14px;border-top:1px solid var(--line-color);">' +
-            (pending.length > 0 ? '<button type="button" class="btnRestoreCreateLibs" style="' + _backupBtnPrimary + '"><i class="md-icon" style="font-size:1em;vertical-align:middle;margin-right:6px;">library_add</i>Create libraries now</button>' : '') +
-            '<button type="button" class="btnRestoreDone" style="' + (pending.length > 0 ? _backupBtnSecondary : _backupBtnPrimary) + '">Close</button>' +
-            '</div>';
-
-        modal.renderBox(html);
-        modal.querySelector('.btnRestoreDone').addEventListener('click', modal.close);
-
-        var createBtn = modal.querySelector('.btnRestoreCreateLibs');
-        if (createBtn) {
-            createBtn.addEventListener('click', function () {
-                createBtn.disabled = true;
-                modal.querySelector('.btnRestoreDone').disabled = true;
-                modal.dataset.busy = '1';
-                var progressEl = modal.querySelector('.restore-tl-progress');
-                var failures = [];
-                // Dummy UI targets: executeTopListCreationSteps writes its status into these.
-                var dummyBtn = document.createElement('button');
-                var dummyErr = document.createElement('div');
-                var dummyModal = document.createElement('div');
-
-                pending.reduce(function (p, tl, idx) {
-                    return p.then(function () {
-                        progressEl.textContent = 'Creating ' + (idx + 1) + ' of ' + pending.length + ': ' + (tl.CustomName || tl.TagName) + '…';
-                        return new Promise(function (resolve, reject) {
-                            executeTopListCreationSteps(
-                                tl.TagName, tl.CustomName || tl.TagName, tl.UserIds || [], tl.DisplayMode || '', tl.CustomName || tl.TagName,
-                                tl.ImageType || '', tl.MaxItems || 0, { FolderPath: tl.FolderPath, FilesCreated: 0 },
-                                { saveBtn: dummyBtn, errEl: dummyErr, modal: dummyModal, badgeStyle: tl.BadgeStyle || 'neutral', silent: true, closeHandler: resolve }
-                            ).catch(reject);
-                        }).catch(function (err) {
-                            failures.push((tl.CustomName || tl.TagName) + ': ' + (err && err.message ? err.message : err));
-                        });
-                    });
-                }, Promise.resolve()).then(function () {
-                    delete modal.dataset.busy;
-                    modal.querySelector('.btnRestoreDone').disabled = false;
-                    if (failures.length === 0) {
-                        progressEl.style.color = '#52B54B';
-                        progressEl.textContent = 'All ' + pending.length + ' librar' + (pending.length === 1 ? 'y' : 'ies') + ' created. Finishing touches continue in the background.';
-                        createBtn.style.display = 'none';
-                    } else {
-                        progressEl.style.color = '#cc3333';
-                        progressEl.innerHTML = 'Some libraries could not be created:<br/>' + failures.map(escHtml).join('<br/>');
-                        createBtn.disabled = false;
-                    }
-                    var tlContainer = document.querySelector('#tlContainer');
-                    if (tlContainer) tlContainer.dataset.loaded = '';
-                });
-            });
-        }
-    }
-
-    function loadTopListsTab(view) {
-        var container = view.querySelector('#tlContainer');
-        if (!container) return;
-
-        container.innerHTML = '<div style="padding:20px;color:var(--theme-text-secondary);display:flex;align-items:center;gap:10px;">Loading <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>';
-
-        var token = window.ApiClient.accessToken();
-
-        Promise.all([
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Manage/Tags'), { headers: { 'X-MediaBrowser-Token': token } }).then(function (r) { return r.json(); }),
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/Manage/Collections'), { headers: { 'X-MediaBrowser-Token': token } }).then(function (r) { return r.json(); }),
-            window.ApiClient.getPluginConfiguration(pluginId).catch(function () { return { Tags: [] }; }),
-            fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/List'), { headers: { 'X-MediaBrowser-Token': token } }).then(function (r) { return r.json(); }).catch(function () { return { FolderNames: [] }; })
-        ]).then(function (results) {
-            var tagsData = results[0];
-            var collectionsData = results[1];
-            var pluginConfig = results[2];
-            var existingTopLists = new Set((results[3].FolderNames || []).map(function (n) { return n.toLowerCase(); }));
-
-            function sanitizeTlName(name) {
-                var safe = (name || 'unknown').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+|\.+$/g, '').trim();
-                return safe.length === 0 ? 'unknown' : safe;
-            }
-
-            var topListCustomNameMap = {};
-            var topListLibraryIdMap = {};
-            (pluginConfig.TopLists || []).forEach(function (tl) {
-                if (!tl.TagName) return;
-                var key = sanitizeTlName(tl.TagName).toLowerCase();
-                var settings = {};
-                try { settings = JSON.parse(tl.HomeSectionSettings || '{}'); } catch (e) {}
-                if (settings.CustomName) topListCustomNameMap[key] = settings.CustomName;
-                if (tl.HomeSectionLibraryId && tl.HomeSectionLibraryId !== 'auto')
-                    topListLibraryIdMap[key] = tl.HomeSectionLibraryId;
-            });
-
-            var managedTagMap = {};
-            var managedCollMap = {};
-            var seenGroupByTag = {};
-            (pluginConfig.Tags || []).forEach(function (t, idx) {
-                if (!t.Tag) return;
-                var tName = t.Tag.trim();
-                var tKey = tName.toLowerCase();
-                if (seenGroupByTag[tKey]) return;
-                seenGroupByTag[tKey] = true;
-                var groupLabel = (t.Name && t.Name.trim() && t.Name.trim().toLowerCase() !== tKey) ? t.Name.trim() : tName;
-                var entry = { displayName: groupLabel, groupIndex: idx, groupActive: !!t.Active };
-                if (!managedTagMap[tKey]) managedTagMap[tKey] = [];
-                managedTagMap[tKey].push(entry);
-                if (t.EnableCollection) {
-                    var cName = (t.CollectionName && t.CollectionName.trim()) ? t.CollectionName.trim() : tName;
-                    var cKey = cName.toLowerCase();
-                    if (!managedCollMap[cKey]) managedCollMap[cKey] = [];
-                    managedCollMap[cKey].push(entry);
+        form.addEventListener("click", (e) => {
+          const target = e.target;
+          if (!target) return;
+          const dayBtn = target.closest(".day-toggle");
+          if (dayBtn) dayBtn.classList.toggle("active");
+          if (target.closest(".btnRemoveUrl, .btnAddUrl, .btnRemoveLocal, .btnAddLocal, .btnRemoveDate, .btnAddDate, .btnRemoveFilterGroup, .btnAddMediaInfoFilter, .btnClearAllFilters, .btnGroupOpChoice, .btnGroupInnerOpChoice, .btnAddMiRule, .btnRemoveMiRule, .btnRemoveGroup, .day-toggle, .btnRemovePoster, .btnApplyMiPreset")) {
+            changeHandler();
+          }
+        }, { signal });
+        const container = view.querySelector("#tagListContainer");
+        if (isFirstVisit) {
+          if (container) {
+            let rafId = null;
+            container.addEventListener("dragover", (e) => {
+              if (localStorage.getItem("HomeScreenCompanion_SortBy") !== "Manual") return;
+              e.preventDefault();
+              if (rafId) return;
+              rafId = requestAnimationFrame(() => {
+                const draggingRow = document.querySelector(".tag-row.dragging");
+                if (!draggingRow) {
+                  rafId = null;
+                  return;
                 }
-            });
-
-            function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-            function escHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-
-            var btnStyle = 'cursor:pointer;border:none;border-radius:3px;padding:4px 12px;font-size:0.82em;font-weight:500;';
-
-            var searchInputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:5px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:400px;max-width:100%;';
-
-            var realTagNamesLower = new Set((tagsData.Tags || []).map(function (t) { return (t.Name || '').toLowerCase(); }));
-
-            var allExistingTopLists = (pluginConfig.TopLists || []).filter(function (tl) {
-                return tl.TagName && existingTopLists.has(sanitizeTlName(tl.TagName).toLowerCase());
-            }).map(function (tl) {
-                var key = sanitizeTlName(tl.TagName || '').toLowerCase();
-                var settings = {};
-                try { settings = JSON.parse(tl.HomeSectionSettings || '{}'); } catch (e) {}
-                return {
-                    tagName:     tl.TagName || '',
-                    displayName: settings.CustomName || tl.TagName || '',
-                    isManual:    !realTagNamesLower.has((tl.TagName || '').toLowerCase()),
-                    count:       (results[3].MovieCounts || {})[key] || 0,
-                    userIds:     tl.HomeSectionUserIds || [],
-                    customName:  settings.CustomName  || '',
-                    displayMode: settings.DisplayMode || '',
-                    imageType:   settings.ImageType   || '',
-                    badgeStyle:  settings.BadgeStyle  || 'neutral',
-                    maxItems:    settings.MaxItems    || 0
-                };
-            });
-
-            function renderTopListRows(items) {
-                if (items.length === 0) {
-                    return '<div id="tlRowsList"><p style="color:var(--theme-text-secondary);font-size:0.9em;font-style:italic;padding:20px 0;">No top-lists created yet. Click <strong>+ Create New</strong> to get started.</p></div>';
+                const afterElement = getDragAfterElement(container, e.clientY);
+                let placeholder = document.querySelector(".sort-placeholder");
+                if (!placeholder) {
+                  placeholder = document.createElement("div");
+                  placeholder.className = "sort-placeholder";
                 }
-                var labelStyle = 'font-size:0.78em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:2px;';
-                var rows = items.map(function (item) {
-                    var isManual = item.isManual;
-                    var typeBadge = isManual
-                        ? '<span class="tag-indicator toplist" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Manual</span>'
-                        : '<span class="tag-indicator tag" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">label</i> ' + escHtml(item.tagName) + '</span>';
-                    var displayModeLabel = ({'': 'Always', 'tv': 'TV mode only', 'mobile,desktop': 'Non-TV only'})[item.displayMode] || 'Always';
-                    var imageTypeLabel = item.imageType || 'Auto';
-                    var maxItemsLabel  = item.maxItems ? String(item.maxItems) : '0 (all)';
-                    var editJson = escAttr(JSON.stringify({
-                        tagName:     item.tagName,
-                        displayName: item.displayName,
-                        isManual:    item.isManual,
-                        userIds:     item.userIds,
-                        customName:  item.customName,
-                        displayMode: item.displayMode,
-                        imageType:   item.imageType,
-                        badgeStyle:  item.badgeStyle,
-                        maxItems:    String(item.maxItems || '0')
-                    }));
-                    return '<div class="tag-row" data-tlname="' + escAttr(item.tagName.toLowerCase()) + '" data-ismanual="' + (isManual ? '1' : '0') + '" data-count="' + item.count + '" data-editjson="' + editJson + '">' +
-                        '<div class="tl-row-header tag-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px;cursor:pointer;">' +
-                        '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' +
-                        typeBadge +
-                        '<span class="tag-title" style="font-weight:bold;font-size:1.1em;">' + escHtml(item.displayName) + '</span>' +
-                        '<span class="tag-indicator source" style="margin-left:8px;">' + item.count + ' movies</span>' +
-                        '</div>' +
-                        '<i class="md-icon expand-icon" style="flex-shrink:0;margin-left:12px;">expand_more</i>' +
-                        '</div>' +
-                        '<div class="tag-body" style="display:none;padding:15px;border-top:1px solid rgba(255,255,255,0.1);">' +
-                        '</div>' +
-                        '</div>';
-                }).join('');
-                return '<div id="tlRowsList">' + rows + '</div>';
-            }
-
-            container.innerHTML =
-                '<div style="max-width:900px;">' +
-                '<div class="sectionTitleContainer flex align-items-center" style="margin-bottom:1em;margin-top:2em;">' +
-                '<h2 class="sectionTitle" style="margin-bottom:0;">Top Lists</h2>' +
-                '<button type="button" id="btnCreateNewTopList" is="emby-button" class="raised button-submit mb025" style="margin-left:auto;">' +
-                '<span>+ Create New</span>' +
-                '</button>' +
-                '</div>' +
-                '<div style="margin-bottom:16px;font-size:0.9em;color:var(--theme-text-secondary);line-height:1.5;">' +
-                'Create a top-list home section from a tag managed by the plugin. Top-lists only work with movies.' +
-                '</div>' +
-                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">' +
-                '<input type="text" id="tlSearch" placeholder="Search…" style="' + searchInputStyle + '" />' +
-                '<select is="emby-select" id="tlFilter" style="color:var(--plugin-popup-color);background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);padding:5px;border-radius:4px;font-size:0.9em;cursor:pointer;">' +
-                '<option value="all">All</option>' +
-                '<option value="manual">Manual</option>' +
-                '<option value="bytag">By tag</option>' +
-                '</select>' +
-                '<select is="emby-select" id="tlSort" style="color:var(--plugin-popup-color);background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);padding:5px;border-radius:4px;font-size:0.9em;cursor:pointer;">' +
-                '<option value="name-asc">Name A–Z</option>' +
-                '<option value="name-desc">Name Z–A</option>' +
-                '<option value="count-desc">Most movies</option>' +
-                '<option value="count-asc">Fewest movies</option>' +
-                '</select>' +
-                '<button type="button" class="btnTlRefresh" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-secondary);border-radius:3px;padding:5px 10px;font-size:0.9em;"><i class="md-icon" style="font-size:1em;vertical-align:middle;">refresh</i></button>' +
-                '</div>' +
-                renderTopListRows(allExistingTopLists) +
-                '</div>';
-
-            container.dataset.loaded = '1';
-
-            var btnCreateNew = container.querySelector('#btnCreateNewTopList');
-            if (btnCreateNew) {
-                btnCreateNew.addEventListener('click', function () {
-                    showCreateTopListChooser(tagsData, existingTopLists, function () {
-                        container.dataset.loaded = '';
-                        loadTopListsTab(view);
-                    });
-                });
-            }
-
-            function applySearchSort() {
-                var query  = (container.querySelector('#tlSearch').value || '').toLowerCase();
-                var filter = container.querySelector('#tlFilter').value;
-                var sort   = container.querySelector('#tlSort').value;
-
-                var rowsList = container.querySelector('#tlRowsList');
-                if (!rowsList) return;
-                var rows = Array.from(rowsList.querySelectorAll('.tag-row'));
-
-                rows.forEach(function (row) {
-                    var tlName   = row.dataset.tlname || '';
-                    var isManual = row.dataset.ismanual === '1';
-                    var matchSearch = !query || tlName.indexOf(query) !== -1;
-                    var matchFilter = true;
-                    if (filter === 'manual') matchFilter = isManual;
-                    if (filter === 'bytag')  matchFilter = !isManual;
-                    row.style.display = (matchSearch && matchFilter) ? '' : 'none';
-                });
-
-                var visibleRows = rows.filter(function (r) { return r.style.display !== 'none'; });
-                visibleRows.sort(function (a, b) {
-                    var nameA  = a.dataset.tlname || '';
-                    var nameB  = b.dataset.tlname || '';
-                    var countA = parseInt(a.dataset.count || '0', 10);
-                    var countB = parseInt(b.dataset.count || '0', 10);
-                    if (sort === 'name-asc')   return nameA.localeCompare(nameB);
-                    if (sort === 'name-desc')  return nameB.localeCompare(nameA);
-                    if (sort === 'count-desc') return countB - countA;
-                    if (sort === 'count-asc')  return countA - countB;
-                    return 0;
-                });
-                visibleRows.forEach(function (r) { rowsList.appendChild(r); });
-            }
-
-            container.querySelector('#tlSearch').addEventListener('input', applySearchSort);
-            container.querySelector('#tlFilter').addEventListener('change', applySearchSort);
-            container.querySelector('#tlSort').addEventListener('change', applySearchSort);
-
-            applySearchSort();
-
-
-            if (container._tlClickHandler) container.removeEventListener('click', container._tlClickHandler);
-            container._tlClickHandler = function (e) {
-                var rowHeader = e.target.closest('.tl-row-header');
-                if (rowHeader && !e.target.closest('button')) {
-                    var row = rowHeader.closest('.tag-row');
-                    var body = row && row.querySelector('.tag-body');
-                    var icon = rowHeader.querySelector('.expand-icon');
-                    if (body) {
-                        var expanded = body.style.display !== 'none';
-                        body.style.display = expanded ? 'none' : 'block';
-                        if (icon) icon.textContent = expanded ? 'expand_more' : 'expand_less';
-                        if (!expanded && !body.dataset.formLoaded) {
-                            body.dataset.formLoaded = '1';
-                            loadInlineEditForm(row, body, function () { container.dataset.loaded = ''; loadTopListsTab(view); });
-                        }
-                    }
-                    return;
-                }
-
-                var btn = e.target.closest('button');
-                if (!btn) return;
-
-                if (btn.classList.contains('btnTlDelete')) {
-                    var deleteName = btn.dataset.name;
-                    if (!confirm('Delete top-list for "' + deleteName + '"?\n\nThis will remove the folder, all .strm files, and the virtual library.')) return;
-                    var deleteBtn = btn;
-                    deleteBtn.disabled = true;
-                    deleteBtn.textContent = 'Deleting…';
-                    var deleteToken = window.ApiClient.accessToken();
-                        fetch(window.ApiClient.getUrl('HomeScreenCompanion/TopList/Delete'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'X-MediaBrowser-Token': deleteToken },
-                            body: JSON.stringify({ TagName: deleteName })
-                        })
-                        .then(function (r) { return r.json(); })
-                        .then(function (delResult) {
-                            if (!delResult.Success) throw new Error(delResult.Message || 'Delete failed');
-                            var folderPath = delResult.FolderPath;
-                            return fetch(window.ApiClient.getUrl('Library/VirtualFolders'), {
-                                headers: { 'X-MediaBrowser-Token': deleteToken }
-                            })
-                            .then(function (r) { return r.json(); })
-                            .then(function (folders) {
-                                function normDlp(p) { return (p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); }
-                                var match = (folders || []).find(function (f) {
-                                    return (f.Locations || []).some(function (loc) {
-                                        return normDlp(loc) === normDlp(folderPath);
-                                    });
-                                });
-                                if (match && match.ItemId) {
-                                    return fetch(window.ApiClient.getUrl('Library/VirtualFolders') + '?Id=' + encodeURIComponent(match.ItemId) + '&RefreshLibrary=false', {
-                                        method: 'DELETE',
-                                        headers: { 'X-MediaBrowser-Token': deleteToken }
-                                    });
-                                }
-                            });
-                        })
-                        .then(function () {
-                            _topListTagNames.delete(deleteName.toLowerCase());
-                            refreshTopListBadges();
-                            container.dataset.loaded = '';
-                            loadTopListsTab(view);
-                        })
-                        .catch(function (err) {
-                            deleteBtn.disabled = false;
-                            deleteBtn.textContent = 'Delete top-list';
-                            alert('Error deleting top-list: ' + (err.message || err));
-                        });
-                    return;
-                }
-
-                if (btn.classList.contains('btnTlRefresh')) {
-                    container.dataset.loaded = '';
-                    loadTopListsTab(view);
-                    return;
-                }
-            };
-            container.addEventListener('click', container._tlClickHandler);
-
-        }).catch(function (err) {
-            container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + err + '</div>';
-        });
-    }
-
-    function loadHscManageTab(view) {
-        var container = view.querySelector('#hscManageContainer');
-        if (!container) return;
-
-        window.ApiClient.getJSON(window.ApiClient.getUrl('Users', { IsDisabled: false }))
-            .then(function (users) {
-                var userOptions = (users || []).map(function (u) {
-                    return '<option value="' + u.Id + '">' + u.Name + '</option>';
-                }).join('');
-
-                container.innerHTML = [
-                    '<div class="hsc-card">',
-                    '<h3 class="hsc-section-title">Manage Home Screen</h3>',
-                    '<p class="textMuted" style="font-size:0.88em;margin-bottom:16px;">Select a user to view and manage their home screen sections. Drag rows to reorder, then click Save or Apply (changes will take effect immediately).</p>',
-                    '<div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:20px;">',
-                    '<div style="flex-grow:1;">',
-                    '<select is="emby-select" id="selManageUser" label="User">',
-                    '<option value="">— Select user —</option>',
-                    userOptions,
-                    '</select>',
-                    '</div>',
-                    '<button type="button" is="emby-button" class="raised btn-neutral" id="btnRefreshManageSections" style="height:36px;min-width:90px;margin-bottom:2px;" disabled>',
-                    '<i class="md-icon" style="margin-right:4px;">refresh</i>Refresh',
-                    '</button>',
-                    '</div>',
-                    '<div id="manSectionList"></div>',
-                    '<div style="margin-top:16px;display:flex;justify-content:flex-end;">',
-                    '<button type="button" is="emby-button" class="raised button-submit" id="btnApplyManage" disabled>',
-                    '<i class="md-icon" style="margin-right:4px;">check</i><span>Apply changes</span>',
-                    '</button>',
-                    '</div>',
-                    '</div>',
-                ].join('');
-
-                var selUser = container.querySelector('#selManageUser');
-                var btnRefresh = container.querySelector('#btnRefreshManageSections');
-                var listEl = container.querySelector('#manSectionList');
-
-                selUser.addEventListener('change', function () {
-                    btnRefresh.disabled = !this.value;
-                    if (this.value) fetchManageSections(view, this.value);
-                });
-
-                btnRefresh.addEventListener('click', function () {
-                    var uid = selUser.value;
-                    if (uid) fetchManageSections(view, uid);
-                });
-
-                container.querySelector('#btnApplyManage').addEventListener('click', function () {
-                    applyManageSections(view);
-                });
-
-                var manRafId = null;
-                listEl.addEventListener('dragover', function (e) {
-                    e.preventDefault();
-                    if (manRafId) return;
-                    manRafId = requestAnimationFrame(function () {
-                        var draggingRow = listEl.querySelector('.man-section-row.man-dragging');
-                        if (!draggingRow) { manRafId = null; return; }
-                        var afterEl = getManDragAfterElement(listEl, e.clientY);
-                        var ph = listEl.querySelector('.sort-placeholder');
-                        if (!ph) { ph = document.createElement('div'); ph.className = 'sort-placeholder'; }
-                        if (afterEl == null) { if (ph.nextElementSibling !== null) listEl.appendChild(ph); }
-                        else { if (ph.nextElementSibling !== afterEl) listEl.insertBefore(ph, afterEl); }
-                        manRafId = null;
-                    });
-                });
-
-                listEl.addEventListener('drop', function (e) {
-                    e.preventDefault();
-                    var draggingRow = listEl.querySelector('.man-section-row.man-dragging');
-                    var ph = listEl.querySelector('.sort-placeholder');
-                    if (draggingRow && ph) {
-                        listEl.insertBefore(draggingRow, ph);
-                        ph.remove();
-                    } else if (ph) {
-                        ph.remove();
-                    }
-                });
-
-                container.dataset.loaded = '1';
-            })
-            .catch(function () {
-                container.innerHTML = '<p class="textMuted" style="padding:20px;">Failed to load users. Check server connection.</p>';
-            });
-    }
-
-    function fetchManageSections(view, userId) {
-        var container = view.querySelector('#hscManageContainer');
-        if (!container) return;
-        var listEl = container.querySelector('#manSectionList');
-        if (!listEl) return;
-
-        listEl.innerHTML = '<p class="textMuted" style="padding:10px 0;">Loading sections...</p>';
-        container.querySelector('#btnApplyManage').disabled = true;
-
-        var headers = {};
-        var token = window.ApiClient.accessToken();
-        if (token) headers['X-Emby-Token'] = token;
-
-        fetch(window.ApiClient.getUrl('HomeScreenCompanion/Hsc/UserSections', { userId: userId }), { headers: headers })
-            .then(function (r) { return r.json(); })
-            .then(function (result) {
-                currentManageSections = result.Sections || [];
-                renderManageSections(view);
-            })
-            .catch(function () {
-                listEl.innerHTML = '<p class="textMuted" style="padding:10px 0;color:#cc3333;">Failed to load sections.</p>';
-            });
-    }
-
-    function renderManageSections(view) {
-        var container = view.querySelector('#hscManageContainer');
-        if (!container) return;
-        var listEl = container.querySelector('#manSectionList');
-        if (!listEl) return;
-
-        if (currentManageSections.length === 0) {
-            listEl.innerHTML = '<p class="textMuted" style="padding:10px 0;">No sections found for this user.</p>';
-            return;
-        }
-
-        listEl.innerHTML = currentManageSections.map(function (s, i) {
-            var name = s.CustomName || s.Name || s.SectionType || ('Section ' + (i + 1));
-            return [
-                '<div class="man-section-row" draggable="false" data-section-index="' + i + '">',
-                '<span class="drag-handle"><i class="md-icon">drag_indicator</i></span>',
-                '<span style="flex-grow:1;">' + name + '</span>',
-                '<button type="button" is="emby-button" class="man-btn-delete raised" data-section-index="' + i + '" title="Remove section">',
-                '<i class="md-icon">delete</i>',
-                '</button>',
-            ].join('') + '</div>';
-        }).join('');
-
-        listEl.querySelectorAll('.man-section-row').forEach(function (row) {
-            var handle = row.querySelector('.drag-handle');
-
-            handle.addEventListener('mousedown', function () { row.setAttribute('draggable', 'true'); });
-            handle.addEventListener('mouseup',   function () { row.setAttribute('draggable', 'false'); });
-
-            handle.addEventListener('touchstart', function (e) {
-                e.preventDefault();
-                row.classList.add('man-dragging');
-
-                function onTouchMove(ev) {
-                    ev.preventDefault();
-                    var touch = ev.touches[0];
-                    var afterEl = getManDragAfterElement(listEl, touch.clientY);
-                    var ph = listEl.querySelector('.sort-placeholder');
-                    if (!ph) { ph = document.createElement('div'); ph.className = 'sort-placeholder'; }
-                    if (afterEl == null) { if (ph.nextElementSibling !== null) listEl.appendChild(ph); }
-                    else { if (ph.nextElementSibling !== afterEl) listEl.insertBefore(ph, afterEl); }
-                }
-
-                function onTouchEnd() {
-                    document.removeEventListener('touchmove', onTouchMove);
-                    document.removeEventListener('touchend', onTouchEnd);
-                    document.removeEventListener('touchcancel', onTouchCancel);
-                    row.classList.remove('man-dragging');
-                    var ph = listEl.querySelector('.sort-placeholder');
-                    if (ph) { listEl.insertBefore(row, ph); ph.remove(); }
-                    var domRows = [...listEl.querySelectorAll('.man-section-row')];
-                    if (domRows.length > 0) {
-                        var snapshot = currentManageSections.slice();
-                        currentManageSections = domRows.map(function (r) {
-                            return snapshot[parseInt(r.dataset.sectionIndex)];
-                        });
-                        domRows.forEach(function (r, pos) {
-                            r.dataset.sectionIndex = pos;
-                            var delBtn = r.querySelector('.man-btn-delete');
-                            if (delBtn) delBtn.dataset.sectionIndex = pos;
-                        });
-                        var btnApply = container.querySelector('#btnApplyManage');
-                        if (btnApply) { btnApply.disabled = false; checkFormState(); }
-                    }
-                }
-
-                function onTouchCancel() {
-                    document.removeEventListener('touchmove', onTouchMove);
-                    document.removeEventListener('touchend', onTouchEnd);
-                    document.removeEventListener('touchcancel', onTouchCancel);
-                    row.classList.remove('man-dragging');
-                    var ph = listEl.querySelector('.sort-placeholder');
-                    if (ph) ph.remove();
-                }
-
-                document.addEventListener('touchmove', onTouchMove, { passive: false });
-                document.addEventListener('touchend', onTouchEnd);
-                document.addEventListener('touchcancel', onTouchCancel);
-            }, { passive: false });
-
-            row.addEventListener('dragstart', function (e) {
-                row.classList.add('man-dragging');
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', '');
-                setTimeout(function () { row.style.display = 'none'; }, 0);
-            });
-
-            row.addEventListener('dragend', function () {
-                row.style.display = '';
-                row.classList.remove('man-dragging');
-                row.setAttribute('draggable', 'false');
-                var ph = listEl.querySelector('.sort-placeholder');
-                if (ph) ph.remove();
-
-                var domRows = [...listEl.querySelectorAll('.man-section-row')];
-                if (domRows.length > 0) {
-                    var snapshot = currentManageSections.slice();
-                    currentManageSections = domRows.map(function (r) {
-                        return snapshot[parseInt(r.dataset.sectionIndex)];
-                    });
-                    domRows.forEach(function (r, pos) {
-                        r.dataset.sectionIndex = pos;
-                        var delBtn = r.querySelector('.man-btn-delete');
-                        if (delBtn) delBtn.dataset.sectionIndex = pos;
-                    });
-                    var btnApply = container.querySelector('#btnApplyManage');
-                    if (btnApply) { btnApply.disabled = false; checkFormState(); }
-                }
-            });
-
-            row.querySelector('.man-btn-delete').addEventListener('click', function () {
-                currentManageSections.splice(parseInt(this.dataset.sectionIndex), 1);
-                renderManageSections(view);
-                var btnApply = container.querySelector('#btnApplyManage');
-                if (btnApply) { btnApply.disabled = false; checkFormState(); }
-            });
-        });
-    }
-
-    function applyManageSections(view) {
-        var container = view.querySelector('#hscManageContainer');
-        if (!container) return;
-        var selUser = container.querySelector('#selManageUser');
-        var btnApply = container.querySelector('#btnApplyManage');
-        if (!selUser || !selUser.value) return;
-
-        btnApply.disabled = true;
-        var btnSpan = btnApply.querySelector('span');
-        var origText = btnSpan ? btnSpan.textContent : '';
-        if (btnSpan) btnSpan.textContent = 'Applying\u2026';
-
-        var headers = { 'Content-Type': 'application/json' };
-        var token = window.ApiClient.accessToken();
-        if (token) headers['X-Emby-Token'] = token;
-
-        fetch(window.ApiClient.getUrl('HomeScreenCompanion/Hsc/UserSections'), {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({ UserId: selUser.value, Sections: currentManageSections })
-        })
-            .then(function (r) { return r.json(); })
-            .then(function (result) {
-                if (btnSpan) btnSpan.textContent = origText;
-                if (result.Success) {
-                    window.Dashboard.alert('Home screen layout saved successfully!');
+                if (afterElement == null) {
+                  if (placeholder.nextElementSibling !== null) container.appendChild(placeholder);
                 } else {
-                    window.Dashboard.alert('Failed to save: ' + (result.Message || 'Unknown error'));
-                    btnApply.disabled = false;
+                  if (placeholder.nextElementSibling !== afterElement) container.insertBefore(placeholder, afterElement);
                 }
-            })
-            .catch(function () {
-                if (btnSpan) btnSpan.textContent = origText;
-                window.Dashboard.alert('Error applying changes. Check server logs.');
-                btnApply.disabled = false;
+                rafId = null;
+              });
             });
-    }
-
-
-    return function (view) {
-        view.addEventListener('viewshow', () => {
-            if (!document.getElementById('homeScreenCompanionCustomCss')) {
-                document.body.insertAdjacentHTML('beforeend', customCss);
-            }
-            applyPluginTheme();
-
-            var form = view.querySelector('.HomeScreenCompanionForm');
-            var isFirstVisit = !view.dataset.hscInit;
-            if (isFirstVisit) view.dataset.hscInit = '1';
-
-            originalConfigState = null;
-
-            var changeHandler = function() {
-                setTimeout(checkFormState, 0);
-            };
-            if (_formAc) _formAc.abort();
-            _formAc = new AbortController();
-            var _signal = _formAc.signal;
-            form.addEventListener('input', changeHandler, { signal: _signal });
-            form.addEventListener('change', changeHandler, { signal: _signal });
-            form.addEventListener('input', function (e) {
-                var ta = e.target.closest('textarea.txtMiValue, textarea.txtTagBlacklist');
-                if (!ta) return;
-                ta.style.height = 'auto';
-                ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-                ta.style.overflowY = ta.scrollHeight > 120 ? 'auto' : 'hidden';
+            container.addEventListener("drop", (e) => {
+              if (localStorage.getItem("HomeScreenCompanion_SortBy") !== "Manual") return;
+              e.preventDefault();
+              const draggingRow = document.querySelector(".tag-row.dragging");
+              const placeholder = document.querySelector(".sort-placeholder");
+              if (draggingRow && placeholder) {
+                container.insertBefore(draggingRow, placeholder);
+                placeholder.remove();
+                changeHandler();
+              }
             });
-            var settingsTab = view.querySelector('#tabSettings');
-            settingsTab.addEventListener('input',  changeHandler, { signal: _signal });
-            settingsTab.addEventListener('change', changeHandler, { signal: _signal });
-
-            var spTa = view.querySelector('#txtAiSystemPrompt');
-            var resetBtn = view.querySelector('#btnResetAiSystemPrompt');
-            if (spTa && resetBtn) {
-                spTa.addEventListener('input', function () { updateSystemPromptResetBtn(view); }, { signal: _signal });
-                resetBtn.addEventListener('click', function () {
-                    spTa.value = DEFAULT_AI_SYSTEM_PROMPT;
-                    updateSystemPromptResetBtn(view);
-                    changeHandler();
-                }, { signal: _signal });
+          }
+          const logOverlay = view.querySelector("#logModalOverlay");
+          const helpOverlay = view.querySelector("#helpModalOverlay");
+          const bugOverlay = view.querySelector("#bugReportModalOverlay");
+          const btnOpenLogs = view.querySelector("#btnOpenLogs");
+          const btnCloseLogs = view.querySelector("#btnCloseLogs");
+          const btnOpenHelp = view.querySelector("#btnOpenHelp");
+          const btnCloseHelp = view.querySelector("#btnCloseHelp");
+          const btnOpenBug = view.querySelector("#btnOpenBugReport");
+          const btnCloseBug = view.querySelector("#btnCloseBugReport");
+          const btnCloseMiHelp = view.querySelector("#btnCloseMiHelp");
+          const btnCloseTagTargetHelp = view.querySelector("#btnCloseTagTargetHelp");
+          if (btnOpenLogs) btnOpenLogs.addEventListener("click", (e) => {
+            e.preventDefault();
+            appState.logStatus.logTab = null;
+            renderLogModal(view, { state: appState.logStatus});
+            if (logOverlay) logOverlay.classList.add("modal-visible");
+          });
+          if (btnCloseLogs) btnCloseLogs.addEventListener("click", () => {
+            appState.logStatus.logTab = null;
+            if (logOverlay) logOverlay.classList.remove("modal-visible");
+          });
+          if (logOverlay) logOverlay.addEventListener("click", (e) => {
+            if (e.target === logOverlay) {
+              appState.logStatus.logTab = null;
+              logOverlay.classList.remove("modal-visible");
             }
-
-            form.addEventListener('click', (e) => {
-                var dayBtn = e.target.closest('.day-toggle');
-                if (dayBtn) dayBtn.classList.toggle('active');
-                if (e.target.closest('.btnRemoveUrl, .btnAddUrl, .btnRemoveLocal, .btnAddLocal, .btnRemoveDate, .btnAddDate, .btnRemoveFilterGroup, .btnAddMediaInfoFilter, .btnClearAllFilters, .btnGroupOpChoice, .btnGroupInnerOpChoice, .btnAddMiRule, .btnRemoveMiRule, .btnRemoveGroup, .day-toggle, .btnRemovePoster, .btnApplyMiPreset')) {
-                    changeHandler();
-                }
-            }, { signal: _signal });
-            
-            var container = view.querySelector('#tagListContainer');
-
-            if (isFirstVisit) {
-                if (container) {
-                    let rafId = null;
-                    container.addEventListener('dragover', (e) => {
-                        if (localStorage.getItem('HomeScreenCompanion_SortBy') !== 'Manual') return;
-                        e.preventDefault();
-                        if (rafId) return;
-                        rafId = requestAnimationFrame(() => {
-                            const draggingRow = document.querySelector('.tag-row.dragging');
-                            if (!draggingRow) { rafId = null; return; }
-                            const afterElement = getDragAfterElement(container, e.clientY);
-                            var placeholder = document.querySelector('.sort-placeholder');
-                            if (!placeholder) {
-                                placeholder = document.createElement('div');
-                                placeholder.className = 'sort-placeholder';
-                            }
-                            if (afterElement == null) {
-                                if (placeholder.nextElementSibling !== null) container.appendChild(placeholder);
-                            } else {
-                                if (placeholder.nextElementSibling !== afterElement) container.insertBefore(placeholder, afterElement);
-                            }
-                            rafId = null;
-                        });
-                    });
-                    container.addEventListener('drop', (e) => {
-                        if (localStorage.getItem('HomeScreenCompanion_SortBy') !== 'Manual') return;
-                        e.preventDefault();
-                        const draggingRow = document.querySelector('.tag-row.dragging');
-                        const placeholder = document.querySelector('.sort-placeholder');
-                        if (draggingRow && placeholder) {
-                            container.insertBefore(draggingRow, placeholder);
-                            placeholder.remove();
-                            changeHandler();
-                        }
-                    });
-                }
-
-
-
-                var logOverlay = view.querySelector('#logModalOverlay');
-                var helpOverlay = view.querySelector('#helpModalOverlay');
-                var bugOverlay = view.querySelector('#bugReportModalOverlay');
-
-                view.querySelector('#btnOpenLogs').addEventListener('click', e => { e.preventDefault(); _logTab = null; renderLogModal(view); logOverlay.classList.add('modal-visible'); });
-                view.querySelector('#btnCloseLogs').addEventListener('click', () => { _logTab = null; logOverlay.classList.remove('modal-visible'); });
-                logOverlay.addEventListener('click', e => { if (e.target === logOverlay) { _logTab = null; logOverlay.classList.remove('modal-visible'); } });
-                view.querySelectorAll('#logTabs .log-tab').forEach(function (tab) {
-                    tab.addEventListener('click', function () { _logTab = tab.getAttribute('data-log'); renderLogModal(view); });
-                });
-
-                view.querySelector('#btnOpenHelp').addEventListener('click', () => helpOverlay.classList.add('modal-visible'));
-                view.querySelector('#btnCloseHelp').addEventListener('click', () => helpOverlay.classList.remove('modal-visible'));
-                helpOverlay.addEventListener('click', e => { if (e.target === helpOverlay) helpOverlay.classList.remove('modal-visible'); });
-
-                view.querySelector('#btnOpenBugReport').addEventListener('click', () => bugOverlay.classList.add('modal-visible'));
-                view.querySelector('#btnCloseBugReport').addEventListener('click', () => bugOverlay.classList.remove('modal-visible'));
-                bugOverlay.addEventListener('click', e => { if (e.target === bugOverlay) bugOverlay.classList.remove('modal-visible'); });
-
-                var miHelpOverlay = view.querySelector('#miHelpModalOverlay');
-                view.querySelector('#btnCloseMiHelp').addEventListener('click', () => miHelpOverlay.classList.remove('modal-visible'));
-                miHelpOverlay.addEventListener('click', e => { if (e.target === miHelpOverlay) miHelpOverlay.classList.remove('modal-visible'); });
-
-                var tagTargetHelpOverlay = view.querySelector('#tagTargetHelpModalOverlay');
-                view.querySelector('#btnCloseTagTargetHelp').addEventListener('click', () => tagTargetHelpOverlay.classList.remove('modal-visible'));
-                tagTargetHelpOverlay.addEventListener('click', e => { if (e.target === tagTargetHelpOverlay) tagTargetHelpOverlay.classList.remove('modal-visible'); });
-
-                var headerAction = view.querySelector('.sectionTitleContainer');
-                if (headerAction && !view.querySelector('#cbSortTags')) {
-                    var savedSort = localStorage.getItem('HomeScreenCompanion_SortBy') || 'Manual';
-                    headerAction.style.display = "flex";
-                    headerAction.style.alignItems = "center";
-                    headerAction.style.justifyContent = "space-between";
-                    headerAction.style.width = "100%";
-                    headerAction.style.marginBottom = "10px";
-
-                    var controlRowHtml = `
+          });
+          view.querySelectorAll("#logTabs .log-tab").forEach((tab) => {
+            tab.addEventListener("click", () => {
+              const key = tab.getAttribute("data-log");
+              appState.logStatus.logTab = key;
+              renderLogModal(view, { state: appState.logStatus});
+            });
+          });
+          if (btnOpenHelp) btnOpenHelp.addEventListener("click", () => helpOverlay && helpOverlay.classList.add("modal-visible"));
+          if (btnCloseHelp) btnCloseHelp.addEventListener("click", () => helpOverlay && helpOverlay.classList.remove("modal-visible"));
+          if (helpOverlay) helpOverlay.addEventListener("click", (e) => {
+            if (e.target === helpOverlay) helpOverlay.classList.remove("modal-visible");
+          });
+          if (btnOpenBug) btnOpenBug.addEventListener("click", () => bugOverlay && bugOverlay.classList.add("modal-visible"));
+          if (btnCloseBug) btnCloseBug.addEventListener("click", () => bugOverlay && bugOverlay.classList.remove("modal-visible"));
+          if (bugOverlay) bugOverlay.addEventListener("click", (e) => {
+            if (e.target === bugOverlay) bugOverlay.classList.remove("modal-visible");
+          });
+          const miHelpOverlay = view.querySelector("#miHelpModalOverlay");
+          if (btnCloseMiHelp) btnCloseMiHelp.addEventListener("click", () => miHelpOverlay && miHelpOverlay.classList.remove("modal-visible"));
+          if (miHelpOverlay) miHelpOverlay.addEventListener("click", (e) => {
+            if (e.target === miHelpOverlay) miHelpOverlay.classList.remove("modal-visible");
+          });
+          const tagTargetHelpOverlay = view.querySelector("#tagTargetHelpModalOverlay");
+          if (btnCloseTagTargetHelp) btnCloseTagTargetHelp.addEventListener("click", () => tagTargetHelpOverlay && tagTargetHelpOverlay.classList.remove("modal-visible"));
+          if (tagTargetHelpOverlay) tagTargetHelpOverlay.addEventListener("click", (e) => {
+            if (e.target === tagTargetHelpOverlay) tagTargetHelpOverlay.classList.remove("modal-visible");
+          });
+          const headerAction = view.querySelector(".sectionTitleContainer");
+          if (headerAction && !view.querySelector("#cbSortTags")) {
+            const savedSort = localStorage.getItem("HomeScreenCompanion_SortBy") || "Manual";
+            headerAction.style.display = "flex";
+            headerAction.style.alignItems = "center";
+            headerAction.style.justifyContent = "space-between";
+            headerAction.style.width = "100%";
+            headerAction.style.marginBottom = "10px";
+            const controlRowHtml = `
                     <div class="control-row" style="flex-direction: row !important; align-items: center !important; flex-wrap: nowrap !important; justify-content: flex-start !important; padding: 10px 15px !important; gap: 0 !important;">
 
                         <span class="control-label" style="opacity:0.7; margin-right: 10px; flex-shrink: 0;">Sort:</span>
 
                         <select is="emby-select" id="cbSortTags" style="color:inherit; background:rgba(128,128,128,0.08); border:1px solid var(--line-color); padding:5px; border-radius:4px; font-size:0.9em; cursor:pointer; width: 80px; margin-right: 0px;">
-                            <option value="Manual" ${savedSort === 'Manual' ? 'selected' : ''}>Manual</option>
-                            <option value="Name" ${savedSort === 'Name' ? 'selected' : ''}>Name</option>
-                            <option value="Active" ${savedSort === 'Active' ? 'selected' : ''}>Status</option>
-                            <option value="LatestEdited" ${savedSort === 'LatestEdited' ? 'selected' : ''}>Latest</option>
+                            <option value="Manual" ${savedSort === "Manual" ? "selected" : ""}>Manual</option>
+                            <option value="Name" ${savedSort === "Name" ? "selected" : ""}>Name</option>
+                            <option value="Active" ${savedSort === "Active" ? "selected" : ""}>Status</option>
+                            <option value="LatestEdited" ${savedSort === "LatestEdited" ? "selected" : ""}>Latest</option>
                         </select>
 
                         <div style="width: 1px; height: 25px; background: var(--line-color); margin-right: 10px;"></div>
@@ -6696,489 +6706,304 @@ define(['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'], function (
                         </div>
 
                     </div>`;
-
-                    headerAction.insertAdjacentHTML('afterend', controlRowHtml);
-
-                    const txtSearch = view.querySelector('#txtSearchTags');
-                    const btnClear = view.querySelector('#btnClearSearch');
-
-                    txtSearch.addEventListener('input', () => {
-                        btnClear.style.display = txtSearch.value ? 'block' : 'none';
-                        applyFilters(view);
-                    });
-
-                    btnClear.addEventListener('click', () => {
-                        txtSearch.value = '';
-                        btnClear.style.display = 'none';
-                        txtSearch.focus();
-                        applyFilters(view);
-                    });
-
-                    view.querySelector('#cbSortTags').addEventListener('change', function () {
-                        localStorage.setItem('HomeScreenCompanion_SortBy', this.value);
-                        sortRows(view.querySelector('#tagListContainer'), this.value);
-                    });
-
-                    ['#chkFilterTag','#chkFilterCollection','#chkFilterSchedule','#chkFilterHomeScreen',
-                     '#chkFilterSrcExternal','#chkFilterSrcMediaInfo','#chkFilterSrcCollection','#chkFilterSrcPlaylist',
-                     '#chkFilterSrcAI','#chkFilterActive','#chkFilterInactive'
-                    ].forEach(id => view.querySelector(id).addEventListener('change', () => applyFilters(view)));
-
-                    var dropBtn   = view.querySelector('#btnFilterDropdown');
-                    var dropPanel = view.querySelector('#filterDropdownPanel');
-                    var dropCaret = view.querySelector('#filterDropdownCaret');
-
-                    dropBtn.addEventListener('click', e => {
-                        e.stopPropagation();
-                        var open = dropPanel.classList.toggle('open');
-                        dropCaret.textContent = open ? 'expand_less' : 'expand_more';
-                    });
-
-                    document.addEventListener('click', function closeFilterDrop(e) {
-                        if (!dropPanel.contains(e.target) && e.target !== dropBtn) {
-                            dropPanel.classList.remove('open');
-                            dropCaret.textContent = 'expand_more';
-                        }
-                    });
-                }
-
-                view.querySelector('#btnAddTag').addEventListener('click', () => {
-                    renderTagGroup({ Tag: '', Urls: [{ url: '', limit: 0 }], Active: true }, view.querySelector('#tagListContainer'), true, undefined, true);
-                    applyFilters(view);
-                });
-
-                view.querySelector('#btnBackupConfig').addEventListener('click', function () {
-                    showBackupModal();
-                });
-
-                var fileInput = view.querySelector('#fileRestoreConfig');
-                view.querySelector('#btnRestoreConfigTrigger').addEventListener('click', function () {
-                    if (hasDirtyState() && !confirm('You have unsaved changes. They will be discarded when a backup is restored. Continue?')) return;
-                    fileInput.click();
-                });
-                fileInput.addEventListener('change', function (e) {
-                    var file = e.target.files[0]; if (!file) return;
-                    var reader = new FileReader();
-                    reader.onload = function (ev) {
-                        fileInput.value = '';
-                        showRestoreModal(ev.target.result, function () {
-                            // Server config changed underneath us — reload every tab from scratch.
-                            ['#hscContainer', '#hscManageContainer', '#tlContainer', '#tcManageContainer'].forEach(function (sel) {
-                                var el = view.querySelector(sel);
-                                if (el) el.dataset.loaded = '';
-                            });
-                            loadConfig().then(function () {
-                                refreshMySavedFiltersPanels();
-                                var activeTab = view.querySelector('.page-tab-btn.active');
-                                var target = activeTab ? activeTab.getAttribute('data-page-tab') : '';
-                                if (target === 'HomeCompanion') { loadHscUsers(view); loadHscManageTab(view); }
-                                else if (target === 'TopLists') loadTopListsTab(view);
-                                else if (target === 'Cleanup') loadTagManageTab(view);
-                            });
-                        });
-                    };
-                    reader.readAsText(file);
-                });
-
-            }
-
-            if (!view.querySelector('.dry-run-warning')) {
-                view.insertAdjacentHTML('afterbegin', '<div class="dry-run-warning"><i class="md-icon" style="font-size:1.4em;"></i>DRY RUN MODE IS ACTIVE - NO CHANGES WILL BE SAVED</div>');
-            }
-
-            var btnSave = view.querySelector('.btn-save');
-            if (btnSave) { btnSave.disabled = true; btnSave.style.opacity = "0.5"; }
-
-            checkForUpdates(view);
-            refreshStatus(view);
-            statusInterval = setInterval(() => refreshStatus(view), 5000);
-            getHseUsers().then(function(users) { _miUsers = users; });
-
-            Promise.all([
-                window.ApiClient.getJSON(window.ApiClient.getUrl("Users/" + window.ApiClient.getCurrentUserId() + "/Items", { IncludeItemTypes: "BoxSet", Recursive: true })),
-                window.ApiClient.getJSON(window.ApiClient.getUrl("Items", { IncludeItemTypes: "Playlist", Recursive: true })),
-                window.ApiClient.getJSON(window.ApiClient.getUrl("Items/Filters2", { UserId: window.ApiClient.getCurrentUserId(), Recursive: true })).catch(function () { return { Tags: [] }; })
-            ]).then(responses => {
-                cachedCollections = responses[0].Items || [];
-                cachedPlaylists = responses[1].Items || [];
-                cachedTags = ((responses[2] && responses[2].Tags) || []).slice().sort();
-
-                loadConfig();
-            });
-        });
-
-        view.addEventListener('viewhide', () => { if (statusInterval) clearInterval(statusInterval); });
-
-        view.querySelector('.HomeScreenCompanionForm').addEventListener('submit', e => {
-            e.preventDefault();
-
-            // Flush dirty inline top-list forms before the global config save.
-            // Must happen first because the global save re-fetches TopLists from the server.
-            var _tlCont = view.querySelector('#tlContainer');
-            var _dirtyBodies = _tlCont ? Array.from(_tlCont.querySelectorAll('.tag-body[data-dirty="1"]')) : [];
-            if (_dirtyBodies.length > 0) {
-                var _btn = view.querySelector('.btn-save');
-                var _origHtml = _btn ? _btn.innerHTML : '';
-                if (_btn) { _btn.disabled = true; _btn.innerHTML = '<i class="md-icon" style="margin-right:5px;">hourglass_empty</i><span>Saving…</span>'; }
-                _dirtyBodies.reduce(function (p, b) {
-                    return p.then(function () { return typeof b.tlSaveForm === 'function' ? b.tlSaveForm() : Promise.resolve(); });
-                }, Promise.resolve()).then(function () {
-                    _dirtyBodies.forEach(function (b) { delete b.dataset.dirty; });
-                    if (_btn) { _btn.innerHTML = _origHtml; _btn.disabled = false; }
-                    doSave();
-                }).catch(function (err) {
-                    if (_btn) { _btn.innerHTML = _origHtml; _btn.disabled = false; }
-                    alert('Failed to save top-list changes: ' + (err.message || err));
-                });
-                return;
-            }
-            doSave();
-            function doSave() {
-
-            // If CLEANUP tab is active and has pending deletions, show its modal instead of normal config save
-            var cleanupTab = view.querySelector('#tabCleanup');
-            var tcContainer = view.querySelector('#tcManageContainer');
-            if (cleanupTab && cleanupTab.style.display !== 'none' && tcContainer && tcContainer._tcHasPending && tcContainer._tcShowModal) {
-                tcContainer._tcShowModal();
-                return;
-            }
-
-            var btnApplyManage = view.querySelector('#btnApplyManage');
-            if (btnApplyManage && !btnApplyManage.disabled) applyManageSections(view);
-
-            var configObj = getUiConfig(view, false);
-            
-            var originalConf = JSON.parse(originalConfigState);
-            var originalTags = groupConfigTags(originalConf.Tags);
-
-            configObj.Tags.forEach(tag => {
-                var key = tag.Name ? tag.Name + '\x1F' + tag.Tag : tag.Tag;
-                var originalTag = originalTags[key];
-                
-                var currentTagForCompare = Object.assign({}, tag, { LastModified: "CONSTANT_FOR_COMPARISON" });
-                var originalTagForCompare = originalTag ? Object.assign({}, originalTag, { LastModified: "CONSTANT_FOR_COMPARISON" }) : null;
-
-                if (!originalTag || JSON.stringify(currentTagForCompare) !== JSON.stringify(originalTagForCompare)) {
-                    tag.LastModified = new Date().toISOString();
-                } else {
-                    tag.LastModified = originalTag.LastModified;
-                }
-            });
-
-            // Pre-fetch current config to preserve HomeSectionTracked set by the sync task
-            // (UI dataset may be stale if sync ran after page load)
-            window.ApiClient.getPluginConfiguration(pluginId).catch(function() { return { Tags: [] }; }).then(function(currentConfig) {
-                var currentGrouped = groupConfigTags(currentConfig.Tags);
-                configObj.Tags.forEach(function(t) {
-                    var key = t.Name ? t.Name + '\x1F' + t.Tag : t.Tag;
-                    var existing = currentGrouped[key];
-                    if (existing && existing.HomeSectionTracked && existing.HomeSectionTracked.length > 0
-                        && (!t.HomeSectionTracked || t.HomeSectionTracked.length === 0)) {
-                        t.HomeSectionTracked = existing.HomeSectionTracked;
-                    }
-                    if (existing && existing.PlaylistMappings && existing.PlaylistMappings.length > 0
-                        && (!t.PlaylistMappings || t.PlaylistMappings.length === 0)) {
-                        t.PlaylistMappings = existing.PlaylistMappings;
-                    }
-                });
-                configObj.TopLists = currentConfig.TopLists || [];
-
-                // Ensure all items-type home sections exclude top-list libraries automatically
-                return preFetchLibraryData().then(function(libData) {
-                    var topListIds = new Set(
-                        libData.virtualFolders
-                            .filter(function(f) {
-                                return (f.Locations || []).some(function(loc) {
-                                    var parts = loc.replace(/\\/g, '/').split('/');
-                                    var fn = (parts[parts.length - 1] || parts[parts.length - 2] || '').toLowerCase();
-                                    return libData.topListFolderNames.has(fn);
-                                });
-                            })
-                            .map(function(f) { return f.ItemId; })
-                    );
-                    if (topListIds.size > 0) {
-                        configObj.Tags.forEach(function(tag) {
-                            if (!tag.EnableHomeSection) return;
-                            var settings = {};
-                            try { settings = JSON.parse(tag.HomeSectionSettings || '{}'); } catch {}
-                            if ((settings.SectionType || 'items') !== 'items') return;
-                            var excluded = new Set(
-                                (settings._queryExcludeViewIds || '').split(',')
-                                    .map(function(id) { return id.trim(); }).filter(Boolean)
-                            );
-                            var changed = false;
-                            topListIds.forEach(function(id) {
-                                if (!excluded.has(id)) { excluded.add(id); changed = true; }
-                            });
-                            if (changed) {
-                                var excStr = Array.from(excluded).join(',');
-                                settings._queryExcludeViewIds = excStr;
-                                settings.ExcludedFolders = excStr;
-                                tag.HomeSectionSettings = JSON.stringify(settings);
-                            }
-                        });
-                    }
-                    return window.ApiClient.updatePluginConfiguration(pluginId, configObj);
-                });
-            }).then(r => {
-                window.Dashboard.processPluginConfigurationUpdateResult(r);
-                _topListTagNames = new Set((configObj.TopLists || []).map(function (tl) { return (tl.TagName || '').toLowerCase(); }).filter(Boolean));
-
-                var newGrouped = groupConfigTags(configObj.Tags);
-                view.querySelectorAll('.tag-row').forEach(row => {
-                    if (!row.querySelector('.txtEntryLabel')) return;
-                    var name = row.querySelector('.txtEntryLabel').value;
-                    var tagName = row.querySelector('.txtTagName').value || name;
-                    var key = name ? name + '\x1F' + tagName : tagName;
-                    var tc = newGrouped[key];
-                    if (tc) {
-                        row.dataset.lastModified = tc.LastModified;
-                        var hseTab = row.querySelector('.homescreen-tab');
-                        if (hseTab) {
-                            hseTab.dataset.hseTracked = encodeURIComponent(JSON.stringify(tc.HomeSectionTracked || []));
-                            hseTab.dataset.hseSettings = encodeURIComponent(tc.HomeSectionSettings || '{}');
-                            hseTab.dataset.hseUserids = encodeURIComponent(JSON.stringify(tc.HomeSectionUserIds || []));
-                        }
-                    }
-                });
-
-                originalConfigState = JSON.stringify(getUiConfig(view, true));
-                checkFormState();
-                updateDryRunWarning();
-
-                // Apply home section settings immediately for existing tracked sections (fire-and-forget)
-                configObj.Tags.forEach(function(tc) {
-                    if (!tc.EnableHomeSection) return;
-                    var hasTracked = (tc.HomeSectionTracked || []).some(function(t) {
-                        return t.SectionId && !t.SectionId.startsWith('hsc__');
-                    });
-                    if (!hasTracked) return;
-                    var applyUrl = window.ApiClient.getUrl('HomeScreenCompanion/Hsc/ApplyTagHomeSections');
-                    var tok = window.ApiClient.accessToken ? window.ApiClient.accessToken() : '';
-                    fetch(applyUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-Emby-Token': tok },
-                        body: JSON.stringify({ TagName: tc.Name || tc.Tag })
-                    }).then(function(r) { return r.json(); }).then(function(res) {
-                        console.log('[HSC] ApplyTagHomeSections', tc.Name || tc.Tag, res);
-                    }).catch(function(e) { console.warn('[HSC] ApplyTagHomeSections failed', tc.Name || tc.Tag, e); });
-                });
-            });
-            } // end doSave
-        });
-
-        var speedDial = view.querySelector('#runSpeedDial');
-        var syncMenu = view.querySelector('#runSyncMenu');
-        view.querySelector('#btnRunSync').addEventListener('click', function (e) {
-            e.stopPropagation();
-            var isOpen = speedDial.classList.toggle('open');
-            syncMenu.classList.toggle('open', isOpen);
-        });
-
-        function closeSpeedDial() {
-            speedDial.classList.remove('open');
-            syncMenu.classList.remove('open');
-        }
-        document.addEventListener('click', closeSpeedDial);
-
-        function runTask(key, label) {
-            window.ApiClient.getScheduledTasks().then(function (tasks) {
-                var t = tasks.find(function (x) { return x.Key === key; });
-                if (t) {
-                    window.ApiClient.startScheduledTask(t.Id).then(function () {
-                        window.Dashboard.alert(label + ' started!');
-                    });
-                } else {
-                    window.Dashboard.alert('Task not found: ' + key);
-                }
-            });
-            closeSpeedDial();
-        }
-
-        view.querySelector('#btnDialTagsCollections').addEventListener('click', function () {
-            runTask('HomeScreenCompanionSyncTask', 'Tag sync');
-        });
-
-        view.querySelector('#btnDialHomeScreen').addEventListener('click', function () {
-            runTask('HomeSectionSyncTask', 'Home screen sync');
-        });
-
-        view.querySelector('#btnDialFullSync').addEventListener('click', function () {
-            window.ApiClient.getScheduledTasks().then(function (tasks) {
-                var tagTask = tasks.find(function (x) { return x.Key === 'HomeScreenCompanionSyncTask'; });
-                var hscTask = tasks.find(function (x) { return x.Key === 'HomeSectionSyncTask'; });
-                var promises = [];
-                if (tagTask) promises.push(window.ApiClient.startScheduledTask(tagTask.Id));
-                if (hscTask) promises.push(window.ApiClient.startScheduledTask(hscTask.Id));
-                Promise.all(promises).then(function () {
-                    window.Dashboard.alert('Full sync started!');
-                });
-            });
-            closeSpeedDial();
-        });
-
-        function beforeUnloadHandler(e) {
-            if (hasDirtyState()) {
-                e.preventDefault();
-                e.returnValue = '';
-            }
-        }
-        window.addEventListener('beforeunload', beforeUnloadHandler);
-
-        view.addEventListener('viewhide', function () {
-            document.removeEventListener('click', closeSpeedDial);
-            window.removeEventListener('beforeunload', beforeUnloadHandler);
-        }, { once: true });
-
-        function loadConfig() {
-            _hseLibraryCachePromise = null; // återställ cache så nya bibliotek (t.ex. ny top-list) hämtas
-            preFetchLibraryData();          // starta hämtning direkt vid sidladdning
-            return window.ApiClient.getPluginConfiguration(pluginId).then(config => {
-                lastHscConfig = {
-                    HomeSyncEnabled:       config.HomeSyncEnabled       || false,
-                    HomeSyncLibraryOrder:  config.HomeSyncLibraryOrder  || false,
-                    HomeSyncSourceUserId:  config.HomeSyncSourceUserId  || '',
-                    HomeSyncTargetUserIds: config.HomeSyncTargetUserIds || []
-                };
-                savedFilters = config.SavedFilters || [];
-
-                var container = view.querySelector('#tagListContainer'); container.innerHTML = '';
-                view.querySelector('#txtTraktClientId').value = config.TraktClientId || '';
-                view.querySelector('#txtMdblistApiKey').value = config.MdblistApiKey || '';
-                view.querySelector('#txtTmdbApiKey').value = config.TmdbApiKey || '';
-                var oaElInit = view.querySelector('#txtOpenAiApiKey'); if (oaElInit) oaElInit.value = config.OpenAiApiKey || '';
-                var oamElInit = view.querySelector('#txtOpenAiModel'); if (oamElInit) oamElInit.value = config.OpenAiModel || 'gpt-4o-mini';
-                var gmElInit = view.querySelector('#txtGeminiApiKey'); if (gmElInit) gmElInit.value = config.GeminiApiKey || '';
-                var gmmElInit = view.querySelector('#txtGeminiModel'); if (gmmElInit) gmmElInit.value = config.GeminiModel || 'gemini-2.5-flash-lite';
-                var clElInit = view.querySelector('#txtClaudeApiKey'); if (clElInit) clElInit.value = config.ClaudeApiKey || '';
-                var clmElInit = view.querySelector('#txtClaudeModel'); if (clmElInit) clmElInit.value = config.ClaudeModel || 'claude-haiku-4-5-20251001';
-                var olElInit = view.querySelector('#txtOllamaBaseUrl'); if (olElInit) olElInit.value = config.OllamaBaseUrl || 'http://localhost:11434';
-                var omElInit = view.querySelector('#txtOllamaModel'); if (omElInit) omElInit.value = config.OllamaModel || '';
-                var spElInit = view.querySelector('#txtAiSystemPrompt'); if (spElInit) spElInit.value = config.AiSystemPrompt || ''; updateSystemPromptResetBtn(view);
-                view.querySelector('#chkExtendedConsoleOutput').checked = config.ExtendedConsoleOutput || false;
-                view.querySelector('#chkLogMissingItems').checked = config.LogMissingItems || false;
-                view.querySelector('#chkDryRunMode').checked = config.DryRunMode || false;
-                view.querySelector('#chkPreserveTagsOnEmptyResult').checked = config.PreserveTagsOnEmptyResult || false;
-                if (view.querySelector('#txtSearchTags')) {
-                    view.querySelector('#txtSearchTags').value = '';
-                    view.querySelector('#btnClearSearch').style.display = 'none';
-                }
-                ['#chkFilterTag','#chkFilterCollection','#chkFilterSchedule','#chkFilterHomeScreen',
-                 '#chkFilterSrcExternal','#chkFilterSrcMediaInfo','#chkFilterSrcCollection','#chkFilterSrcPlaylist',
-                 '#chkFilterSrcAI','#chkFilterActive','#chkFilterInactive'
-                ].forEach(id => { var el = view.querySelector(id); if (el) el.checked = false; });
-                var lbl = view.querySelector('#filterDropdownLabel'); if (lbl) lbl.textContent = 'Filter';
-                var btn = view.querySelector('#btnFilterDropdown'); if (btn) btn.classList.remove('active');
-
-                _topListTagNames = new Set((config.TopLists || []).map(function (tl) { return (tl.TagName || '').toLowerCase(); }).filter(Boolean));
-
-                var grouped = groupConfigTags(config.Tags);
-
-                var keys = Object.keys(grouped);
-                keys.forEach((k, i) => renderTagGroup(grouped[k], container, false, i));
-
-                if (keys.length === 0) renderTagGroup({ Tag: '', Urls: [{ url: '', limit: 0 }], Active: true }, container, false, 0);
-
-                var savedSort = localStorage.getItem('HomeScreenCompanion_SortBy') || 'Manual';
-                sortRows(container, savedSort);
+            headerAction.insertAdjacentHTML("afterend", controlRowHtml);
+            const txtSearch = view.querySelector("#txtSearchTags");
+            const btnClear = view.querySelector("#btnClearSearch");
+            if (txtSearch && btnClear) {
+              txtSearch.addEventListener("input", () => {
+                btnClear.style.display = txtSearch.value ? "block" : "none";
                 applyFilters(view);
-                requestAnimationFrame(function () {
-                    try {
-                        originalConfigState = JSON.stringify(getUiConfig(view, true));
-                    } catch (err) {
-                        originalConfigState = null;
-                    }
-                    checkFormState();
-                    updateDryRunWarning();
-                });
-            });
-        }
-
-        function hasDirtyState() {
-            var btnSave = view.querySelector('.btn-save');
-            if (btnSave && !btnSave.disabled) return true;
-            var tcContainer = view.querySelector('#tcManageContainer');
-            if (tcContainer && tcContainer._tcHasPending) return true;
-            return false;
-        }
-
-        view.querySelectorAll('.page-tab-btn').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                var target = this.getAttribute('data-page-tab');
-                var wasDirty = hasDirtyState();
-                if (wasDirty && !confirm('You have unsaved changes. Leave this tab and discard changes?')) return;
-                if (wasDirty) loadConfig();
-                view.querySelectorAll('.page-tab-btn').forEach(function (b) { b.classList.remove('active'); });
-                this.classList.add('active');
-                view.querySelectorAll('.page-tab-content').forEach(function (c) { c.style.display = 'none'; });
-                view.querySelector('#tab' + target).style.display = '';
-
-                if (target === 'HomeCompanion') {
-                    var hscContainer = view.querySelector('#hscContainer');
-                    if (hscContainer && !hscContainer.dataset.loaded) {
-                        loadHscUsers(view);
-                    }
-                    var manageContainer = view.querySelector('#hscManageContainer');
-                    if (manageContainer && !manageContainer.dataset.loaded) {
-                        loadHscManageTab(view);
-                    }
-                } else if (target === 'Cleanup') {
-                    var container = view.querySelector('#tcManageContainer');
-                    if (container && !container.dataset.loaded) loadTagManageTab(view);
-                } else if (target === 'TopLists') {
-                    var tlContainer = view.querySelector('#tlContainer');
-                    if (tlContainer && !tlContainer.dataset.loaded) loadTopListsTab(view);
-                }
-            });
-        });
-
-        view.addEventListener('change', function (e) {
-            var cb = e.target.closest('.chkShowApiKey');
-            if (!cb) return;
-            var input = view.querySelector('#' + cb.dataset.target);
-            if (input) input.type = cb.checked ? 'text' : 'password';
-        });
-
-        view.addEventListener('click', function (e) {
-            var header = e.target.closest('.settings-panel-toggle');
-            if (header) {
-                var panel = header.closest('.settings-panel');
-                if (panel) {
-                    var body = panel.querySelector('.settings-panel-body');
-                    var chevron = header.querySelector('.settings-panel-chevron');
-                    if (body) {
-                        var isOpen = body.style.display !== 'none';
-                        body.style.display = isOpen ? 'none' : 'block';
-                        if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
-                    }
-                }
-                return;
+              });
+              btnClear.addEventListener("click", () => {
+                txtSearch.value = "";
+                btnClear.style.display = "none";
+                txtSearch.focus();
+                applyFilters(view);
+              });
             }
-        });
-
-        view.addEventListener('click', function (e) {
-            var btn = e.target.closest('.hsc-sub-tab-btn');
-            if (!btn) return;
-            var target = btn.getAttribute('data-hsc-tab');
-            view.querySelectorAll('.hsc-sub-tab-btn').forEach(function (b) { b.classList.remove('active'); });
-            btn.classList.add('active');
-            view.querySelectorAll('.hsc-sub-tab-content').forEach(function (c) { c.style.display = 'none'; });
-            if (target === 'copy') {
-                view.querySelector('#hscSubTabCopy').style.display = '';
-                var hscContainer = view.querySelector('#hscContainer');
-                if (hscContainer && !hscContainer.dataset.loaded) loadHscUsers(view);
-            } else if (target === 'manage') {
-                view.querySelector('#hscSubTabManage').style.display = '';
-                var manageContainer = view.querySelector('#hscManageContainer');
-                if (manageContainer && !manageContainer.dataset.loaded) loadHscManageTab(view);
+            const cbSortTags = view.querySelector("#cbSortTags");
+            if (cbSortTags) {
+              cbSortTags.addEventListener("change", function() {
+                localStorage.setItem("HomeScreenCompanion_SortBy", this.value);
+                const c = view.querySelector("#tagListContainer");
+                if (c) sortRows(c, this.value);
+              });
             }
+            [
+              "#chkFilterTag",
+              "#chkFilterCollection",
+              "#chkFilterSchedule",
+              "#chkFilterHomeScreen",
+              "#chkFilterSrcExternal",
+              "#chkFilterSrcMediaInfo",
+              "#chkFilterSrcCollection",
+              "#chkFilterSrcPlaylist",
+              "#chkFilterSrcAI",
+              "#chkFilterActive",
+              "#chkFilterInactive"
+            ].forEach((id) => {
+              const el = view.querySelector(id);
+              if (el) el.addEventListener("change", () => applyFilters(view));
+            });
+            const dropBtn = view.querySelector("#btnFilterDropdown");
+            const dropPanel = view.querySelector("#filterDropdownPanel");
+            const dropCaret = view.querySelector("#filterDropdownCaret");
+            if (dropBtn && dropPanel && dropCaret) {
+              dropBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const open = dropPanel.classList.toggle("open");
+                dropCaret.textContent = open ? "expand_less" : "expand_more";
+              });
+              document.addEventListener("click", function closeFilterDrop(e) {
+                const target = e.target;
+                if (!target) return;
+                if (!dropPanel.contains(target) && target !== dropBtn) {
+                  dropPanel.classList.remove("open");
+                  dropCaret.textContent = "expand_more";
+                }
+              });
+            }
+          }
+          const btnAddTag = view.querySelector("#btnAddTag");
+          if (btnAddTag) btnAddTag.addEventListener("click", () => {
+            legacyRenderTagGroup({ Tag: "", Urls: [{ url: "", limit: 0 }], Active: true }, container, true, void 0, true, null);
+            applyFilters(view);
+          });
+          const btnBackupConfig = view.querySelector("#btnBackupConfig");
+          if (btnBackupConfig) btnBackupConfig.addEventListener("click", () => {
+            showBackupModal(backupDeps());
+          });
+          const fileInput = view.querySelector("#fileRestoreConfig");
+          const btnRestoreConfigTrigger = view.querySelector("#btnRestoreConfigTrigger");
+          if (btnRestoreConfigTrigger && fileInput) {
+            btnRestoreConfigTrigger.addEventListener("click", () => {
+              if (hasDirtyStateFn() && !confirm("You have unsaved changes. They will be discarded when a backup is restored. Continue?")) return;
+              fileInput.click();
+            });
+            fileInput.addEventListener("change", (e) => {
+              const ev = e;
+              const target = ev.target;
+              const file = target && target.files ? target.files[0] : null;
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = function(readerEvt) {
+                fileInput.value = "";
+                const loadResult = readerEvt.target && typeof readerEvt.target.result === "string" ? readerEvt.target.result : "";
+                showRestoreModal(loadResult, () => {
+                  ["#hscContainer", "#hscManageContainer", "#tlContainer", "#tcManageContainer"].forEach((sel) => {
+                    const el = view.querySelector(sel);
+                    if (el) el.dataset.loaded = "";
+                  });
+                  loadConfigFn().then(() => {
+                    refreshMySavedFiltersPanels(appState.savedFilters.filters);
+                    const activeTab = view.querySelector(".page-tab-btn.active");
+                    const target2 = activeTab ? activeTab.getAttribute("data-page-tab") : "";
+                    if (target2 === "HomeCompanion") {
+                      loadHscUsers(view, hscDeps());
+                      loadHscManageTabFn(view);
+                    } else if (target2 === "TopLists") loadTopListsTabFn(view);
+                    else if (target2 === "Cleanup") loadTagManageTabFn(view);
+                  });
+                }, backupDeps());
+              };
+              reader.readAsText(file);
+            });
+          }
+        }
+        if (!view.querySelector(".dry-run-warning")) {
+          view.insertAdjacentHTML("afterbegin", '<div class="dry-run-warning"><i class="md-icon" style="font-size:1.4em;"></i>DRY RUN MODE IS ACTIVE - NO CHANGES WILL BE SAVED</div>');
+        }
+        const btnSave = view.querySelector(".btn-save");
+        if (btnSave) {
+          btnSave.disabled = true;
+          btnSave.style.opacity = "0.5";
+        }
+        const api = getApi();
+        checkForUpdates(view, {
+          fetch: (...args) => fetch(...args),
+          getApiClient: () => api ? { getUrl: (n) => api.getUrl(n) } : { getUrl: () => "" }
         });
+        refreshStatusFn(view);
+        if (appState.viewShow.statusInterval) clearInterval(appState.viewShow.statusInterval);
+        const statusInterval = setInterval(() => refreshStatusFn(view), 5e3);
+        appState.viewShow.statusInterval = statusInterval;
+        getHseUsers({ getApiClient: () => api, cache: appState.hseUserCache }).then((users) => {
+          appState.miUsers.users = users;
+        });
+        Promise.all([
+          api ? api.getJSON(api.getUrl("Users/" + api.getCurrentUserId() + "/Items", { IncludeItemTypes: "BoxSet", Recursive: true })) : Promise.resolve({ Items: [] }),
+          api ? api.getJSON(api.getUrl("Items", { IncludeItemTypes: "Playlist", Recursive: true })) : Promise.resolve({ Items: [] }),
+          api ? api.getJSON(api.getUrl("Items/Filters2", { UserId: api.getCurrentUserId(), Recursive: true })).catch(() => ({ Tags: [] })) : Promise.resolve({ Tags: [] })
+        ]).then((responses) => {
+          const r0 = responses[0];
+          const r1 = responses[1];
+          const r2 = responses[2];
+          appState.libraryCache.collections = r0.Items || [];
+          appState.libraryCache.playlists = r1.Items || [];
+          appState.libraryCache.tags = (r2 && r2.Tags || []).slice().sort();
+          void loadConfigFn();
+        });
+      });
+      view.addEventListener("viewhide", () => {
+        if (appState.viewShow.statusInterval) {
+          clearInterval(appState.viewShow.statusInterval);
+          appState.viewShow.statusInterval = null;
+        }
+      });
+      const formEl = view.querySelector(".HomeScreenCompanionForm");
+      if (formEl) formEl.addEventListener("submit", submitFormHandler);
+      const speedDial = view.querySelector("#runSpeedDial");
+      const syncMenu = view.querySelector("#runSyncMenu");
+      const btnRunSync = view.querySelector("#btnRunSync");
+      if (btnRunSync && speedDial && syncMenu) {
+        btnRunSync.addEventListener("click", function(e) {
+          e.stopPropagation();
+          const isOpen = speedDial.classList.toggle("open");
+          syncMenu.classList.toggle("open", isOpen);
+        });
+      }
+      function closeSpeedDial() {
+        if (speedDial) speedDial.classList.remove("open");
+        if (syncMenu) syncMenu.classList.remove("open");
+      }
+      document.addEventListener("click", closeSpeedDial);
+      function runTask(key, label) {
+        const api = getApi();
+        const db = getDashboard();
+        if (!api) return;
+        api.getScheduledTasks().then((tasks) => {
+          const t = tasks.find((x) => x.Key === key);
+          if (t) {
+            api.startScheduledTask(t.Id).then(() => {
+              db?.alert(label + " started!");
+            });
+          } else {
+            db?.alert("Task not found: " + key);
+          }
+        });
+        closeSpeedDial();
+      }
+      const btnDialTagsCollections = view.querySelector("#btnDialTagsCollections");
+      if (btnDialTagsCollections) btnDialTagsCollections.addEventListener("click", () => {
+        runTask("HomeScreenCompanionSyncTask", "Tag sync");
+      });
+      const btnDialHomeScreen = view.querySelector("#btnDialHomeScreen");
+      if (btnDialHomeScreen) btnDialHomeScreen.addEventListener("click", () => {
+        runTask("HomeSectionSyncTask", "Home screen sync");
+      });
+      const btnDialFullSync = view.querySelector("#btnDialFullSync");
+      if (btnDialFullSync) btnDialFullSync.addEventListener("click", () => {
+        const api = getApi();
+        const db = getDashboard();
+        if (!api) return;
+        api.getScheduledTasks().then((tasks) => {
+          const tagTask = tasks.find((x) => x.Key === "HomeScreenCompanionSyncTask");
+          const hscTask = tasks.find((x) => x.Key === "HomeSectionSyncTask");
+          const promises = [];
+          if (tagTask) promises.push(api.startScheduledTask(tagTask.Id));
+          if (hscTask) promises.push(api.startScheduledTask(hscTask.Id));
+          Promise.all(promises).then(() => {
+            db?.alert("Full sync started!");
+          });
+        });
+        closeSpeedDial();
+      });
+      function beforeUnloadHandler(e) {
+        if (hasDirtyStateFn()) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      }
+      window.addEventListener("beforeunload", beforeUnloadHandler);
+      view.addEventListener("viewhide", function() {
+        document.removeEventListener("click", closeSpeedDial);
+        window.removeEventListener("beforeunload", beforeUnloadHandler);
+      }, { once: true });
+      view.querySelectorAll(".page-tab-btn").forEach((btn) => {
+        btn.addEventListener("click", function() {
+          const target = this.getAttribute("data-page-tab");
+          const wasDirty = hasDirtyStateFn();
+          if (wasDirty && !confirm("You have unsaved changes. Leave this tab and discard changes?")) return;
+          if (wasDirty) void loadConfigFn();
+          view.querySelectorAll(".page-tab-btn").forEach((b) => {
+            b.classList.remove("active");
+          });
+          this.classList.add("active");
+          view.querySelectorAll(".page-tab-content").forEach((c) => {
+            c.style.display = "none";
+          });
+          const tgt = view.querySelector("#tab" + (target || ""));
+          if (tgt) tgt.style.display = "";
+          if (target === "HomeCompanion") {
+            const hscContainer = view.querySelector("#hscContainer");
+            if (hscContainer && !hscContainer.dataset.loaded) {
+              loadHscUsers(view, hscDeps());
+            }
+            const manageContainer = view.querySelector("#hscManageContainer");
+            if (manageContainer && !manageContainer.dataset.loaded) {
+              loadHscManageTabFn(view);
+            }
+          } else if (target === "Cleanup") {
+            const container2 = view.querySelector("#tcManageContainer");
+            if (container2 && !container2.dataset.loaded) loadTagManageTabFn(view);
+          } else if (target === "TopLists") {
+            const tlContainer = view.querySelector("#tlContainer");
+            if (tlContainer && !tlContainer.dataset.loaded) loadTopListsTabFn(view);
+          }
+        });
+      });
+      view.addEventListener("change", (e) => {
+        const cb = e.target?.closest(".chkShowApiKey");
+        if (!cb) return;
+        const input = view.querySelector("#" + (cb.dataset.target || ""));
+        if (input) input.type = cb.checked ? "text" : "password";
+      });
+      view.addEventListener("click", (e) => {
+        const header = e.target?.closest(".settings-panel-toggle");
+        if (header) {
+          const panel = header.closest(".settings-panel");
+          if (panel) {
+            const body = panel.querySelector(".settings-panel-body");
+            const chevron = header.querySelector(".settings-panel-chevron");
+            if (body) {
+              const isOpen = body.style.display !== "none";
+              body.style.display = isOpen ? "none" : "block";
+              if (chevron) chevron.style.transform = isOpen ? "" : "rotate(180deg)";
+            }
+          }
+          return;
+        }
+      });
+      view.addEventListener("click", (e) => {
+        const btn = e.target?.closest(".hsc-sub-tab-btn");
+        if (!btn) return;
+        const target = btn.getAttribute("data-hsc-tab");
+        view.querySelectorAll(".hsc-sub-tab-btn").forEach((b) => {
+          b.classList.remove("active");
+        });
+        btn.classList.add("active");
+        view.querySelectorAll(".hsc-sub-tab-content").forEach((c) => {
+          c.style.display = "none";
+        });
+        if (target === "copy") {
+          const tgt = view.querySelector("#hscSubTabCopy");
+          if (tgt) tgt.style.display = "";
+          const hscContainer = view.querySelector("#hscContainer");
+          if (hscContainer && !hscContainer.dataset.loaded) loadHscUsers(view, hscDeps());
+        } else if (target === "manage") {
+          const tgt = view.querySelector("#hscSubTabManage");
+          if (tgt) tgt.style.display = "";
+          const manageContainer = view.querySelector("#hscManageContainer");
+          if (manageContainer && !manageContainer.dataset.loaded) loadHscManageTabFn(view);
+        }
+      });
+      const origStatusInterval = appState.viewShow.statusInterval;
+      if (origStatusInterval) clearInterval(origStatusInterval);
+      const finalStatusInterval = setInterval(() => refreshStatusFn(view), 5e3);
+      appState.viewShow.statusInterval = finalStatusInterval;
+    }
 
+    return index;
 
-        var origStatusInterval = statusInterval;
-        if (origStatusInterval) clearInterval(origStatusInterval);
-        statusInterval = setInterval(function () {
-            refreshStatus(view);
-        }, 5000);
-    };
-});
+}));
+/* Plugin v0.0.0 */

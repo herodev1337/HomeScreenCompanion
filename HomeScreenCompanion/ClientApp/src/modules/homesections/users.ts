@@ -1,29 +1,129 @@
-// Phase 3 wave 3: home-section user multi-select helpers, leaf module
-// extracted from `Configuration/configPage.js` (legacy.js:2758–2822).
+// Phase 3 wave 3 + Phase 5 follow-up: home-section user multi-select
+// helpers and the deferred loaders, leaf module extracted from
+// `Configuration/configPage.js` (legacy.js:2748-2756, 2758-2822, 2824-2843).
 //
-// Two functions here:
+// Functions here:
 //
-//   - `buildUserMultiSelectHtml(users, selectedIds, checkboxClass)` —
-//     pure HTML-string builder for the dropdown panel. Reads no
-//     module-scope state.
+//   - `getHseUsers(deps)`              — fetches the Emby `Users`
+//                                        endpoint, trims to `{Id, Name}`,
+//                                        memoizes into `deps.cache.users`.
+//                                        legacy.js:2748-2756.
+//   - `buildUserMultiSelectHtml(...)`  — pure HTML-string builder for
+//                                        the dropdown panel.
+//                                        legacy.js:2758-2785.
+//   - `wireUserMultiSelect(container)` — DOM-only event wiring for the
+//                                        dropdown. legacy.js:2787-2822.
+//   - `preFetchLibraryData(deps)`      — memoized `Promise.all` of
+//                                        `TopList/List` + `VirtualFolders`
+//                                        fetches, normalized into
+//                                        `{topListFolderNames, virtualFolders}`.
+//                                        legacy.js:2824-2843.
 //
-//   - `wireUserMultiSelect(container)` — DOM-only event wiring that
-//     toggles the dropdown panel, swaps the caret, and recomputes the
-//     summary label on every checkbox change. Also installs a
-//     `document`-level click listener that closes the panel when the
-//     user clicks outside.
-//
-// The remaining helpers in this neighborhood are DEFERRED to Phase 5
-// because they reach into mutable module-scope state / network:
-//
-//   - `getHseUsers()`         — calls `window.ApiClient.getJSON` and
-//                               caches the result in `_hseUsersCache`.
-//   - `preFetchLibraryData()` — calls `fetch` + `window.ApiClient` and
-//                               caches a Promise in
-//                               `_hseLibraryCachePromise`.
-//
-// Both will land in Phase 5 alongside the rest of the home-section
-// loading pipeline.
+// Two PHASE-5 STATE CACHES (`HseUserCacheState` in `modules/state/state.ts`)
+// replace the legacy module-scope `_hseUsersCache` /
+// `_hseLibraryCachePromise` vars; the future `index.ts` factory
+// instantiates the cache once and passes it via deps.
+
+import type { HseUserCacheState } from '../state/state';
+import type { HscUserLike } from './hscTab';
+
+/**
+ * Minimal slice of the Jellyfin `ApiClient` surface that
+ * {@link getHseUsers} and {@link preFetchLibraryData} need. Mirrors the
+ * `ManageApiClient` shape in `manageTab.ts` plus a `getJSON` method for
+ * the user-list call.
+ */
+export interface HseUsersApiClient {
+    getJSON(name: string, params?: Record<string, unknown>): Promise<unknown>;
+    getUrl(name: string, params?: Record<string, unknown>): string;
+    accessToken(): string;
+}
+
+/**
+ * Dependencies for {@link getHseUsers} and {@link preFetchLibraryData}.
+ * `cache` replaces the legacy module-scope `_hseUsersCache` /
+ * `_hseLibraryCachePromise` vars; `getApiClient` replaces
+ * `window.ApiClient`. The global `fetch` is still used for the library
+ * pre-fetch (matching legacy) — see {@link preFetchLibraryData}.
+ */
+export interface HseUsersDeps {
+    readonly getApiClient: () => HseUsersApiClient;
+    readonly cache: HseUserCacheState;
+}
+
+/**
+ * Fetch the Emby `Users` endpoint, trim each entry to `{Id, Name}`, and
+ * memoize the result. Mirrors `getHseUsers` in legacy.js:2748-2756.
+ *
+ * Behavior contract (byte-for-byte with legacy):
+ *   - `deps.cache.users` non-null → returns `Promise.resolve(cache.users)`
+ *     without touching the network.
+ *   - Otherwise → `apiClient.getJSON('Users', { IsDisabled: false })`,
+ *     `(resp || []).map(u => ({ Id: u.Id, Name: u.Name }))`, stores the
+ *     result in `deps.cache.users`, and returns it.
+ *
+ * @param deps  `HseUsersApiClient` + `HseUserCacheState` (from `state.ts`).
+ * @returns     The trimmed `{Id, Name}[]` user list.
+ */
+export function getHseUsers(deps: HseUsersDeps): Promise<HscUserLike[]> {
+    if (deps.cache.users) return Promise.resolve(deps.cache.users);
+    return deps.getApiClient().getJSON('Users', { IsDisabled: false }).then((resp) => {
+        const raw = (resp || []) as readonly { Id: string; Name: string }[];
+        const list: HscUserLike[] = raw.map((u) => ({ Id: u.Id, Name: u.Name }));
+        deps.cache.users = list;
+        return list;
+    });
+}
+
+/**
+ * Memoized `Promise.all` of two server payloads: the plugin's
+ * `HomeScreenCompanion/TopList/List` endpoint and the global
+ * `Library/VirtualFolders` endpoint. Mirrors `preFetchLibraryData` in
+ * legacy.js:2824-2843.
+ *
+ * Behavior contract (byte-for-byte with legacy):
+ *   - `deps.cache.libraryPromise` non-null → returns it untouched.
+ *   - Otherwise → builds `Promise.all` of two `fetch` calls (each with
+ *     `X-MediaBrowser-Token: <accessToken()>`), with `.catch` fallbacks:
+ *     * `TopList/List`     → `{ FolderNames: [] }` on rejection.
+ *     * `Library/VirtualFolders` → `[]` on rejection.
+ *   - Then combines into
+ *     `{ topListFolderNames: Set<string>, virtualFolders: readonly unknown[] }`,
+ *     lowercasing every folder name on the way in.
+ *   - Final `.catch` clears `deps.cache.libraryPromise` and returns the
+ *     empty shape — legacy quirk that allows retries on failure.
+ *
+ * @param deps  `HseUsersApiClient` + `HseUserCacheState` (from `state.ts`).
+ * @returns     Promise resolving to the combined shape (or empty shape
+ *              on failure).
+ */
+export function preFetchLibraryData(deps: HseUsersDeps): Promise<unknown> {
+    if (deps.cache.libraryPromise) return deps.cache.libraryPromise;
+    const apiClient = deps.getApiClient();
+    const token = apiClient.accessToken();
+    const headers: Record<string, string> = { 'X-MediaBrowser-Token': token };
+    deps.cache.libraryPromise = Promise.all([
+        fetch(apiClient.getUrl('HomeScreenCompanion/TopList/List'), { headers })
+            .then((r) => r.json())
+            .catch(() => ({ FolderNames: [] })),
+        fetch(apiClient.getUrl('Library/VirtualFolders'), { headers })
+            .then((r) => r.json())
+            .catch(() => [] as readonly unknown[]),
+    ])
+        .then((results) => {
+            const first = results[0] as { FolderNames?: readonly string[] } | undefined;
+            const second = results[1] as readonly unknown[] | undefined;
+            return {
+                topListFolderNames: new Set((first?.FolderNames || []).map((n) => n.toLowerCase())),
+                virtualFolders: second || [],
+            };
+        })
+        .catch(() => {
+            deps.cache.libraryPromise = null;
+            return { topListFolderNames: new Set<string>(), virtualFolders: [] as readonly unknown[] };
+        });
+    return deps.cache.libraryPromise;
+}
 
 /**
  * Minimal user shape consumed by `buildUserMultiSelectHtml`. The

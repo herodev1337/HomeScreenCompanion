@@ -1,40 +1,37 @@
-// Phase 3 wave 3: home-section tab HTML builders + DOM/event helpers,
-// leaf module extracted from `Configuration/configPage.js`
-// (legacy.js:2847–3276).
+// Phase 3 wave 3 + Phase 5 follow-up: home-section tab HTML builders,
+// DOM/event helpers, and the deferred loaders lifted from
+// `Configuration/configPage.js` (legacy.js:2847–3260).
 //
 // This file owns the home-section form rendering and the small bit of
 // DOM-only wiring the tab needs when it does NOT depend on `ApiClient`
 // or module-scope mutable state. Specifically:
 //
 //   Pure HTML builders (no closures):
-//     - `buildHomeSectionFormHtml(...)`  legacy.js:2847
-//     - `tagConfigHasViewerCriteria(...)` legacy.js:3217
+//     - `buildHomeSectionFormHtml(...)`     legacy.js:2847
+//     - `tagConfigHasViewerCriteria(...)`   legacy.js:3217
 //
 //   DOM-read helpers (queries DOM, no closures):
-//     - `rowHasViewerCriteria(row)`         legacy.js:3206
-//     - `updateHseItemsOnlyVisibility(tab)` legacy.js:2998
-//     - `updateHseImageTypeState(tab)`      legacy.js:3006
-//     - `refreshHseSectionTypeOptions(...)` legacy.js:3262
+//     - `rowHasViewerCriteria(row)`             legacy.js:3206
+//     - `updateHseItemsOnlyVisibility(tab)`     legacy.js:2998
+//     - `updateHseImageTypeState(tab)`          legacy.js:3006
+//     - `refreshHseSectionTypeOptions(...)`     legacy.js:3262
 //
 //   DOM event wiring (queries DOM, attaches listeners, no closures):
-//     - `wireHomeSectionTypeChange(tab)`    legacy.js:3016
+//     - `wireHomeSectionTypeChange(tab)`        legacy.js:3016
 //
-// The remaining home-section helpers in legacy.js are DEFERRED to
-// Phase 5 because they reach into mutable module-scope state:
-//
-//   - `syncHomeSectionFromEmby(tab)` — calls `window.ApiClient` +
-//     `fetch` to load the live ContentSection from Emby.
-//   - `initPlaylistTab(row)`         — chains `getHseUsers().then(...)`
-//     which itself touches the module-scope `_hseUsersCache`.
-//   - `initHomeSectionTab(row)`      — calls `getHseUsers`,
-//     `preFetchLibraryData` (both stateful), then `originalConfigState`,
-//     `getUiConfig`, and `checkFormState` (all module-scope).
-//   - `updateHseSectionAvailability(row)` — calls `updateBadges`, a
-//     closure defined inside `setupRowEvents` (stateful).
+// Phase 5 deferred loaders (lifted to explicit deps):
+//     - `syncHomeSectionFromEmby(tab, deps)`    legacy.js:3035
+//     - `initPlaylistTab(row, deps)`            legacy.js:3116
+//     - `initHomeSectionTab(row, deps)`         legacy.js:3130
+//     - `updateHseSectionAvailability(row, deps)` legacy.js:3234
 //
 // All functions here are re-types from `legacy.js` with no behavior
-// change. No `any`. Module-scope deps are passed in as arguments or
-// queried from the DOM.
+// change. No `any`. Module-scope deps are passed in via the typed
+// deps interface or queried from the DOM.
+
+import type { OriginalConfigStateRef } from '../state/state';
+import type { HscUserLike } from './hscTab';
+import { buildUserMultiSelectHtml, wireUserMultiSelect } from './users';
 
 /**
  * One row in the home-section `<select class="selHseLibrary">` dropdown.
@@ -503,4 +500,449 @@ export function refreshHseSectionTypeOptions(
     const stillValid = Array.from(stSel.options).some((o) => o.value === currentVal);
     if (stillValid) stSel.value = currentVal;
     updateHseItemsOnlyVisibility(tab);
+}
+
+// ─── Phase 5 deferred helpers (legacy.js:3035–3260) ─────────────────────────
+
+/**
+ * Minimal slice of the Jellyfin `ApiClient` surface consumed by
+ * {@link syncHomeSectionFromEmby}. Mirrors `ManageApiClient` in
+ * `manageTab.ts` plus a `getJSON` method kept for symmetry with
+ * `HseUsersApiClient` (the live sync path uses `fetch` directly).
+ */
+export interface HomeSectionApiClient {
+    accessToken(): string;
+    getUrl(name: string, params?: Record<string, unknown>): string;
+    getJSON(name: string, params?: Record<string, unknown>): Promise<unknown>;
+}
+
+/**
+ * Dependencies for {@link syncHomeSectionFromEmby}. Replaces the
+ * legacy module-scope `window.ApiClient` and the global `fetch`.
+ */
+export interface SyncHomeSectionDeps {
+    readonly fetch: typeof fetch;
+    readonly getApiClient: () => HomeSectionApiClient;
+}
+
+/**
+ * Dependencies for {@link initPlaylistTab}. The `getHseUsers` getter
+ * is the bound form (factory wires `HseUsersDeps` once and passes the
+ * resulting `() => Promise<HscUserLike[]>` here).
+ */
+export interface InitPlaylistTabDeps {
+    readonly getHseUsers: () => Promise<HscUserLike[]>;
+    readonly buildUserMultiSelectHtml: (
+        users: readonly HscUserLike[],
+        selectedIds: readonly string[],
+        checkboxClass: string,
+    ) => string;
+    readonly wireUserMultiSelect: (container: Element | null) => void;
+}
+
+/**
+ * One server-side `VirtualFolders` entry as returned by
+ * `Library/VirtualFolders`. The legacy code reads `ItemId`, `Name`,
+ * and `Locations[]`; other fields pass through untouched.
+ */
+interface VirtualFolderLike {
+    readonly ItemId: string;
+    readonly Name: string;
+    readonly Locations?: readonly string[];
+    readonly [k: string]: unknown;
+}
+
+/**
+ * Dependencies for {@link initHomeSectionTab}. Inherits the user-list
+ * helpers from {@link InitPlaylistTabDeps}, then adds the stateful
+ * loaders (`preFetchLibraryData`), the live-section sync, the
+ * `originalConfigState` ref, and the factory-bound
+ * `getUiConfig` / `checkFormState` closures. `syncHomeSectionFromEmby`
+ * is bound at the factory to its own `SyncHomeSectionDeps` so this
+ * deps surface stays flat.
+ */
+export interface InitHomeSectionTabDeps extends InitPlaylistTabDeps {
+    readonly preFetchLibraryData: () => Promise<unknown>;
+    readonly syncHomeSectionFromEmby: (
+        tab: HTMLElement,
+        syncDeps: SyncHomeSectionDeps,
+    ) => Promise<void>;
+    readonly getUiConfig: (view: HTMLElement, forComparison: boolean) => unknown;
+    readonly checkFormState: () => void;
+    readonly originalConfigState: OriginalConfigStateRef;
+}
+
+/**
+ * Dependencies for {@link updateHseSectionAvailability}. `updateBadges`
+ * is a closure defined inside the lifted `setupRowEvents`; until that
+ * function is extracted, callers stub it via deps.
+ */
+export interface UpdateHseSectionAvailabilityDeps {
+    readonly rowHasViewerCriteria: (row: HTMLElement) => boolean;
+    readonly refreshHseSectionTypeOptions: (
+        tab: HTMLElement,
+        tagEnabled: boolean,
+        collEnabled: boolean,
+        viewerOnly: boolean,
+    ) => void;
+    readonly updateBadges: (row: HTMLElement) => void;
+}
+
+/**
+ * Sync the home-section tab's form values with the live `ContentSection`
+ * from Emby (legacy.js:3035–3112).
+ *
+ *   1. Reads `tab.dataset.hseTracked` (URL-encoded JSON) and picks the
+ *      first entry whose `SectionId` does NOT start with `hsc__` (the
+ *      plugin-internal sentinel for synthetic rows). No matching entry
+ *      → resolves to `Promise.resolve()` with no DOM touches.
+ *   2. Builds the headers (with `X-Emby-Token` when a token exists)
+ *      and the URL via `ApiClient.getUrl`, then `fetch`es
+ *      `HomeScreenCompanion/Hsc/UserSections?UserId=<entry.UserId>`.
+ *   3. On a 200 response, maps the matching section's fields into the
+ *      tab's `[data-field="…"]` controls:
+ *        - `SELECT` elements have their `selectedIndex` set to the
+ *          matching option (when present);
+ *        - non-SELECT elements get `el.value = val`.
+ *      The `_hsePlaystate` field is derived from `section.Query`
+ *      (`IsResumable` → `inprogress`, `IsPlayed === true` → `played`,
+ *      `IsUnplayed === true` / `IsPlayed === false` → `unplayed`).
+ *   4. Syncs `.selHseItemTypes` from `section.ItemTypes.join(',')` and
+ *      every `.chkHseLibrary` from `section.ExcludedFolders` (a
+ *      missing `ExcludedFolders` array leaves the checkboxes alone —
+ *      legacy quirk).
+ *   5. Calls {@link updateHseItemsOnlyVisibility} and
+ *      {@link updateHseImageTypeState} to refresh the dependent
+ *      visibility state.
+ *
+ * Network errors are swallowed by the trailing `.catch(function () { return undefined; })`.
+ *
+ * @param tab  The home-section container (`.homescreen-tab`).
+ * @param deps See {@link SyncHomeSectionDeps}.
+ * @returns    A promise that resolves when the sync is complete (or
+ *             immediately when no tracked section exists).
+ */
+export function syncHomeSectionFromEmby(
+    tab: HTMLElement,
+    deps: SyncHomeSectionDeps,
+): Promise<void> {
+    const tracked: Array<{ SectionId?: string; UserId?: string }> = [];
+    try {
+        tracked.push(...JSON.parse(decodeURIComponent(tab.dataset.hseTracked || '%5B%5D')));
+    } catch { /* swallow malformed JSON */ }
+    const entry = tracked.find((t) => t.SectionId && !t.SectionId.startsWith('hsc__'));
+    if (!entry || !entry.UserId) return Promise.resolve();
+
+    const syncHeaders: Record<string, string> = {};
+    const syncToken = deps.getApiClient().accessToken();
+    if (syncToken) syncHeaders['X-Emby-Token'] = syncToken;
+    const syncUrl = deps.getApiClient().getUrl('HomeScreenCompanion/Hsc/UserSections', { UserId: entry.UserId });
+
+    return deps.fetch(syncUrl, { headers: syncHeaders })
+        .then((r) => r.json())
+        .then((data) => {
+            const payload = (data && typeof data === 'object') ? data as { Sections?: Array<Record<string, unknown>> } : null;
+            const sections = payload?.Sections || [];
+            const section = sections.find((s) => s && s['Id'] === entry.SectionId);
+            if (!section) return;
+
+            const query = (section['Query'] && typeof section['Query'] === 'object')
+                ? section['Query'] as { IsResumable?: unknown; IsPlayed?: unknown; IsUnplayed?: unknown }
+                : null;
+            const sd = section['ScrollDirection'];
+            const fieldMap: Record<string, string> = {
+                SectionType: String(section['SectionType'] || ''),
+                CustomName: String(section['CustomName'] || ''),
+                DisplayMode: String(section['DisplayMode'] || ''),
+                ViewType: String(section['ViewType'] || ''),
+                ImageType: String(section['ImageType'] || ''),
+                SortBy: String(section['SortBy'] || ''),
+                SortOrder: String(section['SortOrder'] || ''),
+                ScrollDirection:
+                    sd === null || sd === undefined ? '' :
+                    typeof sd === 'number' ? (sd === 0 ? 'Horizontal' : sd === 1 ? 'Vertical' : '') :
+                    String(sd),
+                _hsePlaystate:
+                    query?.IsResumable === true ? 'inprogress' :
+                    query?.IsPlayed === true ? 'played' :
+                    (query?.IsUnplayed === true || query?.IsPlayed === false) ? 'unplayed' :
+                    '',
+            };
+
+            Object.keys(fieldMap).forEach((field) => {
+                const el = tab.querySelector<HTMLElement>(`[data-field="${field}"]`);
+                if (!el) return;
+                const val = fieldMap[field]!;
+                if (el.tagName === 'SELECT') {
+                    const sel = el as HTMLSelectElement;
+                    for (let i = 0; i < sel.options.length; i++) {
+                        if (sel.options[i]!.value === val) { sel.selectedIndex = i; break; }
+                    }
+                } else {
+                    (el as HTMLInputElement).value = val;
+                }
+            });
+
+            const itemTypesSel = tab.querySelector<HTMLSelectElement>('.selHseItemTypes');
+            if (itemTypesSel && Array.isArray(section['ItemTypes']) && (section['ItemTypes'] as unknown[]).length > 0) {
+                const itemTypesStr = (section['ItemTypes'] as unknown[]).map(String).join(',');
+                for (let i = 0; i < itemTypesSel.options.length; i++) {
+                    if (itemTypesSel.options[i]!.value === itemTypesStr) { itemTypesSel.options[i]!.selected = true; break; }
+                }
+            }
+
+            if (Array.isArray(section['ExcludedFolders'])) {
+                const embyExcluded = new Set((section['ExcludedFolders'] as unknown[]).map((id) => String(id)));
+                tab.querySelectorAll<HTMLInputElement>('.chkHseLibrary').forEach((chk) => {
+                    chk.checked = !embyExcluded.has(chk.value);
+                });
+            }
+
+            updateHseItemsOnlyVisibility(tab);
+            updateHseImageTypeState(tab);
+        })
+        .catch(() => undefined);
+}
+
+/**
+ * Wire the playlist sub-tab's user-list dropdown (legacy.js:3116–3128).
+ *
+ * Idempotent: short-circuits when the `.playlist-tab` is absent or
+ * already loaded (flagged via `dataset.plLoaded === '1'`). On first
+ * invocation, resolves the Emby user list via `deps.getHseUsers()`,
+ * renders the dropdown into `.playlist-user-list` via
+ * {@link buildUserMultiSelectHtml}, and wires its listeners via
+ * {@link wireUserMultiSelect}. The pre-selected user IDs come from
+ * the URL-encoded `dataset.plUserids` JSON.
+ *
+ * @param row  The tag-row element containing the `.playlist-tab`.
+ * @param deps See {@link InitPlaylistTabDeps}.
+ */
+export function initPlaylistTab(row: HTMLElement, deps: InitPlaylistTabDeps): void {
+    const tab = row.querySelector<HTMLElement>('.playlist-tab');
+    if (!tab || tab.dataset.plLoaded === '1') return;
+    tab.dataset.plLoaded = '1';
+    let savedUserIds: string[] = [];
+    try {
+        savedUserIds = JSON.parse(decodeURIComponent(tab.dataset.plUserids || '%5B%5D')) as string[];
+    } catch { /* swallow malformed JSON */ }
+    deps.getHseUsers().then((users) => {
+        const listEl = tab.querySelector<HTMLElement>('.playlist-user-list');
+        if (!listEl) return;
+        listEl.innerHTML = deps.buildUserMultiSelectHtml(users, savedUserIds, 'chkPlaylistUser');
+        deps.wireUserMultiSelect(listEl);
+    });
+}
+
+/**
+ * Wire the home-section sub-tab inside a tag row (legacy.js:3130–3203).
+ *
+ * Orchestrates four sub-loaders:
+ *
+ *   1. `getHseUsers()` → renders `.hse-user-list-inner` via
+ *      {@link buildUserMultiSelectHtml} + {@link wireUserMultiSelect}.
+ *   2. `preFetchLibraryData()` → builds two derived lists from the
+ *      plugin's `TopList/List` and the global `Library/VirtualFolders`
+ *      payloads: the hidden boxset `libraryOptions` (all non-top-list
+ *      folders) and the `allLibraries` list (with `isTopList` flags)
+ *      that drives `chkHseLibrary`.
+ *   3. {@link buildHomeSectionFormHtml} + {@link wireHomeSectionTypeChange}
+ *      paint the structured section-settings form into `.hse-fields-inner`
+ *      and wire its Section/View Type listeners.
+ *   4. {@link syncHomeSectionFromEmby} mirrors the live `ContentSection`
+ *      from Emby into the freshly-rendered form. After the live sync,
+ *      `originalConfigState` is re-anchored to the current DOM so the
+ *      dirty state stays clean (only when the form was *not* already
+ *      dirty before this tab opened). Finally
+ *      `setTimeout(checkFormState, 0)` re-evaluates the save button.
+ *
+ * Idempotency / re-entry guards:
+ *   - short-circuits when `.homescreen-tab` is absent or already
+ *     loaded (`dataset.hseLoaded === '1'`);
+ *   - sets `dataset.hseLoaded = 'loading'` while the loaders run so
+ *     re-entry is blocked until `dataset.hseLoaded = '1'` is stamped
+ *     after the form is in the DOM (so `getUiConfig` reads the form
+ *     values, not the saved defaults);
+ *   - on error, resets `dataset.hseLoaded = '0'` so the caller can
+ *     retry.
+ *
+ * Quirks preserved verbatim:
+ *   - the live `_hseView` reference is `document.querySelector('#HomeScreenCompanionConfigPage')`,
+ *     matching the legacy closure (the factory-level `view` is *not*
+ *     used here — only the global config-page root);
+ *   - `defaultTagName = row.querySelector('.txtEntryLabel').value || row.querySelector('.txtTagName').value || ''`
+ *     throws when `.txtEntryLabel` is missing (legacy contract — that
+ *     input is always rendered);
+ *   - `_wasAlreadyDirty` is captured BEFORE the form render so a
+ *     user who already had unsaved changes does not get the new tab
+ *     values silently swallowed by a baseline reset.
+ *
+ * @param row  The tag-row element containing the `.homescreen-tab`.
+ * @param deps See {@link InitHomeSectionTabDeps}.
+ */
+export function initHomeSectionTab(row: HTMLElement, deps: InitHomeSectionTabDeps): void {
+    const tab = row.querySelector<HTMLElement>('.homescreen-tab');
+    if (!tab || tab.dataset.hseLoaded === '1') return;
+    tab.dataset.hseLoaded = 'loading';
+
+    let savedUserIds: string[] = [];
+    let savedSettings: Record<string, unknown> = {};
+    try {
+        savedUserIds = JSON.parse(decodeURIComponent(tab.dataset.hseUserids || '%5B%5D')) as string[];
+    } catch { /* swallow malformed JSON */ }
+    try {
+        savedSettings = JSON.parse(decodeURIComponent(tab.dataset.hseSettings || '%7B%7D')) as Record<string, unknown>;
+    } catch { /* swallow malformed JSON */ }
+    const defaultSectionType = tab.dataset.hseDefaultType || 'items';
+    const savedLibraryId = decodeURIComponent(tab.dataset.hseLibraryid || 'auto');
+
+    Promise.all([deps.getHseUsers(), deps.preFetchLibraryData()])
+        .then((results) => {
+            const users = results[0] as HscUserLike[];
+            const libData = (results[1] && typeof results[1] === 'object')
+                ? results[1] as { topListFolderNames: Set<string>; virtualFolders: readonly unknown[] }
+                : { topListFolderNames: new Set<string>(), virtualFolders: [] as readonly unknown[] };
+            const topListFolderNames = libData.topListFolderNames;
+            const virtualFolders = (libData.virtualFolders || []) as readonly VirtualFolderLike[];
+
+            const libraryOptions = virtualFolders
+                .filter((f) => !(f.Locations || []).some((loc) => {
+                    const parts = loc.replace(/\\/g, '/').split('/');
+                    const folderName = parts[parts.length - 1] || parts[parts.length - 2] || '';
+                    return topListFolderNames.has(folderName.toLowerCase());
+                }))
+                .map((f) => ({ id: f.ItemId, name: f.Name }));
+
+            const allLibraries = virtualFolders.map((f) => {
+                const isTopList = (f.Locations || []).some((loc) => {
+                    const parts = loc.replace(/\\/g, '/').split('/');
+                    const folderName = parts[parts.length - 1] || parts[parts.length - 2] || '';
+                    return topListFolderNames.has(folderName.toLowerCase());
+                });
+                return { id: f.ItemId, name: f.Name, isTopList };
+            });
+
+            const userListEl = tab.querySelector<HTMLElement>('.hse-user-list-inner');
+            if (userListEl) {
+                userListEl.innerHTML = deps.buildUserMultiSelectHtml(users, savedUserIds, 'chkHseUser');
+                deps.wireUserMultiSelect(userListEl);
+            }
+
+            const entryLabelEl = row.querySelector<HTMLInputElement>('.txtEntryLabel');
+            const tagNameEl = row.querySelector<HTMLInputElement>('.txtTagName');
+            const defaultTagName = (entryLabelEl?.value || tagNameEl?.value || '');
+            const tagEnabled  = !!(row.querySelector<HTMLInputElement>('.chkEnableTag'))?.checked;
+            const collEnabled = !!(row.querySelector<HTMLInputElement>('.chkEnableCollection'))?.checked;
+            const selSourceType = row.querySelector<HTMLSelectElement>('.selSourceType');
+            const viewerOnly  = (selSourceType?.value || '') === 'MediaInfo' && rowHasViewerCriteria(row);
+
+            const hseView = document.querySelector<HTMLElement>('#HomeScreenCompanionConfigPage');
+            const originalSnapshot = deps.originalConfigState.getOriginalConfigState();
+            let wasAlreadyDirty = false;
+            if (hseView && originalSnapshot) {
+                try {
+                    wasAlreadyDirty = JSON.stringify(deps.getUiConfig(hseView, true)) !== originalSnapshot;
+                } catch { /* swallow stringify errors */ }
+            }
+
+            const fieldsEl = tab.querySelector<HTMLElement>('.hse-fields-inner');
+            if (fieldsEl) {
+                fieldsEl.innerHTML = buildHomeSectionFormHtml(
+                    savedSettings as HseSavedSettings,
+                    defaultSectionType,
+                    defaultTagName,
+                    tagEnabled,
+                    collEnabled,
+                    libraryOptions,
+                    savedLibraryId,
+                    allLibraries,
+                    viewerOnly,
+                );
+            }
+            wireHomeSectionTypeChange(tab);
+
+            tab.dataset.hseLoaded = '1';
+
+            deps.syncHomeSectionFromEmby(tab, {
+                fetch: (typeof fetch !== 'undefined') ? fetch.bind(globalThis) : (() => Promise.reject(new Error('fetch unavailable'))) as typeof fetch,
+                getApiClient: () => {
+                    const ac = (typeof window !== 'undefined') ? (window as unknown as { ApiClient?: HomeSectionApiClient }).ApiClient : undefined;
+                    if (ac) return ac;
+                    return {
+                        accessToken: () => '',
+                        getUrl: (_name: string, _params?: Record<string, unknown>) => '',
+                        getJSON: () => Promise.resolve({}),
+                    };
+                },
+            }).then(() => {
+                if (!wasAlreadyDirty && hseView && deps.originalConfigState.getOriginalConfigState()) {
+                    try {
+                        deps.originalConfigState.setOriginalConfigState(
+                            JSON.stringify(deps.getUiConfig(hseView, true)),
+                        );
+                    } catch { /* swallow stringify errors */ }
+                }
+                setTimeout(deps.checkFormState, 0);
+            });
+        })
+        .catch((e: unknown) => {
+            const fieldsEl = tab.querySelector<HTMLElement>('.hse-fields-inner');
+            if (fieldsEl) {
+                const message = (e instanceof Error) ? e.message : String(e);
+                fieldsEl.innerHTML = '<em style="color:#cc4444">Failed to load: ' + message + '</em>';
+            }
+            tab.dataset.hseLoaded = '0';
+        });
+}
+
+/**
+ * Toggle the Enable Home Section checkbox (and its hint copy) based on
+ * whether any of the row's tag/collection/viewer-criteria inputs is
+ * active (legacy.js:3234–3260).
+ *
+ *   - `tagEnabled || collEnabled || viewerOnly` is the gate;
+ *   - when the gate is OFF the checkbox is disabled + unchecked, the
+ *     `.hse-disabled-hint` block is shown, the `.hse-details` panel is
+ *     hidden, and `deps.updateBadges(row)` is pinged;
+ *   - when the gate is ON the checkbox is enabled and the hint is hidden;
+ *   - if the `.homescreen-tab` is already loaded
+ *     (`dataset.hseLoaded === '1'`), the Section Type options are
+ *     refreshed via {@link refreshHseSectionTypeOptions} so they match
+ *     the new flags.
+ *
+ * Short-circuits when `.chkEnableHomeSection` is absent.
+ *
+ * @param row  The tag-row element.
+ * @param deps See {@link UpdateHseSectionAvailabilityDeps}.
+ */
+export function updateHseSectionAvailability(
+    row: HTMLElement,
+    deps: UpdateHseSectionAvailabilityDeps,
+): void {
+    const tagEnabled  = !!(row.querySelector<HTMLInputElement>('.chkEnableTag'))?.checked;
+    const collEnabled = !!(row.querySelector<HTMLInputElement>('.chkEnableCollection'))?.checked;
+    const selSourceType = row.querySelector<HTMLSelectElement>('.selSourceType');
+    const isMediaInfo = (selSourceType?.value || '') === 'MediaInfo';
+    const viewerOnly  = isMediaInfo && deps.rowHasViewerCriteria(row);
+    const allowed = tagEnabled || collEnabled || viewerOnly;
+    const hseCbx = row.querySelector<HTMLInputElement>('.chkEnableHomeSection');
+    if (!hseCbx) return;
+
+    const hint = row.querySelector<HTMLElement>('.hse-disabled-hint');
+    if (!allowed) {
+        hseCbx.disabled = true;
+        hseCbx.checked = false;
+        if (hint) hint.style.display = 'block';
+        const hseDetails = row.querySelector<HTMLElement>('.hse-details');
+        if (hseDetails) hseDetails.style.display = 'none';
+        deps.updateBadges(row);
+    } else {
+        hseCbx.disabled = false;
+        if (hint) hint.style.display = 'none';
+    }
+
+    const tab = row.querySelector<HTMLElement>('.homescreen-tab');
+    if (tab && tab.dataset.hseLoaded === '1') {
+        deps.refreshHseSectionTypeOptions(tab, tagEnabled, collEnabled, viewerOnly);
+    }
 }

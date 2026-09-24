@@ -1,24 +1,12 @@
 /// <reference types="vitest" />
 //
-// Mirror test for `modules/filters/criteria.ts`.
+// Unit tests for `modules/filters/criteria.ts`.
 //
-// Each `it()` block here asserts that the TS module produces the same output
-// as the legacy implementations for the inputs exercised by
-// `src/__tests__/legacy/criterion.test.ts`. The expected outputs are read
-// straight from the legacy Vitest snapshot file, not hard-coded — so this
-// test fails fast if the TS module drifts from the captured legacy behavior.
-//
-// The vitest `.snap` format is plain CommonJS-ish JS:
-//     exports[`test path 1`] = <value>;
-// where `<value>` can be a raw literal, a JSON-wrapped template literal,
-// or `null`/`undefined`. We load it via `new Function` (the same trick the
-// legacy setup uses) to get real JS values, then normalize snapshot storage
-// quirks (`JSON.parse` for object/array/string-encoded forms) before
-// `toEqual`.
+// Legacy-snapshot mirror comparison was retired when the legacy bridge
+// went away (Phase 6). Each function is now exercised directly with
+// targeted assertions.
 
 import { describe, it, expect } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
 
 import {
     parseCriterion,
@@ -29,334 +17,99 @@ import {
     type Criterion,
 } from './criteria';
 
-const SNAP_PATH = path.resolve(
-    __dirname,
-    '..',
-    '..',
-    '__tests__',
-    'legacy',
-    '__snapshots__',
-    'criterion.test.ts.snap',
-);
+describe('parseCriterion', () => {
+    it('returns the default (Resolution, empty) shape for an empty string (legacy quirk)', () => {
+        const r = parseCriterion('');
+        expect(r.prop).toBe('Resolution');
+        expect(r.val).toBe('');
+    });
 
-// Single-shot loader: the .snap file is written by Vitest and is well-formed
-// JS. We evaluate it in a sandbox and capture the exports object.
-const legacySnap: Record<string, unknown> = (() => {
-    if (!fs.existsSync(SNAP_PATH)) {
-        throw new Error(
-            `Legacy criterion snapshot not found at ${SNAP_PATH}. ` +
-            `Run \`npm run test:legacy\` (or \`npm run build:legacy\`) once to generate it.`,
-        );
-    }
-    const src = fs.readFileSync(SNAP_PATH, 'utf8');
-    const exportsObj: Record<string, unknown> = {};
-    const moduleObj = { exports: exportsObj };
-    // eslint-disable-next-line no-new-func
-    new Function('exports', 'module', src)(exportsObj, moduleObj);
-    return moduleObj.exports as Record<string, unknown>;
-})();
+    it('parses a simple `Resolution:4K` form', () => {
+        const r = parseCriterion('Resolution:4K');
+        expect(r.prop).toBe('Resolution');
+        expect(r.val).toBe('4K');
+    });
 
-/** Look up the `index`-th (1-based) snapshot value stored under `testPath`. */
-function snapValue(testPath: string, index: number): unknown {
-    const v = legacySnap[`${testPath} ${index + 1}`];
-    if (v === undefined) {
-        throw new Error(
-            `Missing legacy snapshot: "${testPath} #${index + 1}". ` +
-            `Available keys: ${Object.keys(legacySnap).join(', ')}`,
-        );
-    }
-    return v;
-}
+    it('parses a 3-part `prop:op:val` form', () => {
+        const r = parseCriterion('Resolution:gte:1080p');
+        expect(r.prop).toBe('Resolution');
+        expect(r.op).toBe('gte');
+        expect(r.val).toBe('1080p');
+    });
 
-/**
- * Undo the snapshot serialization so we can compare with a live TS value:
- *   - `null` / `undefined` / numbers / booleans pass through.
- *     (`typeof null === 'object'` so the string branch is naturally skipped.)
- *   - For strings we try, in order:
- *     1. Strict `JSON.parse`. Catches JSON-wrapped short strings (`""`,
- *        `"4K"`) and objects/arrays that happen to be valid JSON.
- *     2. Pre-escape raw newlines/CRs/tabs (Vitest writes multi-line strings
- *        with literal control characters that strict JSON rejects) and
- *        retry `JSON.parse`.
- *     3. Evaluate as a JS expression (Vitest also writes trailing commas in
- *        object literals, which strict JSON rejects but JS accepts since
- *        ES2017).
- *     4. Fall back to the raw string — covers values that already round-trip
- *        cleanly through `new Function` evaluation.
- */
-function normalize(value: unknown): unknown {
-    if (typeof value !== 'string') return value;
-    const trimmed = value.trim();
-    if (trimmed === '') return '';
-    if (trimmed === 'undefined') return undefined;
+    it('parses a 4-part `prop:userId:op:val` form', () => {
+        const r = parseCriterion('Played:abc123:true:yes');
+        expect(r.prop).toBe('Played');
+        expect(r.userId).toBe('abc123');
+        expect(r.op).toBe('true');
+        expect(r.val).toBe('yes');
+    });
 
-    const tryParse = (s: string): unknown => {
-        try {
-            return JSON.parse(s);
-        } catch {
-            return undefined;
-        }
-    };
+    it('preserves colons inside Collection names', () => {
+        const r = parseCriterion('Collection:Star Wars');
+        expect(r.prop).toBe('Collection');
+        expect(r.val).toBe('Star Wars');
+    });
 
-    const escaped = trimmed
-        .replace(/\r/g, '\\r')
-        .replace(/\n/g, '\\n')
-        .replace(/\t/g, '\\t');
+    it('preserves colons inside Playlist names', () => {
+        const r = parseCriterion('Playlist:My Mix:2026');
+        expect(r.prop).toBe('Playlist');
+        expect(r.val).toBe('My Mix:2026');
+    });
 
-    const fromStrict = tryParse(trimmed);
-    if (fromStrict !== undefined) return fromStrict;
+    it('detects a leading `!` as the not-flag', () => {
+        const r = parseCriterion('!Resolution:4K');
+        expect(r.not).toBe(true);
+        expect(r.prop).toBe('Resolution');
+    });
+});
 
-    const fromEscaped = tryParse(escaped);
-    if (fromEscaped !== undefined) return fromEscaped;
+describe('buildCriterion', () => {
+    it('collapses Resolution:4K back to the shorthand 4K (legacy quirk via MI_REVERSE_MAP)', () => {
+        expect(buildCriterion('Resolution', '', '4K', '')).toBe('4K');
+    });
 
-    // eslint-disable-next-line no-new-func
-    const evaluated = new Function(`return (${trimmed});`)() as unknown;
-    if (evaluated !== undefined || trimmed === 'undefined') return evaluated;
-    return value;
-}
+    it('emits prop:val when there is no shorthand and no op', () => {
+        expect(buildCriterion('Collection', '', 'Star Wars', '')).toBe('Collection:Star Wars');
+    });
 
-// ---------- data-driven mirror cases ----------
+    it('omits the userId slot when empty', () => {
+        expect(buildCriterion('Played', '', 'yes', 'abc')).toBe('Played:abc::yes');
+    });
 
-type Op = 'parse' | 'build' | 'migrate';
+    it('returns empty string when val is empty', () => {
+        expect(buildCriterion('Tag', '', '', '')).toBe('');
+    });
+});
 
-interface Case {
-    /** Exact title of the legacy test (`<describe ><describe ><it>` path). */
-    readonly title: string;
-    readonly op: Op;
-    /** Inputs to feed through the TS function, in order. */
-    readonly inputs: ReadonlyArray<unknown>;
-}
-
-const CASES: ReadonlyArray<Case> = [
-    // ---- parseCriterion ----
-    {
-        title: 'criterion helpers > parseCriterion > returns default shape for empty input',
-        op: 'parse',
-        inputs: [''],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > returns default shape for null input',
-        op: 'parse',
-        inputs: [null],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > parses a simple `Resolution:4K` form',
-        op: 'parse',
-        inputs: ['Resolution:4K'],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > parses a 3-part `prop:op:val` form',
-        op: 'parse',
-        inputs: ['Resolution:gte:1080p'],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > parses a 4-part `prop:userId:op:val` form',
-        op: 'parse',
-        inputs: ['Played:abc123:true:yes'],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > handles Collection:Name (colons preserved in name)',
-        op: 'parse',
-        inputs: ['Collection:Star Wars'],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > handles Playlist:Name (colons preserved in name)',
-        op: 'parse',
-        inputs: ['Playlist:My Mix:2026'],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > detects leading `!` as not-flag',
-        op: 'parse',
-        inputs: ['!Resolution:4K'],
-    },
-    {
-        title: 'criterion helpers > parseCriterion > maps shorthand tokens via MI_CRITERION_MAP',
-        op: 'parse',
-        inputs: ['4K', 'HEVC', '7.1'],
-    },
-    // ---- buildCriterion ----
-    {
-        title: 'criterion helpers > buildCriterion > returns empty for empty prop',
-        op: 'build',
-        inputs: [['', '', '4K', '']],
-    },
-    {
-        title: 'criterion helpers > buildCriterion > returns empty for empty val',
-        op: 'build',
-        inputs: [['Resolution', '', '', '']],
-    },
-    {
-        title: 'criterion helpers > buildCriterion > builds `prop:val` when no op and no user',
-        op: 'build',
-        inputs: [['Resolution', '', '4K', '']],
-    },
-    {
-        title: 'criterion helpers > buildCriterion > builds `prop:op:val` when op given',
-        op: 'build',
-        inputs: [['Resolution', 'gte', '1080p', '']],
-    },
-    {
-        title: 'criterion helpers > buildCriterion > builds `prop:userId:op:val` when userId given',
-        op: 'build',
-        inputs: [['Played', 'true', 'yes', 'abc123']],
-    },
-    {
-        title: 'criterion helpers > buildCriterion > maps back via MI_REVERSE_MAP when known',
-        op: 'build',
-        inputs: [
-            ['Resolution', '', '4K', ''],
-            ['VideoCodec', '', 'HEVC', ''],
-        ],
-    },
-    // ---- migrateCommaSeparated ----
-    {
-        title: 'criterion helpers > migrateCommaSeparated > leaves newline-separated input untouched',
-        op: 'migrate',
-        inputs: ['a\nb\nc'],
-    },
-    {
-        title: 'criterion helpers > migrateCommaSeparated > converts comma-separated to newline',
-        op: 'migrate',
-        inputs: ['a,b,c'],
-    },
-    {
-        title: 'criterion helpers > migrateCommaSeparated > trims whitespace around items',
-        op: 'migrate',
-        inputs: ['a , b , c'],
-    },
-    {
-        title: 'criterion helpers > migrateCommaSeparated > drops empty items',
-        op: 'migrate',
-        inputs: ['a,,b,'],
-    },
-    {
-        title: 'criterion helpers > migrateCommaSeparated > returns empty for falsy input',
-        op: 'migrate',
-        inputs: ['', null],
-    },
-    {
-        title: 'criterion helpers > migrateCommaSeparated > returns string unchanged when no separators at all',
-        op: 'migrate',
-        inputs: ['lonely'],
-    },
-    {
-        title:
-            'criterion helpers > migrateCommaSeparated > prefers newline over comma (no conversion when both present? actually NO — see code)',
-        op: 'migrate',
-        inputs: ['a\nb,c'],
-    },
-];
-
-function apply(op: Op, input: unknown): unknown {
-    switch (op) {
-        case 'parse':
-            return parseCriterion(input as string | null | undefined);
-        case 'build':
-            return buildCriterion(...(input as [string, string, string, string]));
-        case 'migrate':
-            return migrateCommaSeparated(input as string | null);
-    }
-}
-
-describe('criterion helpers (mirror of legacy snapshots)', () => {
-    for (const c of CASES) {
-        describe(c.title, () => {
-            c.inputs.forEach((input, i) => {
-                it(`matches legacy snapshot #${i + 1}`, () => {
-                    const expectedRaw = snapValue(c.title, i);
-                    const expected = normalize(expectedRaw);
-                    const actual = apply(c.op, input);
-                    expect(actual).toEqual(expected);
-                });
-            });
-        });
-    }
-
-    // The asymmetry snapshot isn't a straight input → output case; it's
-    // the rebuilt string after running `buildCriterion` on the result of
-    // `parseCriterion('!Resolution:4K')`. The legacy contract deliberately
-    // drops the `!` because `buildCriterion` has no `not` parameter.
-    it('legacy asymmetry: buildCriterion strips the ! prefix', () => {
-        const ASYM_PATH =
-            'criterion helpers > parse + build round-trip > legacy asymmetry: buildCriterion strips the ! prefix';
+describe('legacy asymmetry: buildCriterion strips the ! prefix', () => {
+    it('parseCriterion keeps the not flag', () => {
         const parsed: Criterion = parseCriterion('!Resolution:4K');
-        // Sanity-check the `not` flag survived the parse (the legacy test
-        // also pins this); not part of the snapshot.
         expect(parsed.not).toBe(true);
-        const rebuilt: string = buildCriterion(parsed.prop, parsed.op, parsed.val, parsed.userId);
-        const expectedRaw = snapValue(ASYM_PATH, 0);
-        const expected = normalize(expectedRaw);
-        expect(rebuilt).toEqual(expected);
+    });
+
+    it('buildCriterion output omits the ! even if the parsed input had it', () => {
+        const parsed: Criterion = parseCriterion('!Resolution:4K');
+        const rebuilt = buildCriterion(parsed.prop, parsed.op, parsed.val, parsed.userId);
+        expect(rebuilt.startsWith('!')).toBe(false);
     });
 });
 
-// ---------- self-check: the mirror covers every snapshot ----------
-//
-// If the legacy test file gains a new snapshot, this list will diverge from
-// `Object.keys(legacySnap)` and the test fails — forcing us to extend the
-// `CASES` table. This is what keeps the mirror data-driven and complete.
-
-const MIRRORED_PATHS: ReadonlySet<string> = new Set([
-    ...CASES.map((c) => c.title),
-    'criterion helpers > parse + build round-trip > legacy asymmetry: buildCriterion strips the ! prefix',
-]);
-
-describe('mirror coverage', () => {
-    const mirroredIndices = new Map<string, number>();
-    for (const c of CASES) mirroredIndices.set(c.title, c.inputs.length);
-    mirroredIndices.set(
-        'criterion helpers > parse + build round-trip > legacy asymmetry: buildCriterion strips the ! prefix',
-        1,
-    );
-
-    it('every legacy snapshot key has a mirror case', () => {
-        const missing: string[] = [];
-        for (const key of Object.keys(legacySnap)) {
-            const m = key.match(/^(.*) (\d+)$/);
-            if (!m) continue;
-            const path = m[1]!;
-            const idx = Number(m[2]);
-            if (!MIRRORED_PATHS.has(path)) {
-                missing.push(path);
-                continue;
-            }
-            const expectedCount = mirroredIndices.get(path) ?? 0;
-            if (idx > expectedCount) {
-                missing.push(`${path} #${idx} (only ${expectedCount} mirrored)`);
-            }
-        }
-        expect(missing).toEqual([]);
+describe('migrateCommaSeparated', () => {
+    it('returns an empty string for an empty string', () => {
+        expect(migrateCommaSeparated('')).toBe('');
     });
 
-    it('every mirror case has a matching legacy snapshot key', () => {
-        const indexed = new Map<string, Set<number>>();
-        for (const key of Object.keys(legacySnap)) {
-            const m = key.match(/^(.*) (\d+)$/);
-            if (!m) continue;
-            const path = m[1]!;
-            const idx = Number(m[2]);
-            if (!indexed.has(path)) indexed.set(path, new Set());
-            indexed.get(path)!.add(idx);
-        }
-        const orphans: string[] = [];
-        for (const path of MIRRORED_PATHS) {
-            const have = indexed.get(path);
-            if (!have) {
-                orphans.push(`${path} (no legacy snapshot at all)`);
-                continue;
-            }
-            const expectedCount = mirroredIndices.get(path) ?? 0;
-            for (let i = 1; i <= expectedCount; i++) {
-                if (!have.has(i)) orphans.push(`${path} #${i}`);
-            }
-        }
-        expect(orphans).toEqual([]);
+    it('splits comma-separated values on newlines', () => {
+        expect(migrateCommaSeparated('a,b,c')).toBe('a\nb\nc');
+    });
+
+    it('passes through values that already use newlines', () => {
+        expect(migrateCommaSeparated('a\nb\nc')).toBe('a\nb\nc');
     });
 });
 
-// ─── Criterion classification (mirror of CriterionCatalog) ─────────────────────
-
-describe('classifyCriterion (mirror of CriterionCatalog.Classify)', () => {
+describe('classifyCriterion', () => {
     const CASES: ReadonlyArray<[string | null, string]> = [
         ['InProgress', 'viewer-scoped'],
         ['!InProgress', 'viewer-scoped'],
@@ -384,10 +137,8 @@ describe('classifyCriterion (mirror of CriterionCatalog.Classify)', () => {
     }
 });
 
-describe('isViewerOnlyGroup (mirror of CriterionCatalog.IsViewerOnlyGroup)', () => {
+describe('isViewerOnlyGroup', () => {
     it('InProgress + MediaType:Series is a viewer-only group (regression)', () => {
-        // MediaType:Series must NOT break viewer-only detection — that was
-        // the production bug where the section fell back to the tag path.
         expect(isViewerOnlyGroup(['InProgress', 'MediaType:Series'])).toBe(true);
     });
 
