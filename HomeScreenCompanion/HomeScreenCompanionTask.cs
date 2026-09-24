@@ -2596,11 +2596,18 @@ namespace HomeScreenCompanion
         }
 
         // ───────────────────────── Phase helpers (decomposition) ─────────────────────────
-        // These methods are extracted from the body of Execute / RunSingleEntryInternalAsync
-        // per REFACTOR_MAP.md §B.3. They live in the main partial because they share state
-        // (instance fields, large local-variable closures) with both big methods.
-        // Each is a thin orchestration helper — the heavy lifting is in the per-feature
-        // partial methods (Tagging/, Collections/, etc.).
+        // The Execute() and RunSingleEntryInternalAsync() methods dispatch through phase
+        // helpers that now live in per-feature partials:
+        //   RunContext/HomeScreenCompanionTask.cs   — BuildRunContext, BuildSingleEntryContext, RunContext
+        //   Tagging/HomeScreenCompanionTask.cs      — ApplyTagsPhase, ApplyTagsPhaseSingle
+        //   Collections/HomeScreenCompanionTask.cs  — CollectionsPhase, CollectionsPhaseSingle
+        //   Playlists/HomeScreenCompanionTask.cs    — PlaylistsPhase, SyncPlaylistsForEntryAsync
+        //   HomeSections/HomeScreenCompanionTask.cs — HomeSectionsPhase, HomeSectionsPhaseSingle, ManageHomeSections
+        //   TopLists/HomeScreenCompanionTask.cs     — TopListsPhase, SyncTopListFolders
+        //   Diagnostics/HomeScreenCompanionTask.cs  — WriteGroupBlock, WriteSingleRunFooter, BuildFinalStatus, …
+        //   MediaInfo/HomeScreenCompanionTask.cs    — ItemMatchesMediaInfo, ExtractMediaInfo, ResolveItemForMediaInfo, …
+        // The host keeps the cross-cutting helpers below plus the small WriteResultsBlock /
+        // BuildSingleEntrySummary / WriteFetchLine plumbing shared by both entry points.
 
         private void WriteResultsBlock(List<GroupRunStats> displayStatsList, bool dryRun, bool logMissing)
         {
@@ -2609,45 +2616,6 @@ namespace HomeScreenCompanion
             foreach (var gs in displayStatsList)
                 WriteGroupBlock(gs, dryRun, logMissing);
         }
-
-        // ───────────────────────── Moved-to-partial method index ─────────────────────────
-        // Methods moved to per-feature partials (see REFACTOR_MAP.md §B.3):
-        //
-        // Diagnostics/HomeScreenCompanionTask.cs:
-        //   DescribeSource, DescribeSourceDetail, WriteFetchLine, DescribeSourceCounts,
-        //   WriteGroupBlock, WriteSingleRunFooter, BuildFinalStatus, StatusSymbol,
-        //   WriteMatchedItemsDebug, WriteExceptionDebug, BuildRecentlyWatchedContext
-        //
-        // Tagging/HomeScreenCompanionTask.cs:
-        //   WriteTagDiffDebug, FindByTitleAndYear, LoadFileHistory, SaveFileHistory
-        //
-        // Collections/HomeScreenCompanionTask.cs:
-        //   CleanupBoxSetTags
-        //
-        // TopLists/HomeScreenCompanionTask.cs:
-        //   SyncTopListFolders, SanitizeTopListFolderName
-        //
-        // Playlists/HomeScreenCompanionTask.cs:
-        //   SyncPlaylistsForEntryAsync, CleanupDisabledPlaylists
-        //
-        // HomeSections/HomeScreenCompanionTask.cs:
-        //   ManageHomeSections, DeleteSectionForUser (BuildContentSection + ExtendedItemsQuery also)
-        //
-        // MediaInfo/HomeScreenCompanionTask.cs:
-        //   ResolveItemForMediaInfo, GetSeriesLastPlayed, ExtractMediaInfo, ItemMatchesMediaInfo,
-        //   EvaluateCriterion, MatchesAny, SplitCommaValues, MatchesImdbId, MatchesPerson,
-        //   GetTitleName, GetAllCriteria, IsViewerDependentCriterion, HasViewerCriteria,
-        //   IsViewerOnlyMediaInfoFilter, EffectiveLegacyTargetType, MatchesArtistOrAlbumArtist,
-        //   MatchesAlbumTitle, CountWatchedByUsers, TagConfigIncludesParentSeries, MatchesEpisodeTitle,
-        //   ApplyNumericOp, TryGetDateModified, TryGetFileSize
-        //
-        // Cross-cutting methods kept here (used by both Execute and RunSingleEntryInternalAsync):
-        //   GroupKey, WriteRankFile, IsBoxSetHomeSectionEntry, ApplyTagToSourceBoxSet,
-        //   UpdateUntrackedSections, IsScheduleActive, ApplyViewerCriteriaToSectionSettings,
-        //   EffectiveTagTargets, EffectiveCollectionTargets, TagConfigTargetsEpisodes,
-        //   ConfigNeedsMusicItems, BuildItemTypes, IsTaggableTopLevelItem,
-        //   TagConfigTargetsSeason, ResolveParentSeasons, ResolveParentSeries,
-        //   ResolveChildSeasons, ResolveChildEpisodes, ExtractTitleContains, HsWarn, ApplyCollectionMeta
 
     }
 }
