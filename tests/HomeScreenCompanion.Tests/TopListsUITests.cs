@@ -145,16 +145,19 @@ public sealed class TopListsUITests
     {
         var t = ViewType!;
         var ctor = t.GetConstructors(BindingFlags.Public | BindingFlags.Instance).First();
-        var pluginInfoType = HscAssembly.FindType("MediaBrowser.Model.Plugins.PluginInfo")
-            ?? LoadTypeFromNuGet("MediaBrowser.Model.Plugins.PluginInfo",
-                "/Users/bennoheichel/.nuget/packages/mediabrowser.common/4.10.0.24-beta2/lib/netstandard2.0/MediaBrowser.Model.dll");
+        var pluginInfoType = FindTypeAcrossLoadedAssemblies("MediaBrowser.Model.Plugins.PluginInfo");
+        Assert.NotNull(pluginInfoType);
         var pluginInfo = Activator.CreateInstance(pluginInfoType!)!;
         return ctor.Invoke(new object[] { pluginInfo, new NullLogger() });
     }
 
-    private static Type? LoadTypeFromNuGet(string fullName, string asmPath)
+    private static Type? FindTypeAcrossLoadedAssemblies(string fullName)
     {
-        var asm = System.Reflection.Assembly.LoadFrom(asmPath);
-        return asm.GetType(fullName);
+        foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var t = asm.GetType(fullName, throwOnError: false);
+            if (t != null) return t;
+        }
+        return null;
     }
 }
