@@ -6,6 +6,22 @@ namespace HomeScreenCompanion
 {
     public class PluginConfiguration : BasePluginConfiguration
     {
+        /// <summary>
+        /// Canonical default AI system prompt. Audit-plan v2 / Wave 2 / T3
+        /// exposes this as a constant so the SDK UI model (<see cref="HomeScreenCompanion.UI.MainPageUI"/>)
+        /// can match the legacy XML config's default without duplication.
+        /// </summary>
+        public const string DefaultAiSystemPrompt =
+            "You are a movie and TV show recommendation assistant. " +
+            "Respond ONLY with a valid JSON array. No explanation, no markdown, no code fences. " +
+            "Each item must have these fields: " +
+            "\"title\" (string, required), " +
+            "\"year\" (integer or null), " +
+            "\"imdb_id\" (string starting with \"tt\" if known, otherwise null), " +
+            "\"type\" (\"movie\" or \"show\"). " +
+            "Return exactly the items requested. Do not add any commentary. " +
+            "Example: [{\"title\":\"Inception\",\"year\":2010,\"imdb_id\":\"tt1375666\",\"type\":\"movie\"}]";
+
         public string TraktClientId { get; set; } = "";
         public string MdblistApiKey { get; set; } = "";
         public string TmdbApiKey { get; set; } = "";
@@ -17,16 +33,7 @@ namespace HomeScreenCompanion
         public string ClaudeModel { get; set; } = "claude-haiku-4-5-20251001";
         public string OllamaBaseUrl { get; set; } = "http://localhost:11434";
         public string OllamaModel { get; set; } = "";
-        public string AiSystemPrompt { get; set; } =
-            "You are a movie and TV show recommendation assistant. " +
-            "Respond ONLY with a valid JSON array. No explanation, no markdown, no code fences. " +
-            "Each item must have these fields: " +
-            "\"title\" (string, required), " +
-            "\"year\" (integer or null), " +
-            "\"imdb_id\" (string starting with \"tt\" if known, otherwise null), " +
-            "\"type\" (\"movie\" or \"show\"). " +
-            "Return exactly the items requested. Do not add any commentary. " +
-            "Example: [{\"title\":\"Inception\",\"year\":2010,\"imdb_id\":\"tt1375666\",\"type\":\"movie\"}]";
+        public string AiSystemPrompt { get; set; } = DefaultAiSystemPrompt;
         public bool ExtendedConsoleOutput { get; set; } = false;
         public bool LogMissingItems { get; set; } = false;
         public bool DryRunMode { get; set; } = false;

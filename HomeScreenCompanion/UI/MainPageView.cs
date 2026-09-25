@@ -8,12 +8,14 @@ using MediaBrowser.Model.Plugins.UI.Views;
 namespace HomeScreenCompanion.UI
 {
     /// <summary>
-    /// Backs the <see cref="MainPageUI"/> on save: persists the new options
-    /// via <see cref="MainPageOptionsStore"/> and mirrors the scalar settings
-    /// into <see cref="PluginConfiguration"/> so the existing endpoints keep
-    /// reading the legacy XML config.
+    /// Backs the <see cref="MainPageUI"/>. On construction, hydrates the
+    /// page from the legacy XML config (so existing installations don't
+    /// lose their settings) plus the persisted JSON store. On save, the
+    /// mapper (<see cref="MainPageConfigMapper"/>) writes both surfaces
+    /// — JSON-only on the new SDK store, XML-compatible via
+    /// <see cref="Plugin.UpdateConfiguration"/> for the existing endpoints.
     ///
-    /// Audit-plan v2 / Wave 1 / U3.
+    /// Audit-plan v2 / Wave 1 / U3 + Wave 2 / T3.
     /// </summary>
     public class MainPageView : PluginPageView
     {
@@ -24,7 +26,16 @@ namespace HomeScreenCompanion.UI
         {
             this.store = store;
             this.Logger = logger;
-            this.ContentData = store.GetOptions();
+
+            // The store holds the persisted SDK-side JSON. If it's empty
+            // (fresh install or first run after the SDK UI lands), seed
+            // it from the legacy XML config.
+            var ui = store.GetOptions();
+            if (ui != null)
+            {
+                MainPageConfigMapper.HydrateFrom(ui, Plugin.Instance?.Configuration);
+            }
+            this.ContentData = ui;
         }
 
         public ILogger Logger { get; }
@@ -65,22 +76,34 @@ namespace HomeScreenCompanion.UI
         public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
         {
             var ui = this.MainPageUi;
-            var plugin = Plugin.Instance;
-            if (plugin != null && ui != null)
-            {
-                // Mirror the scalar settings that already exist on
-                // PluginConfiguration. ReleaseNotesUrl / RunIntervalMinutes live
-                // only on MainPageUI until T7 adds them to PluginConfiguration.
-                plugin.UpdateConfiguration(new PluginConfiguration
-                {
-                    DryRunMode = ui.DryRunMode,
-                    ExtendedConsoleOutput = ui.ExtendedConsoleOutput,
-                    LogMissingItems = ui.LogMissingItems
-                });
-            }
-
             if (ui != null)
             {
+                // Mirror the scalar settings back into PluginConfiguration
+                // so the existing endpoint readers keep working untouched.
+                var plugin = Plugin.Instance;
+                if (plugin != null)
+                {
+                    var newConfig = MainPageConfigMapper.ToPluginConfig(ui);
+
+                    // The mapper clears Tags/TopLists/SavedFilters because
+                    // the UI owns tag-row persistence via the row dialog
+                    // (TagRowEditDialog already mirrors EnableCollection /
+                    // CollectionName / EnableTag on its OnOkCommand).
+                    // Restore the existing lists so we don't drop data the
+                    // legacy endpoints depend on. Will be replaced by
+                    // TagConfigRow-based persistence in T6.
+                    var legacy = plugin.Configuration;
+                    newConfig.Tags = legacy?.Tags ?? new System.Collections.Generic.List<TagConfig>();
+                    newConfig.TopLists = legacy?.TopLists ?? new System.Collections.Generic.List<TopListHomeSection>();
+                    newConfig.SavedFilters = legacy?.SavedFilters ?? new System.Collections.Generic.List<SavedMediaInfoFilter>();
+                    newConfig.HomeSyncEnabled = legacy?.HomeSyncEnabled ?? false;
+                    newConfig.HomeSyncSourceUserId = legacy?.HomeSyncSourceUserId ?? "";
+                    newConfig.HomeSyncTargetUserIds = legacy?.HomeSyncTargetUserIds ?? new System.Collections.Generic.List<string>();
+                    newConfig.HomeSyncLibraryOrder = legacy?.HomeSyncLibraryOrder ?? false;
+
+                    plugin.UpdateConfiguration(newConfig);
+                }
+
                 this.store.SetOptions(ui);
             }
 
