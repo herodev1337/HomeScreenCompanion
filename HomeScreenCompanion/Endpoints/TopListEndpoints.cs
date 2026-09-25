@@ -109,7 +109,10 @@ namespace HomeScreenCompanion
                             }).ToList();
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.Warn($"[TopList] Rank file '{rankFile}' could not be read: {ex.Message}");
+                    }
                 }
 
                 // First pass: deduplicate and preserve query order
@@ -196,7 +199,11 @@ namespace HomeScreenCompanion
 
                 return new GetAllMoviesResponse { Movies = movies };
             }
-            catch { return new GetAllMoviesResponse { Movies = new List<MovieItem>() }; }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[TopList] GetAllMovies failed: {ex.Message}");
+                return new GetAllMoviesResponse { Movies = new List<MovieItem>() };
+            }
         }
 
         public object Post(GrantTopListLibraryAccessRequest request)
@@ -204,24 +211,6 @@ namespace HomeScreenCompanion
             var libraryId = (request.LibraryId ?? "").Trim();
             if (string.IsNullOrEmpty(libraryId))
                 return new GrantTopListLibraryAccessResponse { Success = false, Message = "LibraryId required." };
-
-            var bf = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
-                   | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.FlattenHierarchy;
-            var mgrType = _userManager.GetType();
-
-            // Locate UpdateUserPolicy and GetUserPolicy on the concrete manager type (catches
-            // both interface and implementation methods, and handles any number of overloads).
-            var updateMethod = mgrType.GetMethods(bf)
-                .Where(m => m.Name == "UpdateUserPolicy")
-                .OrderBy(m => m.GetParameters().Length)
-                .FirstOrDefault()
-                ?? typeof(IUserManager).GetMethods().FirstOrDefault(m => m.Name == "UpdateUserPolicy");
-
-            var getPolicyMethod = mgrType.GetMethods(bf)
-                .Where(m => m.Name == "GetUserPolicy")
-                .OrderBy(m => m.GetParameters().Length)
-                .FirstOrDefault()
-                ?? typeof(IUserManager).GetMethods().FirstOrDefault(m => m.Name == "GetUserPolicy");
 
             int updated = 0;
             var errors = new List<string>();
@@ -234,39 +223,19 @@ namespace HomeScreenCompanion
                 {
                     try
                     {
-                        // Prefer GetUserPolicy (fresh from store) over the cached User.Policy property.
-                        object policy = null;
-                        if (getPolicyMethod != null)
-                        {
-                            try
-                            {
-                                var gpParams = getPolicyMethod.GetParameters();
-                                var gpArg0 = BuildUserArg(gpParams[0].ParameterType, user);
-                                var gpArgs = BuildArgList(gpParams, gpArg0, null);
-                                policy = getPolicyMethod.Invoke(_userManager, gpArgs);
-                            }
-                            catch { }
-                        }
-                        if (policy == null)
-                            policy = user.GetType().GetProperty("Policy")?.GetValue(user);
+                        var policy = _userManager.GetUserPolicy(user);
                         if (policy == null) { errors.Add($"no policy for {user.Name}"); continue; }
 
-                        var enableAllProp = policy.GetType().GetProperty("EnableAllFolders");
-                        if (enableAllProp?.GetValue(policy) is true) continue;
+                        if (policy.EnableAllFolders) continue;
 
-                        var foldersProp = policy.GetType().GetProperty("EnabledFolders");
-                        var folders = foldersProp?.GetValue(policy) as string[] ?? Array.Empty<string>();
+                        var folders = policy.EnabledFolders ?? Array.Empty<string>();
                         if (folders.Any(f => string.Equals(f, libraryId, StringComparison.OrdinalIgnoreCase)))
                             continue;
 
-                        foldersProp?.SetValue(policy, folders.Concat(new[] { libraryId }).ToArray());
+                        policy.EnabledFolders = folders.Concat(new[] { libraryId }).ToArray();
 
-                        if (updateMethod == null) { errors.Add("UpdateUserPolicy not found"); break; }
-
-                        var upParams = updateMethod.GetParameters();
-                        var upArg0 = BuildUserArg(upParams[0].ParameterType, user);
-                        var upArgs = BuildArgList(upParams, upArg0, policy);
-                        updateMethod.Invoke(_userManager, upArgs);
+                        var internalId = _userManager.GetInternalId(user.Id.ToString());
+                        _userManager.UpdateUserPolicy(internalId, policy);
                         updated++;
                     }
                     catch (Exception ex) { errors.Add($"{user.Name}: {ex.GetBaseException().Message}"); }
@@ -284,12 +253,6 @@ namespace HomeScreenCompanion
 
         public object Post(SnapshotPoliciesRequest request)
         {
-            var bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy;
-            var mgrType = _userManager.GetType();
-            var getPolicyMethod = mgrType.GetMethods(bf)
-                .Where(m => m.Name == "GetUserPolicy").OrderBy(m => m.GetParameters().Length).FirstOrDefault()
-                ?? typeof(IUserManager).GetMethods().FirstOrDefault(m => m.Name == "GetUserPolicy");
-
             var snapshots = new List<PolicySnapshot>();
             try
             {
@@ -298,29 +261,17 @@ namespace HomeScreenCompanion
                 {
                     try
                     {
-                        object policy = null;
-                        if (getPolicyMethod != null)
-                        {
-                            try
-                            {
-                                var gp = getPolicyMethod.GetParameters();
-                                policy = getPolicyMethod.Invoke(_userManager, BuildArgList(gp, BuildUserArg(gp[0].ParameterType, user), null));
-                            }
-                            catch { }
-                        }
-                        if (policy == null) policy = user.GetType().GetProperty("Policy")?.GetValue(user);
+                        var policy = _userManager.GetUserPolicy(user);
                         if (policy == null) continue;
 
-                        var enableAllProp = policy.GetType().GetProperty("EnableAllFolders");
-                        var foldersProp = policy.GetType().GetProperty("EnabledFolders");
                         snapshots.Add(new PolicySnapshot
                         {
                             UserId = user.Id.ToString(),
-                            EnableAllFolders = enableAllProp?.GetValue(policy) is true,
-                            EnabledFolders = foldersProp?.GetValue(policy) as string[] ?? Array.Empty<string>()
+                            EnableAllFolders = policy.EnableAllFolders,
+                            EnabledFolders = policy.EnabledFolders ?? Array.Empty<string>()
                         });
                     }
-                    catch { }
+                    catch (Exception ex) { _logger.Warn($"[TopList] SnapshotPolicies: skip user '{user.Name}': {ex.Message}"); }
                 }
             }
             catch (Exception ex)
@@ -350,17 +301,6 @@ namespace HomeScreenCompanion
                 return new RestoreAndGrantAccessResponse { Success = false, Message = "Snapshot not found or already used." };
 
             var libraryId = request.LibraryId.Trim();
-            var bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy;
-            var mgrType = _userManager.GetType();
-            var getPolicyMethod = mgrType.GetMethods(bf)
-                .Where(m => m.Name == "GetUserPolicy").OrderBy(m => m.GetParameters().Length).FirstOrDefault()
-                ?? typeof(IUserManager).GetMethods().FirstOrDefault(m => m.Name == "GetUserPolicy");
-            var updateMethod = mgrType.GetMethods(bf)
-                .Where(m => m.Name == "UpdateUserPolicy").OrderBy(m => m.GetParameters().Length).FirstOrDefault()
-                ?? typeof(IUserManager).GetMethods().FirstOrDefault(m => m.Name == "UpdateUserPolicy");
-
-            if (updateMethod == null)
-                return new RestoreAndGrantAccessResponse { Success = false, Message = "UpdateUserPolicy not found." };
 
             var users = _userManager.GetUserList(new UserQuery { IsDisabled = false });
             var userDict = users.ToDictionary(u => u.Id.ToString(), u => u, StringComparer.OrdinalIgnoreCase);
@@ -375,31 +315,19 @@ namespace HomeScreenCompanion
                 if (!userDict.TryGetValue(snap.UserId, out var user)) continue;
                 try
                 {
-                    object policy = null;
-                    if (getPolicyMethod != null)
-                    {
-                        try
-                        {
-                            var gp = getPolicyMethod.GetParameters();
-                            policy = getPolicyMethod.Invoke(_userManager, BuildArgList(gp, BuildUserArg(gp[0].ParameterType, user), null));
-                        }
-                        catch { }
-                    }
-                    if (policy == null) policy = user.GetType().GetProperty("Policy")?.GetValue(user);
+                    var policy = _userManager.GetUserPolicy(user);
                     if (policy == null) continue;
 
                     // Restore to exact pre-creation state: EnableAllFolders=false + original folders + new library.
-                    var enableAllProp = policy.GetType().GetProperty("EnableAllFolders");
-                    enableAllProp?.SetValue(policy, false);
+                    policy.EnableAllFolders = false;
 
-                    var foldersProp = policy.GetType().GetProperty("EnabledFolders");
                     var folders = snap.EnabledFolders.ToList();
                     if (!folders.Any(f => string.Equals(f, libraryId, StringComparison.OrdinalIgnoreCase)))
                         folders.Add(libraryId);
-                    foldersProp?.SetValue(policy, folders.ToArray());
+                    policy.EnabledFolders = folders.ToArray();
 
-                    var up = updateMethod.GetParameters();
-                    updateMethod.Invoke(_userManager, BuildArgList(up, BuildUserArg(up[0].ParameterType, user), policy));
+                    var internalId = _userManager.GetInternalId(user.Id.ToString());
+                    _userManager.UpdateUserPolicy(internalId, policy);
                     updated++;
                 }
                 catch (Exception ex) { errors.Add($"{user.Name}: {ex.GetBaseException().Message}"); }
@@ -408,29 +336,6 @@ namespace HomeScreenCompanion
             var msg = $"Restored access for {updated} user(s)";
             if (errors.Count > 0) msg += $" — errors: {string.Join("; ", errors.Take(5))}";
             return new RestoreAndGrantAccessResponse { Success = true, UsersUpdated = updated, Message = msg };
-        }
-
-        private object BuildUserArg(Type paramType, BaseItem user)
-        {
-            if (paramType == typeof(long) || paramType == typeof(Int64))
-                return _userManager.GetInternalId(user.Id.ToString());
-            if (paramType == typeof(Guid)) return user.Id;
-            if (paramType == typeof(string)) return user.Id.ToString();
-            return user;
-        }
-
-        private static object[] BuildArgList(System.Reflection.ParameterInfo[] parms, object arg0, object arg1)
-        {
-            var args = new object[parms.Length];
-            args[0] = arg0;
-            for (int i = 1; i < parms.Length; i++)
-            {
-                if (i == 1 && arg1 != null) args[i] = arg1;
-                else if (parms[i].ParameterType == typeof(CancellationToken)) args[i] = CancellationToken.None;
-                else if (parms[i].HasDefaultValue) args[i] = parms[i].DefaultValue;
-                else args[i] = null;
-            }
-            return args;
         }
 
         private void EnforceTopListLibraryPermissions(string libId, IEnumerable<string> assignedUserIds)
@@ -442,41 +347,16 @@ namespace HomeScreenCompanion
                 (assignedUserIds ?? Enumerable.Empty<string>()).Select(id => id.Replace("-", "").ToLowerInvariant()),
                 StringComparer.OrdinalIgnoreCase);
 
-            var bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.FlattenHierarchy;
-            var mgrType = _userManager.GetType();
-
-            var getPolicyMethod = mgrType.GetMethods(bf)
-                .Where(m => m.Name == "GetUserPolicy").OrderBy(m => m.GetParameters().Length).FirstOrDefault()
-                ?? typeof(IUserManager).GetMethods().FirstOrDefault(m => m.Name == "GetUserPolicy");
-
-            var updateMethod = mgrType.GetMethods(bf)
-                .Where(m => m.Name == "UpdateUserPolicy").OrderBy(m => m.GetParameters().Length).FirstOrDefault()
-                ?? typeof(IUserManager).GetMethods().FirstOrDefault(m => m.Name == "UpdateUserPolicy");
-
-            if (updateMethod == null) return;
-
             foreach (var user in _userManager.GetUserList(new UserQuery { IsDisabled = false }))
             {
                 try
                 {
-                    object policy = null;
-                    if (getPolicyMethod != null)
-                    {
-                        try
-                        {
-                            var gp = getPolicyMethod.GetParameters();
-                            policy = getPolicyMethod.Invoke(_userManager, BuildArgList(gp, BuildUserArg(gp[0].ParameterType, user), null));
-                        }
-                        catch { }
-                    }
-                    if (policy == null) policy = user.GetType().GetProperty("Policy")?.GetValue(user);
+                    var policy = _userManager.GetUserPolicy(user);
                     if (policy == null) continue;
 
-                    var enableAllProp = policy.GetType().GetProperty("EnableAllFolders");
-                    if (enableAllProp?.GetValue(policy) is true) continue;
+                    if (policy.EnableAllFolders) continue;
 
-                    var foldersProp = policy.GetType().GetProperty("EnabledFolders");
-                    var folders = foldersProp?.GetValue(policy) as string[] ?? Array.Empty<string>();
+                    var folders = policy.EnabledFolders ?? Array.Empty<string>();
 
                     var userNormId = user.Id.ToString().Replace("-", "").ToLowerInvariant();
                     var hasAccess = folders.Any(f => string.Equals(f.Replace("-", ""), normalizedLibId, StringComparison.OrdinalIgnoreCase));
@@ -490,12 +370,12 @@ namespace HomeScreenCompanion
                     else
                         newFolders = folders.Where(f => !string.Equals(f.Replace("-", ""), normalizedLibId, StringComparison.OrdinalIgnoreCase)).ToArray();
 
-                    foldersProp?.SetValue(policy, newFolders);
+                    policy.EnabledFolders = newFolders;
 
-                    var up = updateMethod.GetParameters();
-                    updateMethod.Invoke(_userManager, BuildArgList(up, BuildUserArg(up[0].ParameterType, user), policy));
+                    var internalId = _userManager.GetInternalId(user.Id.ToString());
+                    _userManager.UpdateUserPolicy(internalId, policy);
                 }
-                catch { }
+                catch (Exception ex) { _logger.Warn($"[TopList] UpdateUserPolicy: skip user '{user.Name}': {ex.Message}"); }
             }
         }
 
@@ -567,7 +447,7 @@ namespace HomeScreenCompanion
                                        .Select(i => i.ImdbId).ToList();
                     _jsonSerializer.SerializeToFile(rankIds, Path.Combine(rankDir, sanitized + ".json"));
                 }
-                catch { }
+                catch (Exception ex) { _logger.Warn($"[TopList] Rank file write failed for '{sanitized}': {ex.Message}"); }
 
                 // Update ForcedSortName directly in the library database so the new order applies
                 // immediately. MetadataRefreshMode=Default (used in the UI scan) won't override
@@ -611,13 +491,16 @@ namespace HomeScreenCompanion
                                 MergeTopListVersionsTask.QueueStrmProbe(_providerManager, _fileSystem, li);
                             }
                         }
-                        catch { }
+                        catch (Exception ex) { _logger.Warn($"[TopList] MergeItems failed for '{li.Path}': {ex.Message}"); }
 
                         try { _libraryManager.UpdateItem(li, li.Parent, ItemUpdateType.MetadataEdit, null); }
-                        catch { }
+                        catch (Exception ex) { _logger.Warn($"[TopList] UpdateItem failed for '{li.Path}': {ex.Message}"); }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"[TopList] Per-item processing failed in '{folderPath}': {ex.Message}");
+                }
 
                 return new PrepareTopListFolderResponse { Success = true, FolderPath = folderPath, FilesCreated = count };
             }
@@ -918,7 +801,7 @@ namespace HomeScreenCompanion
                         imageType = settings.TryGetValue("ImageType", out var it) ? it : "";
                         badgeStyle = settings.TryGetValue("BadgeStyle", out var bs) ? bs : "neutral";
                     }
-                    catch { }
+                    catch (Exception ex) { _logger.Warn($"[TopList] Settings parse failed for top-list '{request.ListName}': {ex.Message}"); }
                     userIds = tlConfig.HomeSectionUserIds ?? new List<string>();
                 }
 
@@ -966,7 +849,7 @@ namespace HomeScreenCompanion
                                 var internalId = _userManager.GetInternalId(tracking.UserId);
                                 _userManager.DeleteHomeSections(internalId, new[] { tracking.SectionId }, CancellationToken.None);
                             }
-                            catch { }
+                            catch (Exception ex) { _logger.Warn($"[TopList] DeleteHomeSections failed for user {tracking.UserId}: {ex.Message}"); }
                         }
                         config.TopLists.Remove(tl);
                         Plugin.Instance.SaveConfiguration();
@@ -1001,7 +884,7 @@ namespace HomeScreenCompanion
                     if (!string.IsNullOrEmpty(tl.HomeSectionSettings) && tl.HomeSectionSettings != "{}")
                         settingsDict = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(tl.HomeSectionSettings) ?? settingsDict;
                 }
-                catch { }
+                catch (Exception ex) { _logger.Warn($"[TopList] Settings parse failed for top-list '{tl.TagName}': {ex.Message}"); }
 
                 if (!settingsDict.ContainsKey("SectionType"))
                     settingsDict["SectionType"] = "items";
@@ -1023,36 +906,19 @@ namespace HomeScreenCompanion
                     try
                     {
                         var uid = _userManager.GetInternalId(firstUserIdForViews);
-                        Guid.TryParse(firstUserIdForViews, out var userGuid);
-                        var ifMethod = typeof(IUserViewManager).GetMethod("GetUserViews");
-                        if (ifMethod != null)
+                        var views = _userViewManager.GetUserViews(new MediaBrowser.Model.Library.UserViewQuery { UserId = uid });
+                        if (views != null)
                         {
-                            var queryParams = ifMethod.GetParameters();
-                            object queryArg = null;
-                            if (queryParams.Length > 0)
+                            foreach (var v in views)
                             {
-                                try
-                                {
-                                    queryArg = Activator.CreateInstance(queryParams[0].ParameterType);
-                                    var uidProp = queryParams[0].ParameterType.GetProperty("UserId");
-                                    if (uidProp?.PropertyType == typeof(long))
-                                        uidProp.SetValue(queryArg, uid);
-                                    else
-                                        uidProp?.SetValue(queryArg, userGuid);
-                                }
-                                catch { queryArg = null; }
+                                if (v == null) continue;
+                                var idProp = v.GetType().GetProperty("Id");
+                                if (idProp?.GetValue(v) is Guid vid && vid != Guid.Empty)
+                                    allLibIds.Add(vid.ToString("N").ToLowerInvariant());
                             }
-                            var result = ifMethod.Invoke(_userViewManager, new[] { queryArg });
-                            if (result is System.Collections.IEnumerable views)
-                                foreach (var v in views)
-                                {
-                                    var idProp = v?.GetType().GetProperty("Id");
-                                    if (idProp?.GetValue(v) is Guid vid && vid != Guid.Empty)
-                                        allLibIds.Add(vid.ToString("N").ToLowerInvariant());
-                                }
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { _logger.Warn($"[TopList] GetUserViews failed: {ex.Message}"); }
                 }
                 allLibIds = allLibIds.Distinct().ToList();
                 var ownIdLower = resolvedLibraryId.Trim().ToLowerInvariant();
@@ -1119,7 +985,10 @@ namespace HomeScreenCompanion
                             tl.HomeSectionTracked.Add(new HomeSectionTracking { UserId = userId, SectionId = trackId });
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.Warn($"[TopList] Home section sync failed for user {userId}: {ex.Message}");
+                    }
                 }
 
                 // Inject the new top-list library into _queryExcludeViewIds of every existing
@@ -1137,7 +1006,7 @@ namespace HomeScreenCompanion
                             if (!string.IsNullOrEmpty(tc.HomeSectionSettings) && tc.HomeSectionSettings != "{}")
                                 tcSettings = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(tc.HomeSectionSettings) ?? tcSettings;
                         }
-                        catch { }
+                        catch (Exception ex) { _logger.Warn($"[TopList] Tag settings parse failed for '{tc.Tag}': {ex.Message}"); }
 
                         tcSettings.TryGetValue("SectionType", out var tcSt);
                         if (tcSt == "boxset") continue;
@@ -1175,9 +1044,10 @@ namespace HomeScreenCompanion
 
                         foreach (var tracking in realTracked)
                         {
+                            long uid = 0;
                             try
                             {
-                                var uid = _userManager.GetInternalId(tracking.UserId);
+                                uid = _userManager.GetInternalId(tracking.UserId);
                                 var secs = _userManager.GetHomeSections(uid, CancellationToken.None)?.Sections ?? Array.Empty<ContentSection>();
                                 var owned = secs.FirstOrDefault(s => s.Id == tracking.SectionId)
                                     ?? secs.FirstOrDefault(s => s.Subtitle == tcMarker);
@@ -1186,7 +1056,7 @@ namespace HomeScreenCompanion
                                 typeof(ContentSection).GetProperty("Id")?.SetValue(updatedSec, owned.Id);
                                 _userManager.UpdateHomeSection(uid, updatedSec, CancellationToken.None);
                             }
-                            catch { }
+                            catch (Exception ex) { _logger.Warn($"[TopList] UpdateHomeSection failed for user {uid}: {ex.Message}"); }
                         }
                     }
                 }
@@ -1205,7 +1075,7 @@ namespace HomeScreenCompanion
                             if (!string.IsNullOrEmpty(otherTl.HomeSectionSettings) && otherTl.HomeSectionSettings != "{}")
                                 otherSettings = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(otherTl.HomeSectionSettings) ?? otherSettings;
                         }
-                        catch { }
+                        catch (Exception ex) { _logger.Warn($"[TopList] Other top-list settings parse failed for '{otherTl.TagName}': {ex.Message}"); }
 
                         var otherExisting = (otherSettings.TryGetValue("_queryExcludeViewIds", out var otherEv) ? otherEv : "")
                             .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
@@ -1228,9 +1098,10 @@ namespace HomeScreenCompanion
 
                         foreach (var tracking in otherTracked)
                         {
+                            long uid = 0;
                             try
                             {
-                                var uid = _userManager.GetInternalId(tracking.UserId);
+                                uid = _userManager.GetInternalId(tracking.UserId);
                                 var secs = _userManager.GetHomeSections(uid, CancellationToken.None)?.Sections ?? Array.Empty<ContentSection>();
                                 var owned = secs.FirstOrDefault(s => s.Id == tracking.SectionId)
                                     ?? secs.FirstOrDefault(s => s.Subtitle == otherMarker);
@@ -1239,7 +1110,7 @@ namespace HomeScreenCompanion
                                 typeof(ContentSection).GetProperty("Id")?.SetValue(updatedSec, owned.Id);
                                 _userManager.UpdateHomeSection(uid, updatedSec, CancellationToken.None);
                             }
-                            catch { }
+                            catch (Exception ex) { _logger.Warn($"[TopList] UpdateHomeSection failed for other top-list user {uid}: {ex.Message}"); }
                         }
                     }
                 }
@@ -1295,9 +1166,9 @@ namespace HomeScreenCompanion
                     {
                         var nfoContent = File.ReadAllText(nfoFile);
                         var match = System.Text.RegularExpressions.Regex.Match(nfoContent, @"<sorttitle>(\d+)</sorttitle>");
-                        if (match.Success) rank = int.Parse(match.Groups[1].Value);
+                        if (match.Success) rank = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
                     }
-                    catch { }
+                    catch (Exception ex) { _logger.Warn($"[TopList] NFO rank parse failed for '{nfoFile}': {ex.Message}"); }
                 }
                 entries.Add((rank, File.ReadAllText(strmFile).Trim()));
             }
@@ -1352,7 +1223,7 @@ namespace HomeScreenCompanion
                         lookup[imdb] = m;
                 }
             }
-            catch { }
+            catch (Exception ex) { _logger.Warn($"[TopList] Build IMDb lookup failed: {ex.Message}"); }
             return lookup;
         }
 

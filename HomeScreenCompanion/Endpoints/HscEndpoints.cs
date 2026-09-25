@@ -127,20 +127,8 @@ namespace HomeScreenCompanion
                 string moveDebug = "MoveHomeSections: ok";
                 try
                 {
-                    dynamic mgr = _userManager;
                     for (int i = 0; i < orderedIds.Length; i++)
-                        mgr.MoveHomeSections(internalId, new[] { orderedIds[i] }, i, CancellationToken.None);
-                }
-                catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-                {
-                    // Fallback: prova utan CancellationToken
-                    try
-                    {
-                        dynamic mgr = _userManager;
-                        for (int i = 0; i < orderedIds.Length; i++)
-                            mgr.MoveHomeSections(internalId, new[] { orderedIds[i] }, i);
-                    }
-                    catch (Exception ex) { moveDebug = $"MoveHomeSections fallback error: {ex.Message}"; }
+                        _userManager.MoveHomeSections(internalId, new[] { orderedIds[i] }, i, CancellationToken.None);
                 }
                 catch (Exception ex) { moveDebug = $"MoveHomeSections error: {ex.Message}"; }
 
@@ -203,7 +191,7 @@ namespace HomeScreenCompanion
                     if (!string.IsNullOrEmpty(tc.HomeSectionSettings) && tc.HomeSectionSettings != "{}")
                         settingsDict = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(tc.HomeSectionSettings) ?? settingsDict;
                 }
-                catch { }
+                catch (Exception ex) { _logger.Warn($"[HSC] Settings parse failed for tag '{request.TagName}': {ex.Message}"); }
 
                 if (!settingsDict.ContainsKey("SectionType"))
                     settingsDict["SectionType"] = (tc.EnableCollection && !string.IsNullOrEmpty(tc.CollectionName)) ? "boxset" : "items";
@@ -278,7 +266,10 @@ namespace HomeScreenCompanion
                         _userManager.UpdateHomeSection(userInternalId, updatedSection, CancellationToken.None);
                         updated++;
                     }
-                    catch { /* skip this user on error */ }
+                    catch (Exception ex)
+                    {
+                        _logger.Warn($"[HSC] Apply home sections: skip user {userId}: {ex.Message}");
+                    }
                 }
 
                 return new HscApplyTagHomeSectionsResponse { Success = true, UsersUpdated = updated, Message = $"Applied to {updated} user(s)." };
@@ -292,7 +283,7 @@ namespace HomeScreenCompanion
         private static ContentSection CopySectionWithoutId(ContentSection source)
         {
             var copy = new ContentSection();
-            foreach (var prop in typeof(ContentSection).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            foreach (var prop in typeof(ContentSection).GetProperties())
             {
                 if (prop.Name == "Id") continue;
                 if (prop.CanRead && prop.CanWrite)
@@ -304,7 +295,7 @@ namespace HomeScreenCompanion
         public object Get(HscGetSectionSchemaRequest request)
         {
             var fields = typeof(ContentSection)
-                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .GetProperties()
                 .Where(p => p.CanRead && p.CanWrite && p.Name != "Id")
                 .Select(p => new HscSectionField { Name = p.Name, Type = GetSimpleTypeName(p.PropertyType) })
                 .Where(f => f.Type != null)
