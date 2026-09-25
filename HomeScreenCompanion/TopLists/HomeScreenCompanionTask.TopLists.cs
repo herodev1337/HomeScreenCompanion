@@ -261,5 +261,23 @@ namespace HomeScreenCompanion
             if (!ctx.DryRun) TopListSyncTask.SyncAll(_libraryManager, _userViewManager, _userManager, _jsonSerializer, _logger, cancellationToken, _log);
         }
 
+        // Writes tag_ranks/<tag>.json — the IMDb ids of a tag's matched items in source order,
+        // used by SyncTopListFolders to number .strm files. Lives here next to SyncTopListFolders
+        // since the two share the tag_ranks directory + folder-name sanitization.
+        private void WriteRankFile(string tagName, List<string> imdbIds)
+        {
+            try
+            {
+                var rankDir = Path.Combine(Plugin.Instance.DataFolderPath, "tag_ranks");
+                Directory.CreateDirectory(rankDir);
+                var invalidChars = Path.GetInvalidFileNameChars();
+                var rankSafe = new string((tagName ?? "unknown").Select(c => Array.IndexOf(invalidChars, c) >= 0 ? '_' : c).ToArray()).Trim('.');
+                if (string.IsNullOrWhiteSpace(rankSafe)) rankSafe = "unknown";
+                var rankFile = Path.Combine(rankDir, rankSafe + ".json");
+                _jsonSerializer.SerializeToFile(imdbIds, rankFile);
+            }
+            catch { }
+        }
+
     }
 }
