@@ -751,7 +751,10 @@ export function applyFilters(view: HTMLElement): void {
  */
 export interface CheckForUpdatesDeps {
     readonly fetch: typeof fetch;
-    readonly getApiClient: () => { getUrl: (name: string) => string };
+    readonly getApiClient: () => {
+        getUrl: (name: string) => string;
+        accessToken: () => string;
+    };
 }
 
 /**
@@ -779,7 +782,10 @@ export interface CheckForUpdatesDeps {
  */
 export function checkForUpdates(view: HTMLElement, deps: CheckForUpdatesDeps): void {
     void view;
-    deps.fetch(deps.getApiClient().getUrl('HomeScreenCompanion/Version'))
+    const versionHeaders: Record<string, string> = {};
+    const versionToken = deps.getApiClient().accessToken();
+    if (versionToken) versionHeaders['X-Emby-Token'] = versionToken;
+    deps.fetch(deps.getApiClient().getUrl('HomeScreenCompanion/Version'), { headers: versionHeaders })
         .then((r) => r.json() as Promise<{ Version?: string }>)
         .then((result) => {
             const currentVer = result.Version || '';

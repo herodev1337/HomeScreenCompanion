@@ -636,11 +636,31 @@ function readIntervalsFromRow(row: HTMLElement): ScheduleInterval[] {
 }
 
 // ─── Jellyfin ApiClient surface shims ────────────────────────────────────────
+//
+// The modules below consume a Jellyfin-shaped client where
+// `getJSON(name, params)` takes a route name plus a query-params object.
+// Emby's `ApiClient.getJSON(url, signal)` treats the second argument as an
+// AbortSignal instead (fetchhelper calls `signal.throwIfAborted()`), so
+// passing params straight through throws synchronously and breaks the whole
+// viewshow handler. `getApi()` therefore wraps the raw window.ApiClient in
+// an adapter that builds absolute URLs via `getUrl` and drops the params
+// argument. Absolute URLs (already produced by `getUrl`) pass through.
 
 interface WindowApiClient {
     accessToken(): string;
     getUrl(name: string, params?: Record<string, unknown>): string;
     getJSON<T = unknown>(name: string, params?: Record<string, unknown>): Promise<T>;
+    getPluginConfiguration(pluginId: string): Promise<Record<string, unknown>>;
+    updatePluginConfiguration(pluginId: string, config: Record<string, unknown>): Promise<unknown>;
+    getScheduledTasks(): Promise<Array<{ Id: string; Key: string }>>;
+    startScheduledTask(id: string): Promise<unknown>;
+    getCurrentUserId(): string;
+}
+
+interface RawEmbyApiClient {
+    accessToken(): string;
+    getUrl(name: string, params?: Record<string, unknown>): string;
+    getJSON<T = unknown>(url: string, signal?: unknown): Promise<T>;
     getPluginConfiguration(pluginId: string): Promise<Record<string, unknown>>;
     updatePluginConfiguration(pluginId: string, config: Record<string, unknown>): Promise<unknown>;
     getScheduledTasks(): Promise<Array<{ Id: string; Key: string }>>;
@@ -654,12 +674,28 @@ interface WindowDashboard {
 }
 
 interface WindowGlobals {
-    ApiClient?: WindowApiClient;
+    ApiClient?: RawEmbyApiClient;
     Dashboard?: WindowDashboard;
 }
 
 function getApi(): WindowApiClient | undefined {
-    return (window as unknown as WindowGlobals).ApiClient;
+    const raw = (window as unknown as WindowGlobals).ApiClient;
+    if (!raw) return undefined;
+    return {
+        accessToken: () => raw.accessToken(),
+        getUrl: (name, params) => raw.getUrl(name, params),
+        getJSON: <T,>(name: string, params?: Record<string, unknown>) => {
+            const url = typeof name === 'string' && /^https?:\/\//i.test(name)
+                ? name
+                : raw.getUrl(name, params);
+            return raw.getJSON<T>(url);
+        },
+        getPluginConfiguration: (pluginId) => raw.getPluginConfiguration(pluginId),
+        updatePluginConfiguration: (pluginId, config) => raw.updatePluginConfiguration(pluginId, config),
+        getScheduledTasks: () => raw.getScheduledTasks(),
+        startScheduledTask: (id) => raw.startScheduledTask(id),
+        getCurrentUserId: () => raw.getCurrentUserId(),
+    };
 }
 function getDashboard(): WindowDashboard | undefined {
     return (window as unknown as WindowGlobals).Dashboard;
@@ -779,7 +815,11 @@ export default function (view: HTMLElement): void {
             ? afterRef.nextElementSibling as HTMLElement | null
             : (prepend ? container.firstElementChild as HTMLElement | null : container.lastElementChild as HTMLElement | null);
         if (!newRow) return;
-        setupRowEvents(newRow, buildSetupRowDeps(newRow));
+        // buildSetupRowDeps calls setupRowEvents exactly once. Calling
+        // setupRowEvents here again double-binds every handler on the row,
+        // which makes click/change toggles fire twice and cancel out
+        // (row expansion, tab switches and dropdowns stop working).
+        buildSetupRowDeps(newRow);
         if (isNew) {
             newRow.classList.add('just-added');
             setTimeout(() => newRow.classList.remove('just-added'), 2000);
@@ -1725,7 +1765,9 @@ export default function (view: HTMLElement): void {
             const api = getApi();
             checkForUpdates(view, {
                 fetch: (...args: Parameters<typeof fetch>): ReturnType<typeof fetch> => fetch(...args),
-                getApiClient: () => api ? { getUrl: (n: string) => api.getUrl(n) } : { getUrl: () => '' },
+                getApiClient: () => api
+                    ? { getUrl: (n: string) => api.getUrl(n), accessToken: () => api.accessToken() }
+                    : { getUrl: () => '', accessToken: () => '' },
             });
             refreshStatusFn(view);
 

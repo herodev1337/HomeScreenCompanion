@@ -670,7 +670,7 @@ describe('checkForUpdates', () => {
         });
         const deps = {
             fetch: fetchMock as unknown as typeof fetch,
-            getApiClient: () => ({ getUrl: (name: string) => `/api/${name}` }),
+            getApiClient: () => ({ getUrl: (name: string) => `/api/${name}`, accessToken: () => '' }),
         };
 
         const view = document.createElement('div');
@@ -683,7 +683,7 @@ describe('checkForUpdates', () => {
         const footerVer = document.getElementById('footerVersionText')!;
         expect(footerVer.innerHTML).toContain('v1.2.3');
         expect(footerVer.innerHTML).toContain('/releases/tag/v1.2.3');
-        expect(fetchMock).toHaveBeenCalledWith('/api/HomeScreenCompanion/Version');
+        expect(fetchMock).toHaveBeenCalledWith('/api/HomeScreenCompanion/Version', { headers: {} });
     });
 
     it('stamps #footerUpdateInfo when GitHub reports a newer version', async () => {
@@ -699,7 +699,7 @@ describe('checkForUpdates', () => {
         });
         const deps = {
             fetch: fetchMock as unknown as typeof fetch,
-            getApiClient: () => ({ getUrl: (name: string) => `/api/${name}` }),
+            getApiClient: () => ({ getUrl: (name: string) => `/api/${name}`, accessToken: () => '' }),
         };
 
         const view = document.createElement('div');
@@ -720,7 +720,7 @@ describe('checkForUpdates', () => {
         const fetchMock = vi.fn().mockResolvedValue({ json: () => Promise.resolve({ Version: '' }) });
         const deps = {
             fetch: fetchMock as unknown as typeof fetch,
-            getApiClient: () => ({ getUrl: (name: string) => `/api/${name}` }),
+            getApiClient: () => ({ getUrl: (name: string) => `/api/${name}`, accessToken: () => '' }),
         };
 
         const view = document.createElement('div');
