@@ -66,3 +66,25 @@ dotnet build HomeScreenCompanion/HomeScreenCompanion.csproj -c Release
 
 `Configuration/configPage.js` and `Configuration/configPage.html` are embedded
 into the DLL via the csproj, so a normal rebuild/deploy picks up client changes.
+
+## Versioning & releases
+
+- `version.txt` (repo root) is the single source of truth for the plugin
+  version (4-part, e.g. `4.1.5.1`). Never hardcode a version in the csproj
+  or elsewhere — `HomeScreenCompanion.csproj` reads it for the
+  assembly/file version, appends `-<short commit sha>` for the
+  informational version (e.g. `4.1.5.1-1a2b3c4`), and
+  `ClientApp/rollup.config.mjs` reads it for the bundle footer.
+  The assembly version must stay purely numeric (Emby parses it).
+- `node scripts/bump-version.mjs [build|patch|minor|major|none]` bumps it
+  (default `build` = 4th segment) and prints the new version.
+- CI (`.github/workflows/build.yml`) releases on merge to `main` via PR, with
+  the bump type derived from the PR's head branch name (semver-style):
+  `fix/*` (also `bugfix/*`, `hotfix/*`) → patch, `feat/*` (also `feature/*`)
+  → minor, `breaking/*` (also `major/*`) → major. Direct pushes to `main`
+  (not from a PR merge) bump the 4th build segment. Merges from any other
+  branch name, and plain PR builds, only build + test — no tag/release.
+  On release the pipeline commits `version.txt` (`[skip ci]`), builds +
+  tests,   then creates tag `vX.Y.Z.B` and a GitHub release carrying the built
+  DLL. A manual `workflow_dispatch` overrides the bump type (`auto` =
+  derive from the selected branch, `none` = build only, no tag).

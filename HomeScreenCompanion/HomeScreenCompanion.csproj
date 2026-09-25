@@ -7,11 +7,28 @@
 		<AssemblyName>HomeScreenCompanion</AssemblyName>
 		<RootNamespace>HomeScreenCompanion</RootNamespace>
 
-		<Version>4.1.5.0-refactor</Version>
-
 		<Product>Home Screen Companion</Product>
 
+		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
 	</PropertyGroup>
+
+	<Target Name="ReadVersionFromFile" BeforeTargets="GetAssemblyVersion">
+		<ReadLinesFromFile File="$(MSBuildThisFileDirectory)../version.txt">
+			<Output TaskParameter="Lines" ItemName="VersionLines" />
+		</ReadLinesFromFile>
+		<PropertyGroup>
+			<Version>@(VersionLines, '')</Version>
+			<AssemblyVersion>@(VersionLines, '')</AssemblyVersion>
+			<FileVersion>@(VersionLines, '')</FileVersion>
+		</PropertyGroup>
+	</Target>
+
+	<Target Name="AppendCommitShaToInformationalVersion" BeforeTargets="AddSourceRevisionToInformationalVersion" Condition="'$(SourceRevisionId)' != ''">
+		<PropertyGroup>
+			<InformationalVersion>$(Version)-$(SourceRevisionId.Substring(0, 7))</InformationalVersion>
+		</PropertyGroup>
+	</Target>
 
 	<ItemGroup>
 	  <None Remove="Configuration\configPage.html" />

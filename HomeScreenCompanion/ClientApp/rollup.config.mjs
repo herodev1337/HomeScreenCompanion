@@ -4,16 +4,24 @@ import esbuild from 'rollup-plugin-esbuild';
 import replace from '@rollup/plugin-replace';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..');
 const OUT = path.resolve(REPO, 'Configuration/configPage.js');
 
 const pluginVersion = (() => {
-    const csproj = path.resolve(REPO, 'HomeScreenCompanion.csproj');
-    const txt = fs.readFileSync(csproj, 'utf8');
-    const m = txt.match(/<Version>\s*([0-9.]+)\s*<\/Version>/);
-    return m ? m[1] : '0.0.0';
+    const versionTxt = path.resolve(__dirname, '../../version.txt');
+    const txt = fs.readFileSync(versionTxt, 'utf8').trim();
+    return txt || '0.0.0';
+})();
+
+const commitSha = (() => {
+    try {
+        return execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+        return '';
+    }
 })();
 
 function rawTextPlugin() {
@@ -50,7 +58,7 @@ export default {
         generatedCode: { constBindings: false },
         inlineDynamicImports: true,
         banner: '/* GENERATED from HomeScreenCompanion/ClientApp/src by rollup - do not edit */',
-        footer: `/* Plugin v${pluginVersion} */`
+        footer: `/* Plugin v${pluginVersion}${commitSha ? '-' + commitSha : ''} */`
     },
     external: ['emby-input', 'emby-button', 'emby-select', 'emby-checkbox'],
     plugins: [
