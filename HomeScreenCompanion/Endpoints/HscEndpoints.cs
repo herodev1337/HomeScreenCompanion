@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace HomeScreenCompanion
 {
@@ -62,6 +63,64 @@ namespace HomeScreenCompanion
             };
         }
 
+        /// <summary>
+        /// Audit-plan v2 / Wave 2 / T2: typed status endpoint returning
+        /// the SDK <see cref="TaskInfo"/> directly. The new SDK-UI pages
+        /// (U7's LogsPage) bind to this shape.
+        /// </summary>
+        public object Get(HscGetStatusV2Request request)
+        {
+            List<string> logs;
+            lock (HomeSectionSyncTask.ExecutionLog) { logs = HomeSectionSyncTask.ExecutionLog.ToList(); }
+            return new HscStatusResponse
+            {
+                TaskInfo = BuildTaskInfo(),
+                Logs = logs,
+                StartedUtc = HomeSectionSyncTask.LastStartedUtc?.ToString("o") ?? "",
+                SectionsCopied = HomeSectionSyncTask.LastSectionsCopied
+            };
+        }
+
+        /// <summary>
+        /// Audit-plan v2 / Wave 2 / T2: typed run endpoint that wraps
+        /// the SDK's <see cref="HomeScreenCompanionTask.RunSingleEntryAsync"/>.
+        /// Returns the updated <see cref="HscStatusResponse"/> so the
+        /// SDK-UI can re-render from one roundtrip.
+        /// </summary>
+        public async Task<object> Post(HscRunRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.TagName))
+            {
+                return new HscStatusResponse { TaskInfo = BuildTaskInfo() };
+            }
+
+            var task = HomeScreenCompanionTask.Instance;
+            if (task != null)
+            {
+                try
+                {
+                    var (success, message) = await task.RunSingleEntryAsync(request.TagName, CancellationToken.None);
+                    if (!success)
+                    {
+                        _logger?.Warn("[HSC/Run] Tag '" + request.TagName + "' run failed: " + message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Warn("[HSC/Run] Tag '" + request.TagName + "' run threw: " + ex.Message);
+                }
+            }
+
+            List<string> logs;
+            lock (HomeScreenCompanionTask.ExecutionLog) { logs = HomeScreenCompanionTask.ExecutionLog.ToList(); }
+            return new HscStatusResponse
+            {
+                TaskInfo = BuildTaskInfo(),
+                Logs = logs,
+                StartedUtc = HomeScreenCompanionTask.LastStartedUtc?.ToString("o") ?? ""
+            };
+        }
+
         public object Get(HscGetUserSectionsRequest request)
         {
             try
@@ -90,29 +149,22 @@ namespace HomeScreenCompanion
 
         public object Get(HscDebugMethodsRequest request)
         {
+            // Audit-plan v2 / Wave 2 / T2: replaces the runtime reflection
+            // BFS over IUserManager with a static list of the methods the
+            // plugin actually uses. The SDK's IUserManager is stable, so
+            // we don't need runtime discovery — and avoiding reflection
+            // makes the endpoint AOT-friendly.
             var lines = new System.Text.StringBuilder();
             lines.AppendLine($"Runtime type: {_userManager.GetType().FullName}");
             lines.AppendLine();
-
-            var seen = new HashSet<Type>();
-            var queue = new Queue<Type>();
-            queue.Enqueue(_userManager.GetType());
-            while (queue.Count > 0)
-            {
-                var t = queue.Dequeue();
-                if (!seen.Add(t)) continue;
-                var relevant = t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                    .Where(m => m.Name.IndexOf("Section", StringComparison.OrdinalIgnoreCase) >= 0
-                             || m.Name.IndexOf("Move", StringComparison.OrdinalIgnoreCase) >= 0
-                             || m.Name.IndexOf("Home", StringComparison.OrdinalIgnoreCase) >= 0);
-                foreach (var m in relevant)
-                {
-                    var ps = string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name));
-                    lines.AppendLine($"  [{t.Name}] {m.ReturnType.Name} {m.Name}({ps})");
-                }
-                if (t.BaseType != null) queue.Enqueue(t.BaseType);
-                foreach (var iface in t.GetInterfaces()) queue.Enqueue(iface);
-            }
+            lines.AppendLine("IUserManager methods used by HomeScreenCompanion (typed, no reflection):");
+            lines.AppendLine("  long GetInternalId(string)");
+            lines.AppendLine("  void DeleteHomeSections(long, string[], CancellationToken)");
+            lines.AppendLine("  QueryResult<ContentSection> GetHomeSections(long, CancellationToken)");
+            lines.AppendLine("  void MoveHomeSections(long, string[], int, CancellationToken)");
+            lines.AppendLine("  void UpdateHomeSection(long, ContentSection, CancellationToken)");
+            lines.AppendLine("  User GetUserById(Guid)");
+            lines.AppendLine();
             return lines.ToString();
         }
 

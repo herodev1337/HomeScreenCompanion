@@ -59,6 +59,39 @@ namespace HomeScreenCompanion
         public string StartedUtc { get; set; } = "";
     }
 
+    /// <summary>
+    /// Typed status response for the SDK declarative-UI pages (U3/U7).
+    /// Holds the SDK <see cref="TaskInfo"/> directly so MainPageView /
+    /// LogsPageView can bind without unmarshalling string-encoded
+    /// legacy fields.
+    ///
+    /// Audit-plan v2 / Wave 2 / T2.
+    /// </summary>
+    public class HscStatusResponse
+    {
+        public MediaBrowser.Model.Tasks.TaskInfo TaskInfo { get; set; } = new MediaBrowser.Model.Tasks.TaskInfo();
+        public List<string> Logs { get; set; } = new List<string>();
+        public string StartedUtc { get; set; } = "";
+        public int SectionsCopied { get; set; }
+    }
+
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/StatusV2", "GET")]
+    [Authenticated]
+    public class HscGetStatusV2Request : MediaBrowser.Model.Services.IReturn<HscStatusResponse> { }
+
+    /// <summary>
+    /// Audit-plan v2 / Wave 2 / T2: typed run endpoint for
+    /// <see cref="TagRowEditDialog"/>'s RunTag button. Reuses the SDK
+    /// <see cref="MediaBrowser.Model.Tasks.TaskInfo"/> shape for the
+    /// response so the SDK-UI can bind directly.
+    /// </summary>
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/Run", "POST")]
+    [Authenticated(Roles = "Admin")]
+    public class HscRunRequest : MediaBrowser.Model.Services.IReturn<HscStatusResponse>
+    {
+        public string TagName { get; set; } = "";
+    }
+
     [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/UserSections", "GET")]
     [Authenticated]
     public class HscGetUserSectionsRequest : MediaBrowser.Model.Services.IReturn<HscUserSectionsResponse>

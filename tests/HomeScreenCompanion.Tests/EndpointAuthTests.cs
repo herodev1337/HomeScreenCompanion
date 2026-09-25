@@ -54,6 +54,7 @@ public class EndpointAuthTests
         "HscSaveUserSectionsRequest",
         "HscDebugMethodsRequest",
         "HscApplyTagHomeSectionsRequest",
+        "HscRunRequest",
         "TestAiSourceRequest"
     };
 
@@ -73,7 +74,8 @@ public class EndpointAuthTests
         "GetManualTopListItemsRequest",
         // DTOs.cs
         "HscGetUserSectionsRequest",
-        "HscGetSectionSchemaRequest"
+        "HscGetSectionSchemaRequest",
+        "HscGetStatusV2Request"
     };
 
     /// <summary>
@@ -95,7 +97,7 @@ public class EndpointAuthTests
         HscAssembly.EnsureAvailable();
 
         var routeDtos = RouteDtoTypes();
-        Assert.Equal(34, routeDtos.Count);
+        Assert.Equal(36, routeDtos.Count);
 
         var missing = routeDtos
             .Where(dto => FindAttribute(dto, AuthenticatedAttributeFullName) == null
