@@ -129,37 +129,15 @@ namespace HomeScreenCompanion
                 return false;
             }
 
-            var allItems = _libraryManager.GetItemList(new InternalItemsQuery
-            {
-                IncludeItemTypes = BuildItemTypes(config),
-                Recursive = true,
-                IsVirtualItem = false
-            }).ToList();
-
-            int movieCount = allItems.Count(i => i.GetType().Name.Contains("Movie"));
-            int seriesCount = allItems.Count(i => i.GetType().Name.Contains("Series"));
+            var lib = LoadLibrarySnapshot(config);
+            var allItems = lib.AllItems;
+            var imdbLookup = lib.ImdbLookup;
 
             _log.Rule();
             _log.Info($"Home Screen Companion v{Plugin.Instance?.Version}  ·  {startTime:yyyy-MM-dd HH:mm}  ·  Single group: {displayName}");
             if (dryRun) _log.Warn("DRY RUN — nothing will be changed, the log shows what would happen");
-            _log.Info($"  Library: {movieCount:N0} movies, {seriesCount:N0} series");
+            _log.Info($"  Library: {lib.MovieCount:N0} movies, {lib.SeriesCount:N0} series");
             _log.Rule();
-
-            var topListsFolder = Path.Combine(Plugin.Instance.DataFolderPath, "toplists") + Path.DirectorySeparatorChar;
-            var imdbLookup = new Dictionary<string, List<BaseItem>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in allItems)
-            {
-                if (item.LocationType != LocationType.FileSystem) continue;
-                if (!string.IsNullOrEmpty(item.Path) &&
-                    item.Path.StartsWith(topListsFolder, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                var imdb = item.GetProviderId("Imdb");
-                if (!string.IsNullOrEmpty(imdb))
-                {
-                    if (!imdbLookup.ContainsKey(imdb)) imdbLookup[imdb] = new List<BaseItem>();
-                    imdbLookup[imdb].Add(item);
-                }
-            }
 
             var gs = new GroupRunStats
             {
@@ -192,8 +170,8 @@ namespace HomeScreenCompanion
                 RunTimer = runTimer,
                 AllItems = allItems,
                 ImdbLookup = imdbLookup,
-                MovieCount = movieCount,
-                SeriesCount = seriesCount,
+                MovieCount = lib.MovieCount,
+                SeriesCount = lib.SeriesCount,
                 StatsList = new List<GroupRunStats> { gs },
                 StatsByGroupKey = new Dictionary<string, GroupRunStats>(StringComparer.OrdinalIgnoreCase) { [groupEntryKey] = gs },
                 EntryConfig = tagConfig,
