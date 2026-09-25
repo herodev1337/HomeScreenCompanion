@@ -563,26 +563,6 @@ namespace HomeScreenCompanion
             val.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
                .Any(id => string.Equals(itemImdb, id.Trim(), StringComparison.OrdinalIgnoreCase));
 
-        private static bool MatchesPerson(BaseItem item, string name, string type)
-        {
-            try
-            {
-                dynamic dynItem = item;
-                var people = dynItem.People;
-                if (people == null) return false;
-                foreach (dynamic p in people)
-                {
-                    string pType = p.Type?.ToString() ?? "";
-                    string pName = p.Name ?? "";
-                    if (string.Equals(pType, type, StringComparison.OrdinalIgnoreCase) &&
-                        pName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
-                        return true;
-                }
-            }
-            catch { }
-            return false;
-        }
-
         private static string? GetTitleName(BaseItem item)
         {
             if (item.GetType().Name.Contains("Episode"))
@@ -603,9 +583,6 @@ namespace HomeScreenCompanion
 
         private static bool IsViewerDependentCriterion(string cond) =>
             CriterionCatalog.IsViewerScoped(cond);
-
-        private static bool HasViewerCriteria(TagConfig tagConfig) =>
-            GetAllCriteria(tagConfig).Any(IsViewerDependentCriterion);
 
         private static bool IsViewerOnlyMediaInfoFilter(TagConfig tagConfig)
         {

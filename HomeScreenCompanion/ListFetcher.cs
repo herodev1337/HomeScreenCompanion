@@ -13,9 +13,7 @@ using HttpRequestOptions = MediaBrowser.Common.Net.HttpRequestOptions;
 namespace HomeScreenCompanion
 {
     /// <summary>
-    /// Tiny DTO the list fetchers return. Originally declared in
-    /// <c>DTOs.cs</c>; lifted here in Wave 2 / T1 since the only consumer
-    /// is <see cref="ListFetcher"/>. The fields are external-provider
+    /// Tiny DTO the list fetchers return. The fields are external-provider
     /// shape (MdbList / Trakt / TMDB) and do not match any SDK DTO.
     /// </summary>
     public class ExternalItemDto
