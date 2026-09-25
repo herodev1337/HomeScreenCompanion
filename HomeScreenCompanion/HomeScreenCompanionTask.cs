@@ -50,11 +50,11 @@ namespace HomeScreenCompanion
         // BuildSingleEntryContext (single entry) before any phase helper runs.
         private RunContext? _currentRunContext;
 
-        public static HomeScreenCompanionTask? Instance { get; private set; }
-        public static string LastRunStatus { get; private set; } = "Unknown (resets at server restart)";
-        public static List<string> ExecutionLog { get; } = new List<string>();
-        public static bool IsRunning => Instance?._runGate?.IsHeld ?? false;
-        public static DateTime? LastStartedUtc { get; private set; }
+        internal static HomeScreenCompanionTask? Instance { get; private set; }
+        internal static string LastRunStatus { get; private set; } = "Unknown (resets at server restart)";
+        internal static List<string> ExecutionLog { get; } = new List<string>();
+        internal static bool IsRunning => Instance?._runGate?.IsHeld ?? false;
+        internal static DateTime? LastStartedUtc { get; private set; }
 
         // Per-run state shims — backwards-compatible accessors that delegate to the
         // active RunContext. The phase helpers in Tagging/Collections/Playlists continue

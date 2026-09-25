@@ -38,8 +38,6 @@ namespace HomeScreenCompanion
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
-            AppPaths = applicationPaths;
-            XmlSerializer = xmlSerializer;
             _applicationHost = applicationHost;
             _logger = logManager.GetLogger("HomeScreenCompanion");
             _mainPageOptionsStore = new MainPageOptionsStore(
@@ -50,9 +48,7 @@ namespace HomeScreenCompanion
                 Name);
         }
 
-        public static Plugin? Instance { get; private set; }
-        public static IApplicationPaths AppPaths { get; private set; } = null!;
-        public static new IXmlSerializer XmlSerializer { get; private set; } = null!;
+        internal static Plugin? Instance { get; private set; }
 
         public IReadOnlyCollection<IPluginUIPageController> UIPageControllers
         {

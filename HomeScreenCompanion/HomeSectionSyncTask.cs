@@ -17,12 +17,12 @@ namespace HomeScreenCompanion
         private readonly IUserManager _userManager;
         private readonly ILogger _logger;
 
-        public static string LastSyncTime { get; private set; } = "Never";
-        public static bool IsRunning { get; private set; } = false;
-        public static string LastSyncResult { get; private set; } = "";
-        public static int LastSectionsCopied { get; private set; } = 0;
-        public static List<string> ExecutionLog { get; } = new List<string>();
-        public static DateTime? LastStartedUtc { get; private set; }
+        internal static string LastSyncTime { get; private set; } = "Never";
+        internal static bool IsRunning { get; private set; } = false;
+        internal static string LastSyncResult { get; private set; } = "";
+        internal static int LastSectionsCopied { get; private set; } = 0;
+        internal static List<string> ExecutionLog { get; } = new List<string>();
+        internal static DateTime? LastStartedUtc { get; private set; }
 
         public const string HscTaskKey = "HomeSectionSyncTask";
         public const string HscTaskName = "Home Screen Sync";

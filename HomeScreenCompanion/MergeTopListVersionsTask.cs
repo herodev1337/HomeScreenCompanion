@@ -21,10 +21,10 @@ namespace HomeScreenCompanion
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
 
-        public static List<string> ExecutionLog { get; } = new List<string>();
-        public static bool IsRunning { get; private set; } = false;
+        internal static List<string> ExecutionLog { get; } = new List<string>();
+        internal static bool IsRunning { get; private set; } = false;
         private static RunLog _log = new RunLog(ExecutionLog, null, "", false);
-        public static string LastRunStatus { get; private set; } = "Never";
+        internal static string LastRunStatus { get; private set; } = "Never";
 
         private readonly ILogger _logger;
 

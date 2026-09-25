@@ -9,7 +9,7 @@ namespace HomeScreenCompanion
 {
     public class TagCacheManager
     {
-        public static TagCacheManager Instance { get; } = new TagCacheManager();
+        internal static TagCacheManager Instance { get; } = new TagCacheManager();
 
         private static ILogger? Log;
 
@@ -29,7 +29,7 @@ namespace HomeScreenCompanion
 
         /// <summary>Wires an <see cref="ILogger"/> used to surface swallowed cache failures.
         /// Optional — without it the manager keeps its old silent-failure behaviour.</summary>
-        public static void SetLogger(ILogger logger) => Log = logger;
+        internal static void SetLogger(ILogger logger) => Log = logger;
 
         public void AddToCache(string providerId, string tag)
         {

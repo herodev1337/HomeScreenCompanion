@@ -22,11 +22,11 @@ namespace HomeScreenCompanion
         private readonly IJsonSerializer _jsonSerializer;
         private readonly ILogger _logger;
 
-        public static List<string> ExecutionLog { get; } = new List<string>();
-        public static bool IsRunning { get; private set; } = false;
-        public static DateTime? LastStartedUtc { get; private set; }
+        internal static List<string> ExecutionLog { get; } = new List<string>();
+        internal static bool IsRunning { get; private set; } = false;
+        internal static DateTime? LastStartedUtc { get; private set; }
         private static RunLog _log = new RunLog(ExecutionLog, null, "", false);
-        public static string LastRunStatus { get; private set; } = "Never";
+        internal static string LastRunStatus { get; private set; } = "Never";
 
         public TopListSyncTask(ILibraryManager libraryManager, IUserViewManager userViewManager, IUserManager userManager, IJsonSerializer jsonSerializer, ILogManager logManager)
         {

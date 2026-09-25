@@ -30,7 +30,7 @@ namespace HomeScreenCompanion
         /// <summary>Wires an <see cref="ILogger"/> used to surface network failures that
         /// previously turned silently into "0 items" when combined with
         /// <c>PreserveTagsOnEmptyResult=true</c>.</summary>
-        public static void SetLogger(ILogger logger) => _logger = logger;
+        internal static void SetLogger(ILogger logger) => _logger = logger;
 
         private readonly IHttpClient _httpClient;
         private readonly IJsonSerializer _jsonSerializer;
