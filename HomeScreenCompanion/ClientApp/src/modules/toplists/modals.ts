@@ -66,6 +66,10 @@ import type { FetchLike, PluginConfigLike, PrepareResultLike, TopListCreationDep
 import { executeTopListCreationSteps } from './creation';
 import { buildUserMultiSelectHtml, wireUserMultiSelect } from '../homesections/users';
 import { buildBadgePickerHtml, initBadgePicker, readBadgeStyle } from './badgePicker';
+import { createModalShell, type ModalShell } from './modalShell';
+import { renderDisplayModePresetOptions, renderImageTypePresetOptions } from './presetSelects';
+import { wireMovieSearch } from './moviePicker';
+import { sanitizeTlName } from './topListsTab';
 import { PLUGIN_ID } from '../state/state';
 import { escapeAttr, escapeHtml } from '../dom/dom';
 
@@ -230,12 +234,6 @@ function readEditJson(row: HTMLElement): EditJsonLike {
 function asManualMovie(m: unknown): ManualMovieRowLike {
     if (typeof m !== 'object' || m === null) return {};
     return m as ManualMovieRowLike;
-}
-
-/** Internal: strip filesystem-unsafe characters from a folder/tag name (legacy `sanitizeName`). */
-function sanitizeTlName(name: string | null | undefined): string {
-    const safe = (name || 'unknown').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+|\.+$/g, '').trim();
-    return safe.length === 0 ? 'unknown' : safe;
 }
 
 /** Read one of the `existingData` fields with a type-narrowing cast. */
@@ -530,19 +528,14 @@ export function showManualTopListModal(
     const colHeaderStyle = 'font-size:0.75em;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#52B54B;padding-bottom:10px;margin-bottom:12px;border-bottom:1px solid rgba(82,181,75,0.3);';
     const api = deps.getApiClient();
 
-    const modal = document.createElement('div');
-    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    const shell: ModalShell = createModalShell({ container: document.body, onClose: () => { /* shell cleanup only */ } });
+    const modal = shell.modal;
     modal.innerHTML =
         '<div style="background:var(--plugin-popup-bg,#2a2a2a);color:var(--plugin-popup-color,#e8e8e8);' +
         'border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;' +
         'padding:28px;max-width:720px;width:95%;max-height:90vh;overflow-y:auto;">' +
         '<div style="padding:10px 0;display:flex;align-items:center;gap:10px;">Loading <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>' +
         '</div>';
-    document.body.appendChild(modal);
-
-    function onEsc(e: KeyboardEvent): void { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', onEsc); } }
-    document.addEventListener('keydown', onEsc);
-    modal.addEventListener('click', (e) => { if (e.target === modal) { modal.remove(); document.removeEventListener('keydown', onEsc); } });
 
     const tok = api.accessToken();
 
@@ -569,21 +562,8 @@ export function showManualTopListModal(
             const presetImageType = existingObj ? readExistingString(existingObj, 'imageType') : '';
             const presetBadgeStyle = existingObj ? readExistingString(existingObj, 'badgeStyle') : '';
 
-            const displayOptions = [
-                { val: '', label: 'Always' },
-                { val: 'tv', label: 'When TV Display Mode is on' },
-                { val: 'mobile,desktop', label: 'When TV Display Mode is off' }
-            ].map((o) => {
-                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
-            }).join('');
-
-            const imageOptions = [
-                { val: '', label: 'Auto' },
-                { val: 'Primary', label: 'Primary' },
-                { val: 'Thumb', label: 'Thumb' }
-            ].map((o) => {
-                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
-            }).join('');
+            const displayOptions = renderDisplayModePresetOptions(presetDisplay);
+            const imageOptions = renderImageTypePresetOptions(presetImageType);
 
             const titleText = isEdit ? 'Edit Manual Top-List' : 'Create Manual Top-List';
             const createBtnLabel = isEdit ? 'Save changes' : 'Create top-list';
@@ -700,8 +680,8 @@ export function showManualTopListModal(
 
             const closeBtn2 = modal.querySelector<HTMLButtonElement>('.btnMtlClose');
             const cancelBtn2 = modal.querySelector<HTMLButtonElement>('.btnMtlCancel');
-            if (closeBtn2) closeBtn2.addEventListener('click', () => { modal.remove(); document.removeEventListener('keydown', onEsc); });
-            if (cancelBtn2) cancelBtn2.addEventListener('click', () => { modal.remove(); document.removeEventListener('keydown', onEsc); });
+            if (closeBtn2) closeBtn2.addEventListener('click', () => shell.close());
+            if (cancelBtn2) cancelBtn2.addEventListener('click', () => shell.close());
 
             const listNameInput = modal.querySelector<HTMLInputElement>('.mtlListName');
             if (listNameInput) listNameInput.addEventListener('input', updateCreateBtn);
@@ -714,54 +694,24 @@ export function showManualTopListModal(
             const resultsBox = modal.querySelector<HTMLElement>('.mtlSearchResults');
             if (!searchInput || !resultsBox) return;
 
-            function showSearchResults(q: string): void {
-                q = (q || '').trim().toLowerCase();
-                if (q.length < 1) { resultsBox!.style.display = 'none'; resultsBox!.innerHTML = ''; return; }
-                const hits = allMovies.filter((m) => {
-                    const name = (m.Name || '').toLowerCase();
-                    const yearMatch = m.Year != null && String(m.Year).indexOf(q) !== -1;
-                    return name.indexOf(q) !== -1 || yearMatch;
-                }).slice(0, 20);
-                if (hits.length === 0) { resultsBox!.style.display = 'none'; return; }
-                const alreadyIds = new Set(selectedMovies.map((m) => m.ItemId));
-                resultsBox!.innerHTML = hits.map((m) => {
-                    const itemId = typeof m.ItemId === 'string' ? m.ItemId : '';
-                    const added = itemId ? alreadyIds.has(itemId) : false;
-                    const label = escapeHtml(m.Name || '') + (m.Year != null ? ' (' + m.Year + ')' : '');
-                    return '<div class="mtlSearchResult" data-itemid="' + escapeAttr(itemId) + '"' +
-                        ' data-imdbid="' + escapeAttr(m.ImdbId || '') + '"' +
-                        ' data-name="' + escapeAttr(m.Name || '') + '"' +
-                        ' data-year="' + escapeAttr(String(m.Year || '')) + '"' +
-                        ' style="padding:7px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid rgba(128,128,128,0.12);' +
-                        (added ? 'opacity:0.42;pointer-events:none;' : '') + '">' +
-                        label + (added ? ' <span style="font-size:0.8em;">(already added)</span>' : '') + '</div>';
-                }).join('');
-                resultsBox!.style.display = 'block';
-            }
-
-            searchInput.addEventListener('input', function () { showSearchResults(this.value); });
-            searchInput.addEventListener('focus', function () { showSearchResults(this.value); });
-
-            resultsBox.addEventListener('mousedown', (e) => {
-                const row = (e.target as Element | null)?.closest<HTMLElement>('.mtlSearchResult');
-                if (!row || !row.dataset.itemid) return;
-                e.preventDefault();
-                const itemId = row.dataset.itemid;
-                if (selectedMovies.some((m) => m.ItemId === itemId)) return;
-                selectedMovies.push({
-                    ItemId: itemId,
-                    ImdbId: row.dataset.imdbid || '',
-                    Name: row.dataset.name || '',
-                    Year: row.dataset.year ? parseInt(row.dataset.year, 10) : null
-                });
-                searchInput.value = '';
-                resultsBox.style.display = 'none';
-                renderSelectedList();
-                updateCreateBtn();
-            });
-
-            searchInput.addEventListener('blur', () => {
-                setTimeout(() => { resultsBox.style.display = 'none'; }, 150);
+            wireMovieSearch({
+                searchInput,
+                resultsBox,
+                allMovies,
+                getSelectedIds: () => new Set(selectedMovies.map((m) => m.ItemId)),
+                onPick: (item) => {
+                    if (selectedMovies.some((m) => m.ItemId === item.ItemId)) return;
+                    selectedMovies.push({
+                        ItemId: item.ItemId,
+                        ImdbId: item.ImdbId,
+                        Name: item.Name,
+                        Year: item.Year,
+                    });
+                    searchInput.value = '';
+                    resultsBox.style.display = 'none';
+                    renderSelectedList();
+                    updateCreateBtn();
+                },
             });
 
             const selectedListEl = modal.querySelector<HTMLElement>('.mtlSelectedList');
@@ -840,8 +790,7 @@ export function showManualTopListModal(
                             prepareResult,
                             ui,
                             () => {
-                                document.removeEventListener('keydown', onEsc);
-                                modal.remove();
+                                shell.close();
                                 if (typeof onSuccess === 'function') onSuccess();
                             },
                             tlDeps,
@@ -863,7 +812,7 @@ export function showManualTopListModal(
                 '<button type="button" class="btnMtlClose" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:inherit;border-radius:3px;padding:6px 14px;font-size:0.9em;">Close</button>' +
                 '</div>';
             const closeBtn3 = modal.querySelector<HTMLButtonElement>('.btnMtlClose');
-            if (closeBtn3) closeBtn3.addEventListener('click', () => { modal.remove(); document.removeEventListener('keydown', onEsc); });
+            if (closeBtn3) closeBtn3.addEventListener('click', () => shell.close());
         });
 }
 
@@ -943,21 +892,8 @@ export function loadInlineEditForm(
 
             const usersHtml = deps.buildUserMultiSelectHtml(users, presetUserIds, 'chkMtlUser');
 
-            const displayOptions = [
-                { val: '', label: 'Always' },
-                { val: 'tv', label: 'When TV Display Mode is on' },
-                { val: 'mobile,desktop', label: 'When TV Display Mode is off' }
-            ].map((o) => {
-                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
-            }).join('');
-
-            const imageOptions = [
-                { val: '', label: 'Auto' },
-                { val: 'Primary', label: 'Primary' },
-                { val: 'Thumb', label: 'Thumb' }
-            ].map((o) => {
-                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
-            }).join('');
+            const displayOptions = renderDisplayModePresetOptions(presetDisplay);
+            const imageOptions = renderImageTypePresetOptions(presetImageType);
 
             const wrapper = document.createElement('div');
             wrapper.innerHTML =
@@ -1049,46 +985,23 @@ export function loadInlineEditForm(
             const resultsBox2 = wrapper.querySelector<HTMLElement>('.mtlSearchResults');
             if (!searchInput2 || !resultsBox2) return;
 
-            function showSearchResults2(q: string): void {
-                q = (q || '').trim().toLowerCase();
-                if (q.length < 1) { resultsBox2!.style.display = 'none'; resultsBox2!.innerHTML = ''; return; }
-                const alreadyIds = new Set(selectedMovies.map((m) => m.ItemId));
-                const hits = allMovies.filter((m) => {
-                    const name = (m.Name || '').toLowerCase();
-                    const yearMatch = m.Year != null && String(m.Year).indexOf(q) !== -1;
-                    return name.indexOf(q) !== -1 || yearMatch;
-                }).slice(0, 20);
-                if (hits.length === 0) { resultsBox2!.style.display = 'none'; return; }
-                resultsBox2!.innerHTML = hits.map((m) => {
-                    const itemId = typeof m.ItemId === 'string' ? m.ItemId : '';
-                    const added = itemId ? alreadyIds.has(itemId) : false;
-                    const lbl = escapeHtml(m.Name || '') + (m.Year != null ? ' (' + m.Year + ')' : '');
-                    return '<div class="mtlSearchResult" data-itemid="' + escapeAttr(itemId) + '" data-imdbid="' + escapeAttr(m.ImdbId || '') + '" data-name="' + escapeAttr(m.Name || '') + '" data-year="' + escapeAttr(String(m.Year || '')) + '" style="padding:7px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid rgba(128,128,128,0.12);' + (added ? 'opacity:0.42;pointer-events:none;' : '') + '">' + lbl + (added ? ' <span style="font-size:0.8em;">(already added)</span>' : '') + '</div>';
-                }).join('');
-                resultsBox2!.style.display = 'block';
-            }
-
-            searchInput2.addEventListener('input', function () { showSearchResults2(this.value); });
-            searchInput2.addEventListener('focus', function () { showSearchResults2(this.value); });
-            searchInput2.addEventListener('blur', () => {
-                setTimeout(() => { resultsBox2.style.display = 'none'; }, 150);
-            });
-
-            resultsBox2.addEventListener('mousedown', (e) => {
-                const resultRow = (e.target as Element | null)?.closest<HTMLElement>('.mtlSearchResult');
-                if (!resultRow || !resultRow.dataset.itemid) return;
-                e.preventDefault();
-                const itemId = resultRow.dataset.itemid;
-                if (selectedMovies.some((m) => m.ItemId === itemId)) return;
-                selectedMovies.push({
-                    ItemId: itemId,
-                    ImdbId: resultRow.dataset.imdbid || '',
-                    Name: resultRow.dataset.name || '',
-                    Year: resultRow.dataset.year ? parseInt(resultRow.dataset.year, 10) : null
-                });
-                searchInput2.value = '';
-                resultsBox2.style.display = 'none';
-                renderSelectedList();
+            wireMovieSearch({
+                searchInput: searchInput2,
+                resultsBox: resultsBox2,
+                allMovies,
+                getSelectedIds: () => new Set(selectedMovies.map((m) => m.ItemId)),
+                onPick: (item) => {
+                    if (selectedMovies.some((m) => m.ItemId === item.ItemId)) return;
+                    selectedMovies.push({
+                        ItemId: item.ItemId,
+                        ImdbId: item.ImdbId,
+                        Name: item.Name,
+                        Year: item.Year,
+                    });
+                    searchInput2.value = '';
+                    resultsBox2.style.display = 'none';
+                    renderSelectedList();
+                },
             });
 
             const selectedListEl2 = wrapper.querySelector<HTMLElement>('.mtlSelectedList');
@@ -1395,13 +1308,8 @@ export function showCreateTopListChooser(
         'border:1px solid var(--plugin-popup-border,rgba(255,255,255,0.12));border-radius:8px;' +
         'padding:28px;max-width:480px;width:90%;max-height:85vh;overflow-y:auto;';
 
-    const modal = document.createElement('div');
-    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    document.body.appendChild(modal);
-
-    function onEsc(e: KeyboardEvent): void { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', onEsc); } }
-    document.addEventListener('keydown', onEsc);
-    modal.addEventListener('click', (e) => { if (e.target === modal) { modal.remove(); document.removeEventListener('keydown', onEsc); } });
+    const shell: ModalShell = createModalShell({ container: document.body, onClose: () => { /* shell cleanup only */ } });
+    const modal = shell.modal;
 
     function renderStep1(): void {
         modal.innerHTML =
@@ -1426,7 +1334,7 @@ export function showCreateTopListChooser(
             '</div>';
 
         const closeBtn = modal.querySelector<HTMLButtonElement>('.btnChooserClose');
-        if (closeBtn) closeBtn.addEventListener('click', () => { modal.remove(); document.removeEventListener('keydown', onEsc); });
+        if (closeBtn) closeBtn.addEventListener('click', () => shell.close());
 
         const btnManualCard = modal.querySelector<HTMLButtonElement>('.btnChooseManual');
         const btnByTagCard = modal.querySelector<HTMLButtonElement>('.btnChooseByTag');
@@ -1439,8 +1347,7 @@ export function showCreateTopListChooser(
 
         if (btnManualCard) {
             btnManualCard.addEventListener('click', () => {
-                modal.remove();
-                document.removeEventListener('keydown', onEsc);
+                shell.close();
                 deps.showManualTopListModal(onSuccess, undefined, deps);
             });
         }
@@ -1489,7 +1396,7 @@ export function showCreateTopListChooser(
 
         const closeBtn2 = modal.querySelector<HTMLButtonElement>('.btnChooserClose');
         const backBtn = modal.querySelector<HTMLButtonElement>('.btnChooserBack');
-        if (closeBtn2) closeBtn2.addEventListener('click', () => { modal.remove(); document.removeEventListener('keydown', onEsc); });
+        if (closeBtn2) closeBtn2.addEventListener('click', () => shell.close());
         if (backBtn) backBtn.addEventListener('click', () => { renderStep1(); });
 
         const searchInput = modal.querySelector<HTMLInputElement>('#tlChooserSearch');
@@ -1507,8 +1414,7 @@ export function showCreateTopListChooser(
             btn.addEventListener('mouseout', function () { this.style.background = 'transparent'; });
             btn.addEventListener('click', function () {
                 const tagName = this.dataset.name;
-                modal.remove();
-                document.removeEventListener('keydown', onEsc);
+                shell.close();
                 deps.showTopListModal(tagName || null, tagName || null, onSuccess, undefined, deps);
             });
         });

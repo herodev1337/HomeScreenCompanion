@@ -92,6 +92,17 @@ interface TopListRowItem {
 /** The `#tlContainer` element plus the legacy `_tlClickHandler` expando. */
 type TlContainer = HTMLElement & { _tlClickHandler?: (e: MouseEvent) => void };
 
+/**
+ * Strip filesystem-unsafe characters from a folder/tag name. Lifted to
+ * module scope so {@link sanitizeTlName} can be shared with the
+ * `modals.ts` chooser (which needs the same canonical name to detect
+ * already-existing top-list folders).
+ */
+export function sanitizeTlName(name: string | null | undefined): string {
+    const safe = (name || 'unknown').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+|\.+$/g, '').trim();
+    return safe.length === 0 ? 'unknown' : safe;
+}
+
 // Note: `GroupEntry` was previously declared here as a dead-code carryover
 // from the legacy port; it is no longer referenced and has been removed.
 
@@ -152,11 +163,6 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
         const topListListResult = results[3] as TopListListResultLike;
         const pluginConfig = results[2] as PluginConfigWithTagsLike;
         const existingTopLists = new Set((topListListResult.FolderNames || []).map(function (n) { return n.toLowerCase(); }));
-
-        function sanitizeTlName(name: string | null | undefined) {
-            const safe = (name || 'unknown').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+|\.+$/g, '').trim();
-            return safe.length === 0 ? 'unknown' : safe;
-        }
 
         const searchInputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:5px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:400px;max-width:100%;';
 

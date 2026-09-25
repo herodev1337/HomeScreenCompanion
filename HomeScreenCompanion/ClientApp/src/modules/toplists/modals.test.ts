@@ -27,6 +27,7 @@ import type { HscUserLike } from '../homesections/hscTab';
 import { createTopListsState, createHseUserCacheState, PLUGIN_ID } from '../state/state';
 import { buildUserMultiSelectHtml, wireUserMultiSelect } from '../homesections/users';
 import { buildBadgePickerHtml, initBadgePicker, readBadgeStyle } from './badgePicker';
+import { renderDisplayModePresetOptions, renderImageTypePresetOptions } from './presetSelects';
 
 const USERS: readonly HscUserLike[] = [
     { Id: 'u1', Name: 'Alice' },
@@ -493,5 +494,227 @@ describe('loadInlineEditForm', () => {
         customName!.value = 'Modified';
         customName!.dispatchEvent(new Event('input', { bubbles: true }));
         expect(body.dataset.dirty).toBe('1');
+    });
+});
+
+// ─── D3 extracted modules — integration assertions ───────────────────────────
+//
+// Each test pins one of the three extracted helpers (modalShell,
+// moviePicker, presetSelects) by asserting the host modal exercises it
+// the way the dedup'd call sites do. These complement the unit tests in
+// `modalShell.test.ts` / `moviePicker.test.ts` / `presetSelects.test.ts`.
+
+describe('D3 extracted modules (integration)', () => {
+    // ── modalShell: showCreateTopListChooser + showManualTopListModal both
+    // route through createModalShell, so Escape closes them idempotently.
+    it('modalShell: showCreateTopListChooser closes on Escape and does not double-fire', () => {
+        const deps = makeDeps();
+        showCreateTopListChooser([], new Set(), vi.fn(), deps);
+        const modal = document.body.firstElementChild as HTMLElement | null;
+        expect(modal).not.toBeNull();
+        expect(document.body.contains(modal)).toBe(true);
+
+        // Multiple Escape presses — only the first should remove the
+        // modal (the second arrives after `closed = true` and is a no-op).
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+        expect(document.body.contains(modal)).toBe(false);
+    });
+
+    it('modalShell: showManualTopListModal closes on Escape and does not double-fire', async () => {
+        const deps = makeDeps();
+        showManualTopListModal(vi.fn(), undefined, deps);
+        await flush();
+        const modal = document.body.firstElementChild as HTMLElement | null;
+        expect(modal).not.toBeNull();
+        expect(document.body.contains(modal)).toBe(true);
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+        expect(document.body.contains(modal)).toBe(false);
+    });
+
+    // ── moviePicker: the manual-modal search path and the inline-edit
+    // (saved-list) path both render the same row HTML for the same item.
+    async function renderManualModalSearchRow(): Promise<HTMLElement> {
+        const fetchMock = vi.fn((url: string) => {
+            if (url.endsWith('/TopList/AllMovies')) {
+                return Promise.resolve({
+                    json: () => Promise.resolve({
+                        Movies: [
+                            { ItemId: 'm1', ImdbId: 'tt1', Name: 'Inception', Year: 2010 },
+                        ]
+                    })
+                });
+            }
+            return Promise.resolve({ json: () => Promise.resolve({}) });
+        });
+        const deps = makeDeps({ fetch: fetchMock as unknown as FetchLike });
+        showManualTopListModal(vi.fn(), undefined, deps);
+        await flush();
+        const modal = document.body.firstElementChild as HTMLElement | null;
+        const searchInput = modal?.querySelector<HTMLInputElement>('.mtlMovieSearch');
+        expect(searchInput).not.toBeNull();
+        searchInput!.value = 'incep';
+        searchInput!.dispatchEvent(new Event('input', { bubbles: true }));
+        await flush();
+        const row = modal?.querySelector<HTMLElement>('.mtlSearchResult');
+        expect(row).not.toBeNull();
+        return row!;
+    }
+
+    async function renderInlineEditSearchRow(): Promise<HTMLElement> {
+        const fetchMock = vi.fn((url: string) => {
+            if (url.endsWith('/TopList/AllMovies')) {
+                return Promise.resolve({
+                    json: () => Promise.resolve({
+                        Movies: [
+                            { ItemId: 'm1', ImdbId: 'tt1', Name: 'Inception', Year: 2010 },
+                        ]
+                    })
+                });
+            }
+            if (url.includes('/TopList/ManualItems')) {
+                return Promise.resolve({
+                    json: () => Promise.resolve({
+                        Success: true,
+                        UserIds: [],
+                        DisplayMode: '',
+                        ImageType: '',
+                        BadgeStyle: 'neutral',
+                        CustomName: '',
+                        Movies: [],
+                    })
+                });
+            }
+            return Promise.resolve({ json: () => Promise.resolve({}) });
+        });
+        const deps = makeDeps({ fetch: fetchMock as unknown as FetchLike });
+        document.body.innerHTML = '';
+        const row = document.createElement('div');
+        row.className = 'tag-row';
+        row.dataset.editjson = JSON.stringify({
+            tagName: 'ManualList',
+            isManual: true,
+            displayName: 'Manual List',
+        });
+        const body = document.createElement('div');
+        body.className = 'tag-body';
+        row.appendChild(body);
+        document.body.appendChild(row);
+        loadInlineEditForm(row as HTMLElement, body as HTMLElement, vi.fn(), deps);
+        await flush();
+        const wrapper = body.querySelector('div') as HTMLElement;
+        const searchInput = wrapper?.querySelector<HTMLInputElement>('.mtlMovieSearch');
+        expect(searchInput).not.toBeNull();
+        searchInput!.value = 'incep';
+        searchInput!.dispatchEvent(new Event('input', { bubbles: true }));
+        await flush();
+        const resultRow = wrapper?.querySelector<HTMLElement>('.mtlSearchResult');
+        expect(resultRow).not.toBeNull();
+        return resultRow!;
+    }
+
+    it('moviePicker: search-result row HTML is identical for the manual modal and the inline-edit (saved) paths', async () => {
+        const searchPathRow = await renderManualModalSearchRow();
+        document.body.innerHTML = '';
+        const savedPathRow = await renderInlineEditSearchRow();
+
+        // Same item, same itemId / imdbId / name / year data-* attributes,
+        // same row markup — the dedup surface the audit called out
+        // (`:683≡:1037`, `:735≡:1070`).
+        expect(savedPathRow.outerHTML).toBe(searchPathRow.outerHTML);
+    });
+
+    // ── presetSelects: the manual modal and the inline-edit form render
+    // the same `<option>` markup for the same preset value.
+    it('presetSelects: display-mode and image-type selects share the same options from both call sites', async () => {
+        const fetchMock = vi.fn((url: string) => {
+            if (url.endsWith('/TopList/AllMovies')) {
+                return Promise.resolve({
+                    json: () => Promise.resolve({
+                        Movies: [],
+                    })
+                });
+            }
+            if (url.includes('/TopList/ManualItems')) {
+                return Promise.resolve({
+                    json: () => Promise.resolve({
+                        Success: true,
+                        UserIds: [],
+                        DisplayMode: 'tv',
+                        ImageType: 'Thumb',
+                        BadgeStyle: 'neutral',
+                        CustomName: '',
+                        Movies: [],
+                    })
+                });
+            }
+            return Promise.resolve({ json: () => Promise.resolve({}) });
+        });
+        const deps = makeDeps({ fetch: fetchMock as unknown as FetchLike });
+
+        // 1. showManualTopListModal call site — no existingData, so no
+        // option is marked selected. Compare its option fingerprint to
+        // the extracted helper called with `''`.
+        showManualTopListModal(vi.fn(), undefined, deps);
+        await flush();
+        const modal = document.body.firstElementChild as HTMLElement | null;
+        const displaySel1 = modal?.querySelector<HTMLSelectElement>('.mtlDisplayMode');
+        const imageSel1 = modal?.querySelector<HTMLSelectElement>('.mtlImageType');
+
+        // 2. loadInlineEditForm manual branch — seeded with the same
+        // preset values via existingData.
+        document.body.innerHTML = '';
+        const row = document.createElement('div');
+        row.className = 'tag-row';
+        row.dataset.editjson = JSON.stringify({
+            tagName: 'ManualList',
+            isManual: true,
+            displayName: 'Manual List',
+            displayMode: 'tv',
+            imageType: 'Thumb',
+        });
+        const body = document.createElement('div');
+        body.className = 'tag-body';
+        row.appendChild(body);
+        document.body.appendChild(row);
+        loadInlineEditForm(row as HTMLElement, body as HTMLElement, vi.fn(), deps);
+        await flush();
+        const wrapper = body.querySelector('div') as HTMLElement;
+        const displaySel2 = wrapper?.querySelector<HTMLSelectElement>('.mtlDisplayMode');
+        const imageSel2 = wrapper?.querySelector<HTMLSelectElement>('.mtlImageType');
+
+        // The selected placement follows existingData — the saved-path
+        // select must carry the right selected attribute.
+        expect(displaySel2?.value).toBe('tv');
+        expect(imageSel2?.value).toBe('Thumb');
+
+        // The crucial dedup assertion — the option set (values +
+        // labels, ignoring `selected` placement) is identical at both
+        // call sites. The fingerprint strips happy-dom's `selected=""`
+        // normalization so it matches the helper's bare `selected`.
+        const optionFingerprint = (html: string): string[] => {
+            const matches = html.match(/<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g) || [];
+            return matches.map((m) => m.replace(/\s+selected(?:="")?/g, ''));
+        };
+        const displayFingerprint1 = optionFingerprint(displaySel1?.innerHTML ?? '');
+        const displayFingerprint2 = optionFingerprint(displaySel2?.innerHTML ?? '');
+        const imageFingerprint1 = optionFingerprint(imageSel1?.innerHTML ?? '');
+        const imageFingerprint2 = optionFingerprint(imageSel2?.innerHTML ?? '');
+
+        expect(displayFingerprint1).toEqual(displayFingerprint2);
+        expect(imageFingerprint1).toEqual(imageFingerprint2);
+        // And both fingerprints equal the extracted helper's output for
+        // the same preset — proving the modal hands the option list off
+        // to the helper verbatim.
+        expect(displayFingerprint2).toEqual(
+            optionFingerprint(renderDisplayModePresetOptions('tv')),
+        );
+        expect(imageFingerprint2).toEqual(
+            optionFingerprint(renderImageTypePresetOptions('Thumb')),
+        );
     });
 });
