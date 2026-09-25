@@ -231,7 +231,7 @@ namespace HomeScreenCompanion
 
                         var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                         try { settings = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(tl.HomeSectionSettings) ?? settings; }
-                        catch { }
+                        catch (Exception ex) { _logger.Warn($"[Backup] Settings parse failed for top-list '{tl.TagName}': {ex.Message}"); }
                         var badgeStyle = settings.TryGetValue("BadgeStyle", out var bs) && !string.IsNullOrEmpty(bs) ? bs : "neutral";
                         var folderPath = Path.Combine(dataPath, "toplists", SanitizeFolderName(tl.TagName));
 
@@ -323,7 +323,11 @@ namespace HomeScreenCompanion
                     set.Add(u.Id.ToString("N"));
                 return set;
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Backup] LoadKnownUserIds failed: {ex.Message}");
+                return null;
+            }
         }
 
         private static bool IsKnownUser(HashSet<string>? known, string? userId)
@@ -361,14 +365,16 @@ namespace HomeScreenCompanion
             if (isCurrentFormat)
             {
                 BackupFile? file = null;
-                try { file = _jsonSerializer.DeserializeFromString<BackupFile>(json); } catch { }
+                try { file = _jsonSerializer.DeserializeFromString<BackupFile>(json); }
+                catch (Exception ex) { _logger.Warn($"[Backup] Current-format parse failed: {ex.Message}"); }
                 if (file == null) return null;
                 file.Sections ??= new List<string>();
                 return file;
             }
 
             PluginConfiguration? legacy = null;
-            try { legacy = _jsonSerializer.DeserializeFromString<PluginConfiguration>(json); } catch { }
+            try { legacy = _jsonSerializer.DeserializeFromString<PluginConfiguration>(json); }
+            catch (Exception ex) { _logger.Warn($"[Backup] Legacy-format parse failed: {ex.Message}"); }
             if (legacy == null) return null;
             bool HasKey(string key) => Regex.IsMatch(json, "\"" + key + "\"\\s*:");
             var result = new BackupFile { BackupVersion = 1 };

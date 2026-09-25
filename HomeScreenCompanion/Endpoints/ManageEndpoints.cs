@@ -38,7 +38,7 @@ namespace HomeScreenCompanion
                 foreach (var extra in _libraryManager.GetItemList(extraQuery))
                     if (seenIds.Add(extra.Id)) allItems.Add(extra);
             }
-            catch { }
+            catch (Exception ex) { _logger.Warn($"[Manage] GetManagedTags: fetch extras failed: {ex.Message}"); }
 
             var tagCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var tagMovieKeys = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -142,7 +142,7 @@ namespace HomeScreenCompanion
                 if (item.Tags == null) continue;
                 item.RemoveTag(tagName);
                 try { _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null); updated++; }
-                catch { /* best effort */ }
+                catch (Exception ex) { _logger.Warn($"[Manage] UpdateItem failed for '{item.Name}': {ex.Message}"); }
             }
             return new DeleteManagedTagResponse { Success = true, ItemsUpdated = updated };
         }
@@ -186,7 +186,7 @@ namespace HomeScreenCompanion
                 foreach (var extra in _libraryManager.GetItemList(extraQuery))
                     if (seenIds.Add(extra.Id)) allItems.Add(extra);
             }
-            catch { }
+            catch (Exception ex) { _logger.Warn($"[Manage] DeleteManagedTagsBatch: fetch extras failed: {ex.Message}"); }
 
             int updated = 0;
             foreach (var item in allItems)
@@ -203,7 +203,7 @@ namespace HomeScreenCompanion
                 }
                 if (!changed) continue;
                 try { _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null); updated++; }
-                catch { /* best effort */ }
+                catch (Exception ex) { _logger.Warn($"[Manage] UpdateItem failed for '{item.Name}': {ex.Message}"); }
             }
             return new DeleteManagedTagsResponse { Success = true, ItemsUpdated = updated };
         }

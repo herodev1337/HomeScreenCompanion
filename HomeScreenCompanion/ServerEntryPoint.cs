@@ -38,6 +38,8 @@ namespace HomeScreenCompanion
         {
             if (Plugin.Instance == null) return;
             RunAutoMigration();
+            TagCacheManager.SetLogger(_logger);
+            ListFetcher.SetLogger(_logger);
             TagCacheManager.Instance.Initialize(Plugin.Instance.DataFolderPath, _jsonSerializer);
 
             _libraryManager.ItemAdded += OnItemChanged;
@@ -108,7 +110,7 @@ namespace HomeScreenCompanion
             }
             catch (Exception ex)
             {
-                _logger.Error("[Migration] Migration failed: " + ex.Message);
+                _logger.ErrorException("[Migration] Migration failed: " + ex.Message, ex);
             }
         }
 
@@ -220,13 +222,13 @@ namespace HomeScreenCompanion
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error("[TopList] ProcessTopListStrmItem(bg) error: " + ex.Message);
+                        _logger.ErrorException("[TopList] ProcessTopListStrmItem(bg) error: " + ex.Message, ex);
                     }
                 });
             }
             catch (Exception ex)
             {
-                _logger.Error("[TopList] ProcessTopListStrmItem error: " + ex.Message);
+                _logger.ErrorException("[TopList] ProcessTopListStrmItem error: " + ex.Message, ex);
             }
         }
 

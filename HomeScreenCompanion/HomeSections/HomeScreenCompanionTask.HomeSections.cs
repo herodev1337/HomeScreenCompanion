@@ -6,6 +6,7 @@ using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Serialization;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -373,9 +374,9 @@ namespace HomeScreenCompanion
                     object converted = null;
                     if (t == typeof(string)) converted = strVal;
                     else if (t == typeof(bool)) converted = bool.Parse(strVal);
-                    else if (t == typeof(int)) converted = int.Parse(strVal);
-                    else if (t == typeof(long)) converted = long.Parse(strVal);
-                    else if (t == typeof(DateTime)) converted = DateTime.Parse(strVal);
+                    else if (t == typeof(int)) converted = int.Parse(strVal, NumberStyles.Integer, CultureInfo.InvariantCulture);
+                    else if (t == typeof(long)) converted = long.Parse(strVal, NumberStyles.Integer, CultureInfo.InvariantCulture);
+                    else if (t == typeof(DateTime)) converted = DateTime.Parse(strVal, CultureInfo.InvariantCulture);
                     else if (t.IsEnum) { try { converted = Enum.Parse(t, strVal, true); } catch { } }
                     if (converted != null)
                         prop.SetValue(section, converted);
@@ -539,6 +540,8 @@ namespace HomeScreenCompanion
                         {
                             var t = Nullable.GetUnderlyingType(qProp.PropertyType) ?? qProp.PropertyType;
                             if (t == typeof(bool)) qProp.SetValue(extQuery, bool.Parse(val));
+                            else if (t == typeof(int)) qProp.SetValue(extQuery, int.Parse(val, NumberStyles.Integer, CultureInfo.InvariantCulture));
+                            else if (t == typeof(long)) qProp.SetValue(extQuery, long.Parse(val, NumberStyles.Integer, CultureInfo.InvariantCulture));
                             else if (t == typeof(string)) qProp.SetValue(extQuery, val);
                         }
                         catch { }

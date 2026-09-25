@@ -44,7 +44,7 @@ namespace HomeScreenCompanion
                         return s; // ThemeSong, ThemeVideo, Trailer, BehindTheScenes, etc.
                 }
             }
-            catch { }
+            catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException) { }
             return item.GetType().Name;
         }
 
@@ -200,7 +200,7 @@ namespace HomeScreenCompanion
                                 foreach (var item in playedItems)
                                 {
                                     var yearStr = item.ProductionYear.HasValue ? $" ({item.ProductionYear})" : "";
-                                    var typeStr = item.GetType().Name.Contains("Series") ? "show" : "movie";
+                                    var typeStr = TypeSniffing.IsSeriesLike(item.GetType()) ? "show" : "movie";
                                     sb.AppendLine($"- {item.Name}{yearStr} [{typeStr}]");
                                 }
                                 sb.AppendLine("Use this to personalize your recommendations.");
@@ -209,7 +209,10 @@ namespace HomeScreenCompanion
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"[AI test] Recently-watched context could not be built: {ex.Message}");
+                }
             }
 
             var fetcher = new ListFetcher(_httpClient, _jsonSerializer);

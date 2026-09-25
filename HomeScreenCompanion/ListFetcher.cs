@@ -6,13 +6,21 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
-using HttpRequestOptions = MediaBrowser.Common.Net.HttpRequestOptions;
+using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
+using HttpRequestOptions = MediaBrowser.Common.Net.HttpRequestOptions;
 
 namespace HomeScreenCompanion
 {
     public class ListFetcher
     {
+        private static ILogger? _logger;
+
+        /// <summary>Wires an <see cref="ILogger"/> used to surface network failures that
+        /// previously turned silently into "0 items" when combined with
+        /// <c>PreserveTagsOnEmptyResult=true</c>.</summary>
+        public static void SetLogger(ILogger logger) => _logger = logger;
+
         private readonly IHttpClient _httpClient;
         private readonly IJsonSerializer _jsonSerializer;
 
@@ -189,7 +197,12 @@ namespace HomeScreenCompanion
                         offset += pageSize;
                     }
                 }
-                catch { break; }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger?.ErrorException($"[ListFetcher] MDBList API pagination aborted at offset {offset}: {ex.Message}", ex);
+                    break;
+                }
             }
 
             return all;
@@ -225,7 +238,12 @@ namespace HomeScreenCompanion
                         offset += pageSize;
                     }
                 }
-                catch { break; }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger?.ErrorException($"[ListFetcher] MDBList legacy pagination aborted at offset {offset}: {ex.Message}", ex);
+                    break;
+                }
             }
 
             return all;

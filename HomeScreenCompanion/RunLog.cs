@@ -17,6 +17,13 @@ namespace HomeScreenCompanion
     {
         public const string RuleLine = "══════════════════════════════════════════════════";
 
+        /// <summary>
+        /// Maximum number of lines the sink is allowed to hold. Once <see cref="Add"/> would
+        /// push the count above this cap, the oldest entries are dropped first so the live
+        /// execution log never grows without bound across long / repeated runs.
+        /// </summary>
+        public const int MaxLines = 2000;
+
         private readonly List<string> _sink;
         private readonly ILogger? _logger;
         private readonly string _serverPrefix;
@@ -60,7 +67,7 @@ namespace HomeScreenCompanion
         public void Debug(string message)
         {
             if (!Extended) return;
-            Add($"[{DateTime.Now:HH:mm:ss}] [DEBUG] {message}");
+            Add($"[{DateTime.UtcNow:HH:mm:ss}] [DEBUG] {message}");
         }
 
         /// <summary>Debug section divider, e.g. "── Tags ────────".</summary>
@@ -78,7 +85,7 @@ namespace HomeScreenCompanion
 
         private void Write(string line, LogSeverity severity)
         {
-            Add($"[{DateTime.Now:HH:mm:ss}] {line}");
+            Add($"[{DateTime.UtcNow:HH:mm:ss}] {line}");
             if (_logger == null || severity == LogSeverity.None) return;
             var server = _serverPrefix + line.Trim();
             switch (severity)
@@ -91,7 +98,12 @@ namespace HomeScreenCompanion
 
         private void Add(string formatted)
         {
-            lock (_sink) { _sink.Add(formatted); }
+            lock (_sink)
+            {
+                _sink.Add(formatted);
+                if (_sink.Count > MaxLines)
+                    _sink.RemoveRange(0, _sink.Count - MaxLines);
+            }
         }
 
         // ── Small formatting helpers shared by the tasks ─────────────────────────
