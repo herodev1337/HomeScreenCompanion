@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 
 namespace HomeScreenCompanion
@@ -7,6 +8,7 @@ namespace HomeScreenCompanion
     /// Request to list all tags currently managed by the plugin.
     /// </summary>
     [Route("/HomeScreenCompanion/Manage/Tags", "GET")]
+    [Authenticated]
     public class GetManagedTagsRequest : IReturn<GetManagedTagsResponse> { }
 
     /// <summary>
@@ -33,6 +35,7 @@ namespace HomeScreenCompanion
     /// Request to list all collections currently managed by the plugin.
     /// </summary>
     [Route("/HomeScreenCompanion/Manage/Collections", "GET")]
+    [Authenticated]
     public class GetManagedCollectionsRequest : IReturn<GetManagedCollectionsResponse> { }
 
     /// <summary>
@@ -57,6 +60,7 @@ namespace HomeScreenCompanion
     /// Request to remove a single tag from all library items it was applied to.
     /// </summary>
     [Route("/HomeScreenCompanion/Manage/DeleteTag", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class DeleteManagedTagRequest : IReturn<DeleteManagedTagResponse>
     {
         public string TagName { get; set; } = "";
@@ -76,6 +80,7 @@ namespace HomeScreenCompanion
     /// Batch variant of <see cref="DeleteManagedTagRequest"/> — removes many tags in one call.
     /// </summary>
     [Route("/HomeScreenCompanion/Manage/DeleteTags", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class DeleteManagedTagsBatchRequest : IReturn<DeleteManagedTagsResponse>
     {
         public List<string> TagNames { get; set; } = new List<string>();
@@ -94,6 +99,7 @@ namespace HomeScreenCompanion
     /// Request to delete a managed collection by id.
     /// </summary>
     [Route("/HomeScreenCompanion/Manage/DeleteCollection", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class DeleteManagedCollectionRequest : IReturn<DeleteManagedCollectionResponse>
     {
         public string CollectionId { get; set; } = "";

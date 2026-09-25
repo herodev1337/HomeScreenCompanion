@@ -1,3 +1,4 @@
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 
 namespace HomeScreenCompanion
@@ -6,6 +7,7 @@ namespace HomeScreenCompanion
     /// Request to upload a collection image from raw bytes (base64).
     /// </summary>
     [Route("/HomeScreenCompanion/UploadCollectionImage", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class UploadCollectionImageRequest : IReturn<UploadCollectionImageResponse>
     {
         public string FileName { get; set; } = "";
@@ -17,6 +19,7 @@ namespace HomeScreenCompanion
     /// Request to fetch a collection image from an external URL and store it locally.
     /// </summary>
     [Route("/HomeScreenCompanion/FetchCollectionImageFromUrl", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class FetchCollectionImageFromUrlRequest : IReturn<UploadCollectionImageResponse>
     {
         public string Url { get; set; } = "";

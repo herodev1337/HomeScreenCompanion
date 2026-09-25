@@ -45,10 +45,14 @@ namespace HomeScreenCompanion
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(request.UserId))
+                var auth = _authorizationContext.GetAuthorizationInfo(Request);
+                var callerId = auth?.User?.Id.ToString();
+                var isAdmin = auth?.User?.Policy?.IsAdministrator == true;
+                var userId = ResolveUserId(callerId, isAdmin, request.UserId);
+                if (string.IsNullOrWhiteSpace(userId))
                     return new HscUserSectionsResponse();
 
-                var internalId = _userManager.GetInternalId(request.UserId);
+                var internalId = _userManager.GetInternalId(userId);
                 var result = _userManager.GetHomeSections(internalId, CancellationToken.None);
                 return new HscUserSectionsResponse
                 {

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 
 namespace HomeScreenCompanion
@@ -7,6 +8,7 @@ namespace HomeScreenCompanion
     /// Request to export a backup of plugin configuration. Each section is opt-in.
     /// </summary>
     [Route("/HomeScreenCompanion/Backup/Export", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class ExportBackupRequest : IReturn<BackupFile>
     {
         public bool Settings { get; set; } = true;
@@ -101,6 +103,7 @@ namespace HomeScreenCompanion
     /// Request to import a backup that was previously produced by <see cref="ExportBackupRequest"/>.
     /// </summary>
     [Route("/HomeScreenCompanion/Backup/Import", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class ImportBackupRequest : IReturn<ImportBackupResponse>
     {
         public string BackupJson { get; set; } = "";

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 
 namespace HomeScreenCompanion
@@ -7,6 +8,7 @@ namespace HomeScreenCompanion
     /// Request to test connectivity to an arbitrary URL.
     /// </summary>
     [Route("/HomeScreenCompanion/TestUrl", "GET")]
+    [Authenticated(Roles = "Admin")]
     public class TestUrlRequest : IReturn<TestUrlResponse>
     {
         public string Url { get; set; } = string.Empty;
@@ -27,12 +29,14 @@ namespace HomeScreenCompanion
     /// Request to fetch the current sync status snapshot.
     /// </summary>
     [Route("/HomeScreenCompanion/Status", "GET")]
+    [Authenticated]
     public class GetStatusRequest : IReturn<StatusResponse> { }
 
     /// <summary>
     /// Request to fetch the plugin's installed version.
     /// </summary>
     [Route("/HomeScreenCompanion/Version", "GET")]
+    [Authenticated]
     public class VersionRequest : IReturn<VersionResponse> { }
 
     /// <summary>
@@ -58,6 +62,7 @@ namespace HomeScreenCompanion
     /// Request to run a single configured entry (tag/group) immediately.
     /// </summary>
     [Route("/HomeScreenCompanion/RunEntry", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class RunEntryRequest : IReturn<RunEntryResponse>
     {
         public string EntryName { get; set; } = "";
@@ -77,12 +82,14 @@ namespace HomeScreenCompanion
     /// Response is shared with the HSC endpoint family and lives in <c>DTOs.cs</c>.
     /// </summary>
     [Route("/HomeScreenCompanion/Hsc/Status", "GET")]
+    [Authenticated]
     public class HscGetStatusRequest : IReturn<HscSyncStatusResponse> { }
 
     /// <summary>
     /// Request for a debug dump of the user's home sections.
     /// </summary>
     [Route("/HomeScreenCompanion/DebugSections", "GET")]
+    [Authenticated(Roles = "Admin")]
     public class DebugSectionsRequest : IReturn<string>
     {
         public string UserId { get; set; } = string.Empty;
