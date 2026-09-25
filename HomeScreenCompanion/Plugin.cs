@@ -62,7 +62,8 @@ namespace HomeScreenCompanion
                 {
                     _uiPageControllers = new List<IPluginUIPageController>
                     {
-                        new MainPageController(this.GetPluginInfo(), _applicationHost, _mainPageOptionsStore, _logger)
+                        new MainPageController(this.GetPluginInfo(), _applicationHost, _mainPageOptionsStore, _logger),
+                        new TopListsPageController(this.GetPluginInfo(), _applicationHost, _logger)
                     };
                 }
                 return _uiPageControllers.AsReadOnly();
