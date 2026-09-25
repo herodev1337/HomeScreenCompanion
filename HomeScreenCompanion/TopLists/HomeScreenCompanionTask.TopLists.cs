@@ -1,4 +1,4 @@
-// Auto-generated partial file — see .planning/codebase/REFACTOR_MAP.md §B.3
+// Partial of HomeScreenCompanionTask — TopLists responsibilities (folder sync, item collection for top-list folders).
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;

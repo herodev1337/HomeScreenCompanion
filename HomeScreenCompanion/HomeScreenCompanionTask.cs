@@ -38,33 +38,118 @@ namespace HomeScreenCompanion
         private readonly IFileSystem _fileSystem;
         private RunLog _log;
 
-        // Per-run state shared with phase helpers (e.g. ApplyTagsPhase) without threading
-        // the data through every signature. Populated at the top of Execute() and consumed
-        // by phases called from within that single run. Nullable + null-forgiving at use
-        // sites because Execute always assigns them before calling the phase.
-        private Dictionary<Guid, HashSet<string>>? _runDesiredTagsMap;
-        private Dictionary<Guid, BaseItem>? _runAllScannedEpisodeItems;
-        private Dictionary<Guid, BaseItem>? _runAllScannedSeasonItems;
-        private Dictionary<string, int>? _runTagAddedByTag;
-        private Dictionary<string, int>? _runTagRemovedByTag;
-        private HashSet<string>? _runManagedTags;
-        private HashSet<string>? _runFailedFetches;
-        private Dictionary<string, HashSet<long>>? _runDesiredCollectionsMap;
-        private Dictionary<string, string>? _runCollectionDescriptions;
-        private Dictionary<string, string>? _runCollectionPosters;
-        private HashSet<string>? _runActiveCollections;
-        private List<string>? _runPreviouslyManagedCollections;
-        private HashSet<string>? _runCollCreatedSet;
-        private Dictionary<string, int>? _runCollItemsAdded;
-        private Dictionary<string, int>? _runCollItemsRemoved;
-        private Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>? _runGroupPlaylistItems;
-        private HashSet<string>? _runPlaylistGroupsToSkip;
+        // Single-run guard shared by Execute (scheduled) and RunSingleEntryAsync (HTTP).
+        // Acquired at the top of each entry point so a second caller is rejected immediately
+        // instead of interleaving with the active run. Internal so the test project can
+        // exercise it without an Emby task instance.
+        private readonly RunGate _runGate = new RunGate();
+
+        // The RunContext created for the active run. Per-run state (formerly the 17 _run*
+        // instance fields below) lives on RunContext; the _run* property shims below
+        // delegate to this field so the partials (Tagging/Collections/Playlists) keep
+        // reading them transparently. Set by BuildRunContext (full sync) and
+        // BuildSingleEntryContext (single entry) before any phase helper runs.
+        private RunContext? _currentRunContext;
 
         public static HomeScreenCompanionTask? Instance { get; private set; }
         public static string LastRunStatus { get; private set; } = "Unknown (resets at server restart)";
         public static List<string> ExecutionLog { get; } = new List<string>();
-        public static bool IsRunning { get; private set; } = false;
+        public static bool IsRunning => Instance?._runGate?.IsHeld ?? false;
         public static DateTime? LastStartedUtc { get; private set; }
+
+        // Per-run state shims — backwards-compatible accessors that delegate to the
+        // active RunContext. The 17 fields they replace used to live directly on
+        // HomeScreenCompanionTask and were shared by Execute() and RunSingleEntryAsync,
+        // which is what E1 fixes by moving the data into RunContext. The phase helpers
+        // in Tagging/Collections/Playlists continue to read `_runFoo`; the property
+        // shims route the access to the context that BuildRunContext /
+        // BuildSingleEntryContext just set, so behaviour is identical to the previous
+        // instance-field layout.
+        private Dictionary<Guid, HashSet<string>>? _runDesiredTagsMap
+        {
+            get => _currentRunContext?.DesiredTagsMap;
+            set { if (_currentRunContext != null) _currentRunContext.DesiredTagsMap = value; }
+        }
+        private Dictionary<Guid, BaseItem>? _runAllScannedEpisodeItems
+        {
+            get => _currentRunContext?.AllScannedEpisodeItems;
+            set { if (_currentRunContext != null) _currentRunContext.AllScannedEpisodeItems = value; }
+        }
+        private Dictionary<Guid, BaseItem>? _runAllScannedSeasonItems
+        {
+            get => _currentRunContext?.AllScannedSeasonItems;
+            set { if (_currentRunContext != null) _currentRunContext.AllScannedSeasonItems = value; }
+        }
+        private Dictionary<string, int>? _runTagAddedByTag
+        {
+            get => _currentRunContext?.TagAddedByTag;
+            set { if (_currentRunContext != null) _currentRunContext.TagAddedByTag = value; }
+        }
+        private Dictionary<string, int>? _runTagRemovedByTag
+        {
+            get => _currentRunContext?.TagRemovedByTag;
+            set { if (_currentRunContext != null) _currentRunContext.TagRemovedByTag = value; }
+        }
+        private HashSet<string>? _runManagedTags
+        {
+            get => _currentRunContext?.ManagedTags;
+            set { if (_currentRunContext != null) _currentRunContext.ManagedTags = value; }
+        }
+        private HashSet<string>? _runFailedFetches
+        {
+            get => _currentRunContext?.FailedFetches;
+            set { if (_currentRunContext != null) _currentRunContext.FailedFetches = value; }
+        }
+        private Dictionary<string, HashSet<long>>? _runDesiredCollectionsMap
+        {
+            get => _currentRunContext?.DesiredCollectionsMap;
+            set { if (_currentRunContext != null) _currentRunContext.DesiredCollectionsMap = value; }
+        }
+        private Dictionary<string, string>? _runCollectionDescriptions
+        {
+            get => _currentRunContext?.CollectionDescriptions;
+            set { if (_currentRunContext != null) _currentRunContext.CollectionDescriptions = value; }
+        }
+        private Dictionary<string, string>? _runCollectionPosters
+        {
+            get => _currentRunContext?.CollectionPosters;
+            set { if (_currentRunContext != null) _currentRunContext.CollectionPosters = value; }
+        }
+        private HashSet<string>? _runActiveCollections
+        {
+            get => _currentRunContext?.ActiveCollections;
+            set { if (_currentRunContext != null) _currentRunContext.ActiveCollections = value; }
+        }
+        private List<string>? _runPreviouslyManagedCollections
+        {
+            get => _currentRunContext?.PreviouslyManagedCollections;
+            set { if (_currentRunContext != null) _currentRunContext.PreviouslyManagedCollections = value; }
+        }
+        private HashSet<string>? _runCollCreatedSet
+        {
+            get => _currentRunContext?.CollCreatedSet;
+            set { if (_currentRunContext != null) _currentRunContext.CollCreatedSet = value; }
+        }
+        private Dictionary<string, int>? _runCollItemsAdded
+        {
+            get => _currentRunContext?.CollItemsAdded;
+            set { if (_currentRunContext != null) _currentRunContext.CollItemsAdded = value; }
+        }
+        private Dictionary<string, int>? _runCollItemsRemoved
+        {
+            get => _currentRunContext?.CollItemsRemoved;
+            set { if (_currentRunContext != null) _currentRunContext.CollItemsRemoved = value; }
+        }
+        private Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>? _runGroupPlaylistItems
+        {
+            get => _currentRunContext?.GroupPlaylistItems;
+            set { if (_currentRunContext != null) _currentRunContext.GroupPlaylistItems = value; }
+        }
+        private HashSet<string>? _runPlaylistGroupsToSkip
+        {
+            get => _currentRunContext?.PlaylistGroupsToSkip;
+            set { if (_currentRunContext != null) _currentRunContext.PlaylistGroupsToSkip = value; }
+        }
 
         private struct CachedMediaInfo
         {
@@ -473,12 +558,14 @@ namespace HomeScreenCompanion
                 StatsList = new List<GroupRunStats>(),
                 StatsByGroupKey = new Dictionary<string, GroupRunStats>(StringComparer.OrdinalIgnoreCase),
             };
+            _currentRunContext = ctx;
             return true;
         }
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            IsRunning = true;
+            if (!await _runGate.TryEnterAsync(cancellationToken))
+                return;
             try
             {
                 lock (ExecutionLog) ExecutionLog.Clear();
@@ -1541,22 +1628,23 @@ namespace HomeScreenCompanion
                 _log.Error($"Sync aborted: {ex.Message}");
                 WriteExceptionDebug(ex);
             }
-            finally { IsRunning = false; }
+            finally { _runGate.Exit(); }
         }
 
         public async Task<(bool Success, string Message)> RunSingleEntryAsync(string entryName, CancellationToken cancellationToken)
         {
-            IsRunning = true;
-            lock (ExecutionLog) ExecutionLog.Clear();
-            LastStartedUtc = DateTime.UtcNow;
-            LastRunStatus = "Running...";
+            if (!await _runGate.TryEnterAsync(cancellationToken))
+                return (false, "Task already running");
             try
             {
+                lock (ExecutionLog) ExecutionLog.Clear();
+                LastStartedUtc = DateTime.UtcNow;
+                LastRunStatus = "Running...";
                 return await RunSingleEntryInternalAsync(entryName, cancellationToken);
             }
             finally
             {
-                IsRunning = false;
+                _runGate.Exit();
             }
         }
 
@@ -2031,7 +2119,7 @@ namespace HomeScreenCompanion
         }
 
         // Build the short "N matched, K collections..." return value of a single-group run.
-        // Extracted from RunSingleEntryInternalAsync per REFACTOR_MAP.md §B.3.
+        // Extracted from RunSingleEntryInternalAsync.
         private static string BuildSingleEntrySummary(bool isBoxSetHse, int boxSetTaggedCount, int matchedCount, int tagsAdded, int tagsRemoved, int collResult, bool dryRun)
         {
             List<string> parts;

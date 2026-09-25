@@ -1,4 +1,4 @@
-// Auto-generated partial file — see .planning/codebase/REFACTOR_MAP.md §B.3
+// Partial of HomeScreenCompanionTask — Collections responsibilities (BoxSet cleanup, collection tagging).
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;

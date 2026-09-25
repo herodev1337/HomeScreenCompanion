@@ -1,4 +1,4 @@
-// Auto-generated partial file — see .planning/codebase/REFACTOR_MAP.md §B.3
+// Partial of HomeScreenCompanionTask — Playlists responsibilities (per-user playlist sync, dedup, physical-version selection).
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Library;

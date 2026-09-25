@@ -1,4 +1,4 @@
-// Auto-generated partial file — see .planning/codebase/REFACTOR_MAP.md §B.3
+// Partial of HomeScreenCompanionTask — Tagging responsibilities (apply tags to items, tag-diff debug output).
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;

@@ -1,4 +1,4 @@
-// Auto-generated partial file — see .planning/codebase/REFACTOR_MAP.md §B.3
+// Partial of HomeScreenCompanionTask — Diagnostics responsibilities (source description, status symbols).
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Querying;

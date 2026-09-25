@@ -1,4 +1,4 @@
-// Auto-generated partial file — see .planning/codebase/REFACTOR_MAP.md §B.3
+// Partial of HomeScreenCompanionTask — RunContext responsibilities (per-run state, context builders shared between Execute and RunSingleEntryInternalAsync).
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using System;
@@ -16,6 +16,12 @@ namespace HomeScreenCompanion
         // they no longer need closure-captured locals or instance fields.
         // Uses plain fields (no `required`) because the project targets netstandard2.0 where the
         // required-metadata runtime attribute is not available.
+        //
+        // The 17 _run* instance fields that previously lived on HomeScreenCompanionTask itself
+        // moved here as part of E1 (single-run guard + run-state isolation). They are still
+        // reachable from the partials (Tagging/Collections/Playlists) via property shims on the
+        // task class that delegate to the active RunContext; that keeps the move transparent to
+        // the phase helpers without touching the partials.
         private sealed class RunContext
         {
             public PluginConfiguration Config;
@@ -33,6 +39,25 @@ namespace HomeScreenCompanion
             public Dictionary<string, GroupRunStats> StatsByGroupKey;
             public TagConfig? EntryConfig;
             public List<TagConfig>? GroupEntries;
+
+            // Per-run accumulators — moved from HomeScreenCompanionTask instance fields.
+            public Dictionary<Guid, HashSet<string>>? DesiredTagsMap;
+            public Dictionary<Guid, BaseItem>? AllScannedEpisodeItems;
+            public Dictionary<Guid, BaseItem>? AllScannedSeasonItems;
+            public Dictionary<string, int>? TagAddedByTag;
+            public Dictionary<string, int>? TagRemovedByTag;
+            public HashSet<string>? ManagedTags;
+            public HashSet<string>? FailedFetches;
+            public Dictionary<string, HashSet<long>>? DesiredCollectionsMap;
+            public Dictionary<string, string>? CollectionDescriptions;
+            public Dictionary<string, string>? CollectionPosters;
+            public HashSet<string>? ActiveCollections;
+            public List<string>? PreviouslyManagedCollections;
+            public HashSet<string>? CollCreatedSet;
+            public Dictionary<string, int>? CollItemsAdded;
+            public Dictionary<string, int>? CollItemsRemoved;
+            public Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>? GroupPlaylistItems;
+            public HashSet<string>? PlaylistGroupsToSkip;
         }
 
         // Builds the per-run context for RunSingleEntryInternalAsync (single group).
@@ -174,6 +199,7 @@ namespace HomeScreenCompanion
                 EntryConfig = tagConfig,
                 GroupEntries = groupEntries
             };
+            _currentRunContext = ctx;
 
             return true;
         }
