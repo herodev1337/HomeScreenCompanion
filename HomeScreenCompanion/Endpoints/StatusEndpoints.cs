@@ -89,7 +89,7 @@ namespace HomeScreenCompanion
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(request.Url) || !request.Url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                if (!ListFetcher.IsAllowedImageUrl(request.Url))
                     return new UploadCollectionImageResponse { Success = false, Message = "Invalid URL." };
 
                 var dataPath = Plugin.Instance?.DataFolderPath;
