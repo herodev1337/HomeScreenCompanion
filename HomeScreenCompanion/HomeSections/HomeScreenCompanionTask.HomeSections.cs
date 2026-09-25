@@ -8,7 +8,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using MediaBrowser.Model.Users;
 
@@ -247,7 +246,7 @@ namespace HomeScreenCompanion
                             {
                                 // Hämta befintlig sektion som bas — plugin-inställningar appliceras ovanpå utan att nollställa Emby-egna värden
                                 var updateSection = BuildContentSection(_jsonSerializer, settingsDict, resolvedLibraryId, ownedSection);
-                                typeof(ContentSection).GetProperty("Id")?.SetValue(updateSection, ownedSection.Id);
+                                updateSection.Id = ownedSection.Id;
                                 _userManager.UpdateHomeSection(userInternalId, updateSection, cancellationToken);
                                 trackId = ownedSection.Id ?? sectionMarker;
                                 _hsAction = "updated";
@@ -355,222 +354,222 @@ namespace HomeScreenCompanion
         internal static ContentSection BuildContentSection(IJsonSerializer jsonSerializer, Dictionary<string, string> settings, string libraryId, ContentSection existing = null)
         {
             var section = existing ?? new ContentSection();
-            var props = typeof(ContentSection).GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
-            foreach (var prop in props)
+            // Phase 1: scalar/value ContentSection properties (typed assignments).
+            // Empty values clear string + Nullable<T> fields; other types are left untouched.
+            // Malformed values are silently skipped, matching the previous reflection loop.
+            foreach (var kvp in settings)
             {
-                if (!prop.CanWrite || prop.Name == "Id" || prop.Name == "ParentId") continue;
-                if (!settings.TryGetValue(prop.Name, out var strVal)) continue;
-                // Tomt värde → rensa egenskapen (nullable → null, string → null)
-                if (string.IsNullOrEmpty(strVal))
-                {
-                    if (Nullable.GetUnderlyingType(prop.PropertyType) != null || prop.PropertyType == typeof(string))
-                        prop.SetValue(section, null);
-                    continue;
-                }
+                var key = kvp.Key;
+                var val = kvp.Value;
                 try
                 {
-                    var t = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-                    object converted = null;
-                    if (t == typeof(string)) converted = strVal;
-                    else if (t == typeof(bool)) converted = bool.Parse(strVal);
-                    else if (t == typeof(int)) converted = int.Parse(strVal, NumberStyles.Integer, CultureInfo.InvariantCulture);
-                    else if (t == typeof(long)) converted = long.Parse(strVal, NumberStyles.Integer, CultureInfo.InvariantCulture);
-                    else if (t == typeof(DateTime)) converted = DateTime.Parse(strVal, CultureInfo.InvariantCulture);
-                    else if (t.IsEnum) { try { converted = Enum.Parse(t, strVal, true); } catch { } }
-                    if (converted != null)
-                        prop.SetValue(section, converted);
+                    switch (key)
+                    {
+                        case "Name": section.Name = EmptyToNull(val); break;
+                        case "CustomName": section.CustomName = EmptyToNull(val); break;
+                        case "Subtitle": section.Subtitle = EmptyToNull(val); break;
+                        case "SectionType": section.SectionType = EmptyToNull(val); break;
+                        case "CollectionType": section.CollectionType = EmptyToNull(val); break;
+                        case "ViewType": section.ViewType = EmptyToNull(val); break;
+                        case "ImageType": section.ImageType = EmptyToNull(val); break;
+                        case "DisplayMode": section.DisplayMode = EmptyToNull(val); break;
+                        case "SortBy": section.SortBy = EmptyToNull(val); break;
+                        case "SortOrder": section.SortOrder = EmptyToNull(val); break;
+                        case "PremiumFeature": section.PremiumFeature = EmptyToNull(val); break;
+                        case "PremiumMessage": section.PremiumMessage = EmptyToNull(val); break;
+                        case "CardSizeOffset":
+                            if (!string.IsNullOrEmpty(val) && int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var csOff))
+                                section.CardSizeOffset = csOff;
+                            break;
+                        case "ScrollDirection":
+                            section.ScrollDirection = ParseNullableEnum<ScrollDirection>(val);
+                            break;
+                        case "RefreshInterval":
+                            section.RefreshInterval = ParseNullableInt(val);
+                            break;
+                        case "IncludeNextUpInResume":
+                            if (!string.IsNullOrEmpty(val) && bool.TryParse(val, out var incl))
+                                section.IncludeNextUpInResume = incl;
+                            break;
+                    }
                 }
                 catch { /* skip malformed value */ }
             }
 
-            foreach (var prop in props)
+            // Phase 2: string[] properties (comma-split or JSON array).
+            foreach (var kvp in settings)
             {
-                if (!prop.CanWrite || prop.Name == "Id") continue;
-                if (prop.PropertyType != typeof(string[])) continue;
-                if (!settings.TryGetValue(prop.Name, out var arrVal) || string.IsNullOrEmpty(arrVal)) continue;
+                var key = kvp.Key;
+                var val = kvp.Value;
+                if (string.IsNullOrEmpty(val)) continue;
+                string[]? parsed = null;
                 try
                 {
-                    var values = arrVal.TrimStart().StartsWith("[")
-                        ? jsonSerializer.DeserializeFromString<string[]>(arrVal)
-                        : arrVal.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
-                    prop.SetValue(section, values);
+                    parsed = key switch
+                    {
+                        "Monitor" => ParseStringArray(jsonSerializer, val),
+                        "ItemTypes" => ParseStringArray(jsonSerializer, val),
+                        "ExcludedFolders" => ParseStringArray(jsonSerializer, val),
+                        _ => null
+                    };
                 }
-                catch { }
+                catch { parsed = null; }
+                if (parsed == null) continue;
+                if (key == "Monitor") section.Monitor = parsed;
+                else if (key == "ItemTypes") section.ItemTypes = parsed;
+                else if (key == "ExcludedFolders") section.ExcludedFolders = parsed;
             }
 
-            var queryProp = props.FirstOrDefault(p => p.Name == "Query");
-            if (queryProp != null)
+            // Phase 3: build Query. ExtendedItemsQuery keeps the Emby JSON serializer
+            // emitting IsPlayed even on the static ItemsQuery base type.
+            try
             {
-                try
+                var extQuery = new ExtendedItemsQuery();
+
+                // _queryTagId → TagIds[]
+                if (settings.TryGetValue("_queryTagId", out var qTagId) && !string.IsNullOrEmpty(qTagId))
+                    extQuery.TagIds = new[] { qTagId };
+
+                // _queryExcludeViewIds is a no-op against the static ItemsQuery (no such
+                // property exists on ItemsQuery). The Emby-honored fallback is
+                // section.ExcludedFolders, handled below.
+                if (!settings.ContainsKey("ExcludedFolders") &&
+                    settings.TryGetValue("_queryExcludeViewIds", out var qExcludeFolders) &&
+                    !string.IsNullOrWhiteSpace(qExcludeFolders))
                 {
-                    // Använd ExtendedItemsQuery för att exponera IsPlayed till Embys JSON-serialisering
-                    var extQuery = new ExtendedItemsQuery();
-                    var queryProps = typeof(ItemsQuery).GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-                    // Specialfall: _queryTagId → TagIds[]
-                    if (settings.TryGetValue("_queryTagId", out var qTagId) && !string.IsNullOrEmpty(qTagId))
-                    {
-                        var tagIdsProp = queryProps.FirstOrDefault(p => p.Name == "TagIds");
-                        if (tagIdsProp != null && tagIdsProp.CanWrite && tagIdsProp.PropertyType == typeof(string[]))
-                            tagIdsProp.SetValue(extQuery, new[] { qTagId });
-                    }
-
-                    // Specialfall: _queryExcludeViewIds → ExcludeUserViewIds[]
-                    if (settings.TryGetValue("_queryExcludeViewIds", out var qExcludeViewIds) && !string.IsNullOrWhiteSpace(qExcludeViewIds))
-                    {
-                        var excludeProp = queryProps.FirstOrDefault(p => p.Name == "ExcludeUserViewIds");
-                        if (excludeProp != null && excludeProp.CanWrite)
-                        {
-                            var ids = qExcludeViewIds.Split(',')
-                                .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
-                            if (ids.Length > 0)
-                            {
-                                try
-                                {
-                                    if (excludeProp.PropertyType == typeof(string[]))
-                                        excludeProp.SetValue(extQuery, ids);
-                                    else if (excludeProp.PropertyType == typeof(Guid[]))
-                                        excludeProp.SetValue(extQuery, ids.Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty).ToArray());
-                                }
-                                catch { }
-                            }
-                        }
-                    }
-
-                    // Bakåtkompatibilitet: sätt ContentSection.ExcludedFolders från _queryExcludeViewIds
-                    // om ExcludedFolders inte sparats explicit (gamla plugin-versioner).
-                    if (!settings.ContainsKey("ExcludedFolders") &&
-                        settings.TryGetValue("_queryExcludeViewIds", out var qExcludeFolders) &&
-                        !string.IsNullOrWhiteSpace(qExcludeFolders))
-                    {
-                        var folderIds = qExcludeFolders.Split(',')
-                            .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
-                        var exFoldersProp = props.FirstOrDefault(p => p.Name == "ExcludedFolders" && p.CanWrite
-                                                                  && p.PropertyType == typeof(string[]));
-                        if (exFoldersProp != null && folderIds.Length > 0)
-                            exFoldersProp.SetValue(section, folderIds);
-                    }
-
-                    // Specialfall: _queryIsPlayed → IsPlayed; tomt = Any = null
-                    // Emby 4.10.0.10+: IsPlayed finns nativt i ItemsQuery.
-                    //   true  → Played   (IsPlayed = true)
-                    //   false → Unplayed (IsPlayed = false)
-                    //   annat → ingen filtrering
-                    if (settings.TryGetValue("_queryIsPlayed", out var qIsPlayed))
-                    {
-                        if (qIsPlayed == "true")
-                        {
-                            extQuery.IsPlayed = true;
-                            extQuery.IsUnplayed = null;
-                        }
-                        else if (qIsPlayed == "false")
-                        {
-                            extQuery.IsPlayed = false;
-                            extQuery.IsUnplayed = null;
-                        }
-                        else
-                        {
-                            extQuery.IsPlayed = null;
-                            extQuery.IsUnplayed = null;
-                        }
-                    }
-                    else if (existing?.Query != null)
-                    {
-                        // _queryIsPlayed saknas i inställningar — bevara befintligt värde istället för att tyst nollställa
-                        extQuery.IsPlayed = existing.Query.IsPlayed;
-                    }
-
-                    // Specialfall: _queryIsResumable → IsResumable (In progress / started, not finished).
-                    // Saknas nyckeln bevaras befintligt värde (t.ex. satt av ett viewer-beroende filter).
-                    if (settings.TryGetValue("_queryIsResumable", out var qIsResumable))
-                    {
-                        if (qIsResumable == "true") extQuery.IsResumable = true;
-                        else if (qIsResumable == "false") extQuery.IsResumable = false;
-                        else extQuery.IsResumable = null;
-                    }
-                    else if (existing?.Query != null)
-                    {
-                        extQuery.IsResumable = existing.Query.IsResumable;
-                    }
-
-                    // Specialfall: _queryIncludeItemTypes fanns tidigare men Emby 4.10:s
-                    // ItemsQuery har ingen IncludeItemTypes-property — MediaType-kriterier
-                    // översätts nu istället till section.ItemTypes av CriterionCatalog.
-                    // (Nyckeln lämnas här medvetet orörd för bakåtkompatibilitet.)
-
-                    // Specialfall: _queryEnsureItemTypes → lägg till i section.ItemTypes
-                    // (ren "In Progress" behöver Episode för att visa serier som påbörjade episoder)
-                    if (settings.TryGetValue("_queryEnsureItemTypes", out var qEnsure) && !string.IsNullOrWhiteSpace(qEnsure))
-                    {
-                        var ensure = qEnsure.Split(',')
-                            .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
-                        if (ensure.Length > 0)
-                        {
-                            var itProp = props.FirstOrDefault(p => p.Name == "ItemTypes");
-                            if (itProp != null && itProp.CanWrite && itProp.PropertyType == typeof(string[]))
-                            {
-                                var current = (itProp.GetValue(section) as string[]) ?? Array.Empty<string>();
-                                var merged = current.Concat(ensure)
-                                    .Where(t => !string.IsNullOrWhiteSpace(t))
-                                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                                    .ToArray();
-                                itProp.SetValue(section, merged);
-                            }
-                        }
-                    }
-
-                    // Generisk _query* → övriga ItemsQuery-properties
-                    foreach (var key in settings.Keys.Where(k =>
-                        k.StartsWith("_query", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(k, "_queryTagId", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(k, "_queryIsPlayed", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(k, "_queryIsResumable", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(k, "_queryIncludeItemTypes", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(k, "_queryEnsureItemTypes", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(k, "_queryExcludeViewIds", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        var val = settings[key];
-                        if (string.IsNullOrEmpty(val)) continue;
-                        var propName = key.Substring(6);
-                        if (propName.Length == 0) continue;
-                        var qProp = queryProps.FirstOrDefault(p => string.Equals(p.Name, propName, StringComparison.OrdinalIgnoreCase));
-                        if (qProp == null || !qProp.CanWrite) continue;
-                        try
-                        {
-                            var t = Nullable.GetUnderlyingType(qProp.PropertyType) ?? qProp.PropertyType;
-                            if (t == typeof(bool)) qProp.SetValue(extQuery, bool.Parse(val));
-                            else if (t == typeof(int)) qProp.SetValue(extQuery, int.Parse(val, NumberStyles.Integer, CultureInfo.InvariantCulture));
-                            else if (t == typeof(long)) qProp.SetValue(extQuery, long.Parse(val, NumberStyles.Integer, CultureInfo.InvariantCulture));
-                            else if (t == typeof(string)) qProp.SetValue(extQuery, val);
-                        }
-                        catch { }
-                    }
-
-                    if (queryProp.CanWrite)
-                        queryProp.SetValue(section, extQuery);
+                    var folderIds = qExcludeFolders.Split(',')
+                        .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+                    if (folderIds.Length > 0)
+                        section.ExcludedFolders = folderIds;
                 }
-                catch { }
+
+                // _queryIsPlayed → IsPlayed (ExtendedItemsQuery tracks IsUnplayed for JSON emit)
+                if (settings.TryGetValue("_queryIsPlayed", out var qIsPlayed))
+                {
+                    if (qIsPlayed == "true")
+                    {
+                        extQuery.IsPlayed = true;
+                        extQuery.IsUnplayed = null;
+                    }
+                    else if (qIsPlayed == "false")
+                    {
+                        extQuery.IsPlayed = false;
+                        extQuery.IsUnplayed = null;
+                    }
+                    else
+                    {
+                        extQuery.IsPlayed = null;
+                        extQuery.IsUnplayed = null;
+                    }
+                }
+                else if (existing?.Query != null)
+                {
+                    extQuery.IsPlayed = existing.Query.IsPlayed;
+                }
+
+                // _queryIsResumable → IsResumable
+                if (settings.TryGetValue("_queryIsResumable", out var qIsResumable))
+                {
+                    if (qIsResumable == "true") extQuery.IsResumable = true;
+                    else if (qIsResumable == "false") extQuery.IsResumable = false;
+                    else extQuery.IsResumable = null;
+                }
+                else if (existing?.Query != null)
+                {
+                    extQuery.IsResumable = existing.Query.IsResumable;
+                }
+
+                // _queryEnsureItemTypes → merge into section.ItemTypes (typed)
+                if (settings.TryGetValue("_queryEnsureItemTypes", out var qEnsure) && !string.IsNullOrWhiteSpace(qEnsure))
+                {
+                    var ensure = qEnsure.Split(',')
+                        .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+                    if (ensure.Length > 0)
+                    {
+                        var current = section.ItemTypes ?? Array.Empty<string>();
+                        section.ItemTypes = current.Concat(ensure)
+                            .Where(t => !string.IsNullOrWhiteSpace(t))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToArray();
+                    }
+                }
+
+                // Generic _query* → ItemsQuery properties (typed switch).
+                // Skips keys already handled above + the legacy no-op _queryIncludeItemTypes.
+                foreach (var key in settings.Keys)
+                {
+                    if (!key.StartsWith("_query", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(key, "_queryTagId", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(key, "_queryIsPlayed", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(key, "_queryIsResumable", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(key, "_queryIncludeItemTypes", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(key, "_queryEnsureItemTypes", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(key, "_queryExcludeViewIds", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(key, "_querySeriesPivot", StringComparison.OrdinalIgnoreCase)) continue;
+                    var val = settings[key];
+                    if (string.IsNullOrEmpty(val)) continue;
+                    var propName = key.Substring("_query".Length);
+                    if (propName.Length == 0) continue;
+                    try
+                    {
+                        switch (propName)
+                        {
+                            case "StudioIds": extQuery.StudioIds = ParseStringArray(jsonSerializer, val); break;
+                            case "TagIds": extQuery.TagIds = ParseStringArray(jsonSerializer, val); break;
+                            case "GenreIds": extQuery.GenreIds = ParseStringArray(jsonSerializer, val); break;
+                            case "CollectionTypes": extQuery.CollectionTypes = ParseStringArray(jsonSerializer, val); break;
+                            case "IsFavorite": extQuery.IsFavorite = ParseNullableBool(val); break;
+                            case "IsSports": extQuery.IsSports = ParseNullableBool(val); break;
+                            case "IsNews": extQuery.IsNews = ParseNullableBool(val); break;
+                            case "IsSeries": extQuery.IsSeries = ParseNullableBool(val); break;
+                            case "IsMovie": extQuery.IsMovie = ParseNullableBool(val); break;
+                            case "IsRepeat": extQuery.IsRepeat = ParseNullableBool(val); break;
+                        }
+                    }
+                    catch { /* skip malformed value */ }
+                }
+
+                section.Query = extQuery;
             }
+            catch { /* leave section.Query as the default */ }
 
             // Migration: gamla inställningar sparade ScrollDirection i DisplayMode — rensa bort det
-            {
-                var displayModeProp = props.FirstOrDefault(p => p.Name == "DisplayMode" && p.CanRead);
-                if (displayModeProp != null)
-                {
-                    var dm = displayModeProp.GetValue(section) as string;
-                    if (dm == "Horizontal" || dm == "Vertical")
-                        displayModeProp.SetValue(section, null);
-                }
-            }
+            if (section.DisplayMode == "Horizontal" || section.DisplayMode == "Vertical")
+                section.DisplayMode = null;
 
             if (!string.IsNullOrEmpty(libraryId))
-            {
-                var parentProp = props.FirstOrDefault(p => p.Name == "ParentId" && p.CanWrite && p.PropertyType == typeof(string));
-                if (parentProp != null) parentProp.SetValue(section, libraryId);
-            }
+                section.ParentId = libraryId;
 
             return section;
+        }
+
+        private static string? EmptyToNull(string? val) => string.IsNullOrEmpty(val) ? null : val;
+
+        private static string[]? ParseStringArray(IJsonSerializer jsonSerializer, string val)
+        {
+            if (string.IsNullOrEmpty(val)) return null;
+            if (val.TrimStart().StartsWith("["))
+                return jsonSerializer.DeserializeFromString<string[]>(val);
+            return val.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+        }
+
+        private static int? ParseNullableInt(string? val)
+        {
+            if (string.IsNullOrEmpty(val)) return null;
+            return int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+        }
+
+        private static bool? ParseNullableBool(string? val)
+        {
+            if (string.IsNullOrEmpty(val)) return null;
+            return bool.TryParse(val, out var v) ? v : null;
+        }
+
+        private static T? ParseNullableEnum<T>(string? val) where T : struct, Enum
+        {
+            if (string.IsNullOrEmpty(val)) return null;
+            return Enum.TryParse<T>(val, ignoreCase: true, out var v) ? v : null;
         }
 
         // Thin wrapper around ManageHomeSections that owns the banner, dry-run skip, and

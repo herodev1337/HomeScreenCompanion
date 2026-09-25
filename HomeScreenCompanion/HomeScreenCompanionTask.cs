@@ -16,7 +16,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using HomeScreenCompanion.Criteria;
@@ -2117,9 +2116,6 @@ namespace HomeScreenCompanion
                 .Distinct().ToList();
             if (libIds.Count == 0) return 0;
 
-            var parentIdProp = typeof(ContentSection).GetProperty("ParentId");
-            var exFoldersProp = typeof(ContentSection).GetProperty("ExcludedFolders");
-            var queryPropInfo = typeof(ContentSection).GetProperty("Query");
             int updated = 0;
 
             foreach (var userId in managedUserIds)
@@ -2136,19 +2132,28 @@ namespace HomeScreenCompanion
                         if (allTrackedIds.Contains(sec.Id)) continue;
 
                         // Skip library-scoped sections — they already filter to one library
-                        var parentId = parentIdProp?.GetValue(sec) as string;
-                        if (!string.IsNullOrEmpty(parentId)) continue;
+                        if (!string.IsNullOrEmpty(sec.ParentId)) continue;
 
-                        // Collect current exclusions from ExcludedFolders and Query.ExcludeUserViewIds
-                        var existingExcluded = ((exFoldersProp?.GetValue(sec) as string[]) ?? Array.Empty<string>())
+                        // Collect current exclusions from ExcludedFolders and Query.ExcludeUserViewIdStrings
+                        // (ItemsQuery itself has no ExcludeUserViewIds; it lives on UserViewQuery and NextUpQuery.)
+                        var existingExcluded = (sec.ExcludedFolders ?? Array.Empty<string>())
                             .Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0).ToList();
                         try
                         {
-                            var query = queryPropInfo?.GetValue(sec);
-                            if (query != null)
+                            // sec.Query is statically ItemsQuery, but the runtime type can be
+                            // UserViewQuery or NextUpQuery — both define ExcludeUserViewIdStrings.
+                            // Cast through object so the pattern match accepts the unrelated static type.
+                            var query = (object?)sec.Query;
+                            if (query is MediaBrowser.Model.Library.UserViewQuery uvq)
                             {
-                                var excProp = query.GetType().GetProperty("ExcludeUserViewIds");
-                                var viewIds = excProp?.GetValue(query) as string[];
+                                var viewIds = uvq.ExcludeUserViewIdStrings;
+                                if (viewIds != null)
+                                    existingExcluded.AddRange(
+                                        viewIds.Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0));
+                            }
+                            else if (query is MediaBrowser.Model.Querying.NextUpQuery nq)
+                            {
+                                var viewIds = nq.ExcludeUserViewIdStrings;
                                 if (viewIds != null)
                                     existingExcluded.AddRange(
                                         viewIds.Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0));
@@ -2165,22 +2170,14 @@ namespace HomeScreenCompanion
                         existingExcluded.AddRange(missing);
                         var newExcluded = existingExcluded.ToArray();
 
-                        exFoldersProp?.SetValue(sec, newExcluded);
+                        sec.ExcludedFolders = newExcluded;
                         try
                         {
-                            var query = queryPropInfo?.GetValue(sec);
-                            if (query != null)
-                            {
-                                var excViewProp = query.GetType().GetProperty("ExcludeUserViewIds");
-                                if (excViewProp?.CanWrite == true)
-                                {
-                                    if (excViewProp.PropertyType == typeof(string[]))
-                                        excViewProp.SetValue(query, newExcluded);
-                                    else if (excViewProp.PropertyType == typeof(Guid[]))
-                                        excViewProp.SetValue(query, newExcluded
-                                            .Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty).ToArray());
-                                }
-                            }
+                            var query = (object?)sec.Query;
+                            if (query is MediaBrowser.Model.Library.UserViewQuery uvq2)
+                                uvq2.ExcludeUserViewIdStrings = newExcluded;
+                            else if (query is MediaBrowser.Model.Querying.NextUpQuery nq2)
+                                nq2.ExcludeUserViewIdStrings = newExcluded;
                         }
                         catch { }
                         userManager.UpdateHomeSection(uid, sec, cancellationToken);

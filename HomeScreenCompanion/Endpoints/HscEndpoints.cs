@@ -4,7 +4,6 @@ using MediaBrowser.Model.Tasks;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -333,7 +332,7 @@ namespace HomeScreenCompanion
                         if (ownedSection == null) continue;
 
                         var updatedSection = HomeScreenCompanionTask.BuildContentSection(_jsonSerializer, settingsDict, resolvedLibraryId, ownedSection);
-                        typeof(ContentSection).GetProperty("Id")?.SetValue(updatedSection, ownedSection.Id);
+                        updatedSection.Id = ownedSection.Id;
                         _userManager.UpdateHomeSection(userInternalId, updatedSection, CancellationToken.None);
                         updated++;
                     }
@@ -353,23 +352,30 @@ namespace HomeScreenCompanion
 
         public object Get(HscGetSectionSchemaRequest request)
         {
-            var fields = typeof(ContentSection)
-                .GetProperties()
-                .Where(p => p.CanRead && p.CanWrite && p.Name != "Id")
-                .Select(p => new HscSectionField { Name = p.Name, Type = GetSimpleTypeName(p.PropertyType) })
-                .Where(f => f.Type != null)
-                .ToList();
+            var fields = new List<HscSectionField>
+            {
+                new() { Name = nameof(ContentSection.Name), Type = "string" },
+                new() { Name = nameof(ContentSection.CustomName), Type = "string" },
+                new() { Name = nameof(ContentSection.Subtitle), Type = "string" },
+                new() { Name = nameof(ContentSection.SectionType), Type = "string" },
+                new() { Name = nameof(ContentSection.CollectionType), Type = "string" },
+                new() { Name = nameof(ContentSection.ViewType), Type = "string" },
+                new() { Name = nameof(ContentSection.ImageType), Type = "string" },
+                new() { Name = nameof(ContentSection.DisplayMode), Type = "string" },
+                new() { Name = nameof(ContentSection.SortBy), Type = "string" },
+                new() { Name = nameof(ContentSection.SortOrder), Type = "string" },
+                new() { Name = nameof(ContentSection.PremiumFeature), Type = "string" },
+                new() { Name = nameof(ContentSection.PremiumMessage), Type = "string" },
+                new() { Name = nameof(ContentSection.ParentId), Type = "string" },
+                new() { Name = nameof(ContentSection.CardSizeOffset), Type = "int" },
+                new() { Name = nameof(ContentSection.ScrollDirection), Type = "int" },
+                new() { Name = nameof(ContentSection.RefreshInterval), Type = "int" },
+                new() { Name = nameof(ContentSection.IncludeNextUpInResume), Type = "bool" },
+                new() { Name = nameof(ContentSection.Monitor), Type = "stringarray" },
+                new() { Name = nameof(ContentSection.ItemTypes), Type = "stringarray" },
+                new() { Name = nameof(ContentSection.ExcludedFolders), Type = "stringarray" },
+            };
             return new HscSectionSchemaResponse { Fields = fields };
-        }
-
-        private static string GetSimpleTypeName(Type t)
-        {
-            if (t == typeof(string)) return "string";
-            if (t == typeof(bool) || t == typeof(bool?)) return "bool";
-            if (t == typeof(int) || t == typeof(int?)) return "int";
-            if (t == typeof(long) || t == typeof(long?)) return "long";
-            if (t == typeof(DateTime) || t == typeof(DateTime?)) return "datetime";
-            return null;
         }
     }
 }
