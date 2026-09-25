@@ -144,13 +144,28 @@ describe('buildUserMultiSelectHtml', () => {
     it('HTML-escapes user names in the visible label so XSS via Name is impossible', () => {
         const evil: UserOption[] = [{ Id: 'x', Name: '<img src=x onerror=alert(1)>' }];
         const html = buildUserMultiSelectHtml(evil, [], 'chkX');
-        // The user-visible <span> uses escHtml (escapes &, <, >).
+        // The user-visible <span> uses escapeHtml (escapes &, <, >, ").
         expect(html).toContain('<span>&lt;img src=x onerror=alert(1)&gt;</span>');
-        // The data-name attribute uses escAttr (only escapes & and "),
-        // so the literal "<img …>" is preserved inside the attribute.
-        // It is not a script-tag-injection because the parser treats
-        // anything inside an attribute value as a string literal.
-        expect(html).toContain('data-name="<img src=x onerror=alert(1)>"');
+        // The data-name attribute uses the canonical escapeAttr, so the
+        // angle brackets are escaped there too and no raw tag can form.
+        expect(html).toContain('data-name="&lt;img src=x onerror=alert(1)&gt;"');
+        expect(html).not.toContain('<img');
+        // Parsed DOM: no injected element and no handler attribute.
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        expect(host.querySelector('img')).toBeNull();
+        expect(host.querySelector('[onerror]')).toBeNull();
+    });
+
+    it('escapes single quotes in attributes so a hostile user name cannot break out', () => {
+        const evil: UserOption[] = [{ Id: "u'1", Name: "x' onmouseover=alert(1) y='" }];
+        const html = buildUserMultiSelectHtml(evil, [], 'chkX');
+        expect(html).toContain('&#39;');
+        expect(html).not.toContain('value="u\'1"');
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        expect(host.querySelector('[onmouseover]')).toBeNull();
+        expect(host.querySelector('[onerror]')).toBeNull();
     });
 
     it('escapes quotes in the checkbox value and data-name attribute', () => {

@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     escapeHtml,
+    escapeAttr,
     getDragAfterElement,
     getManDragAfterElement,
     getUrlRowHtml,
@@ -32,6 +33,7 @@ function amp(): string { return '&' + AMP + ';'; }
 function lt(): string { return '&' + LT + ';'; }
 function gt(): string { return '&' + GT + ';'; }
 function quot(): string { return '&' + QUOT + ';'; }
+function apos(): string { return '&#' + '39;'; }
 
 describe('escapeHtml', () => {
     it('escapes ampersands', () => {
@@ -67,6 +69,50 @@ describe('escapeHtml', () => {
         expect(escapeHtml('&<>"\'')).toBe(amp() + lt() + gt() + quot() + '\'');
     });
 
+});
+
+// ---------------------------------------------------------------------------
+// `escapeAttr`
+// ---------------------------------------------------------------------------
+
+describe('escapeAttr', () => {
+    it('escapes the same characters as escapeHtml', () => {
+        expect(escapeAttr('Tom and Jerry')).toBe('Tom and Jerry');
+        expect(escapeAttr('a & b')).toBe('a ' + amp() + ' b');
+        expect(escapeAttr('<script>')).toBe(lt() + 'script' + gt());
+        expect(escapeAttr('a "b" c')).toBe('a ' + quot() + 'b' + quot() + ' c');
+    });
+
+    it('additionally escapes single quotes to &#39;', () => {
+        expect(escapeAttr("a 'b' c")).toBe('a ' + apos() + 'b' + apos() + ' c');
+    });
+
+    it('escapes every special character in one pass', () => {
+        expect(escapeAttr('&<>"\'')).toBe(amp() + lt() + gt() + quot() + apos());
+    });
+
+    it('neutralizes an attribute-breakout payload', () => {
+        const escaped = escapeAttr('"><img src=x onerror=alert(1)>');
+        expect(escaped).toContain(quot());
+        expect(escaped).toContain(lt());
+        // No raw tag opening and no raw quote-then-handler sequence — the
+        // remaining `onerror=` text is inert (it lives inside the escaped
+        // attribute value, with no unescaped quote to start an attribute).
+        expect(escaped).not.toContain('<img');
+        expect(escaped).not.toContain('" onerror=');
+    });
+
+    it('coerces null to the literal string "null" (legacy quirk)', () => {
+        expect(escapeAttr(null)).toBe('null');
+    });
+
+    it('coerces undefined to the literal string "undefined" (legacy quirk)', () => {
+        expect(escapeAttr(undefined)).toBe('undefined');
+    });
+
+    it('coerces numbers to their string form', () => {
+        expect(escapeAttr(42)).toBe('42');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -160,9 +206,15 @@ describe('getUrlRowHtml', () => {
         expect(html).toContain('value=""');
     });
 
-    it('renders the URL text verbatim (legacy does NOT escape)', () => {
+    it('escapes the URL text into the value attribute (no attribute breakout)', () => {
         const html = getUrlRowHtml('https://x.com/?a=<script>', 5);
-        expect(html).toContain('https://x.com/?a=<script>');
+        expect(html).toContain('https://x.com/?a=' + lt() + 'script' + gt());
+        expect(html).not.toContain('<script>');
+    });
+
+    it('escapes quotes and ampersands in the URL value', () => {
+        const html = getUrlRowHtml('https://x.com/?q="a&b"', 0);
+        expect(html).toContain('value="https://x.com/?q=' + quot() + 'a' + amp() + 'b' + quot() + '"');
     });
 
     it('defaults limit to 0 only when undefined; honors explicit 0', () => {

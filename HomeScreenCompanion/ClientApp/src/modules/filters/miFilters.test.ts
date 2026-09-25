@@ -161,10 +161,10 @@ describe('getMiValueHtml with populated deps', () => {
         expect(html).toContain('<option value="__any__">Any user</option>');
     });
 
-    it('renders collections and escapes double quotes in option values', () => {
+    it('renders collections and escapes double quotes in option values and text', () => {
         const html = getMiValueHtml('Collection', '', 'Star Wars', '', deps);
         expect(html).toContain('<option value="Star Wars" selected>Star Wars</option>');
-        expect(html).toContain('<option value="He said &quot;hi&quot;">He said "hi"</option>');
+        expect(html).toContain('<option value="He said &quot;hi&quot;">He said &quot;hi&quot;</option>');
         expect(html).toContain('<option value="">-- Select --</option>');
     });
 

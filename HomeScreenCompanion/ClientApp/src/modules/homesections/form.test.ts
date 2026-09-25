@@ -177,11 +177,10 @@ describe('buildHomeSectionFormHtml', () => {
         expect(html).toMatch(/class="selHseImageType[^"]*"[^>]*disabled/);
     });
 
-    it('embeds defaultName as the Custom Title placeholder, escaping only double quotes', () => {
-        // Legacy behavior: the legacy line is `(defaultName || '').replace(/"/g, '&quot;')`
-        // — only double quotes are escaped. Ampersands stay literal.
+    it('embeds defaultName as the Custom Title placeholder, HTML-escaped', () => {
+        // C1: the canonical escapeAttr escapes `&`, `<`, `>`, `"` and `'`.
         const html = buildHomeSectionFormHtml({}, '', 'Tom & "Jerry"', true, false, [], 'auto', [], false);
-        expect(html).toContain('placeholder="Tom & &quot;Jerry&quot;"');
+        expect(html).toContain('placeholder="Tom &amp; &quot;Jerry&quot;"');
     });
 
     it('embeds saved CustomName as the Custom Title value, escaping quotes', () => {

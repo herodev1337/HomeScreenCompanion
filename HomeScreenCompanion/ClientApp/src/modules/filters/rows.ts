@@ -33,6 +33,7 @@
 // the clock.
 
 import { buildCriterion } from './criteria';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 import {
     parseDateYMD,
     getMonthOptions,
@@ -68,8 +69,9 @@ export interface NamedItem {
  *     note there is no `else`-branch guard; every non-`'LocalCollection'`
  *     value selects playlists). Both start as `[]` and are populated by
  *     `preFetchLibraryData`.
- *   - Names are embedded un-escaped into `value="..."` and the option
- *     text, and matched against `selectedName` with strict `===`.
+ *   - Names are escaped into `value="..."` (via {@link escapeAttr}) and
+ *     the option text (via {@link escapeHtml}), and matched against
+ *     `selectedName` with strict `===`.
  *   - `limit` defaults to `0` only when `undefined`; an explicit `0` is
  *     honored (same `!== undefined` contract as `getUrlRowHtml`).
  *   - The `<select>` has no `name`/`label`; the placeholder option is
@@ -97,7 +99,7 @@ export function getLocalRowHtml(
     const optHtml =
         '<option value="">-- Select --</option>' +
         items
-            .map((o) => `<option value="${o.Name}" ${selectedName === o.Name ? 'selected' : ''}>${o.Name}</option>`)
+            .map((o) => `<option value="${escapeAttr(o.Name)}" ${selectedName === o.Name ? 'selected' : ''}>${escapeHtml(o.Name)}</option>`)
             .join('');
     const lim = limit !== undefined ? limit : 0;
     return `
@@ -178,11 +180,11 @@ export function getDateRowHtml(interval: DateInterval): string {
                 
                 <div class="inputs-specific" style="display: ${type === 'SpecificDate' ? 'flex' : 'none'}; gap: 8px; flex-grow: 1; align-items: center;">
                     <div style="flex-grow:1;">
-                        <input is="emby-input" type="date" class="txtFullStartDate" label="Start Date" value="${sDate}" />
+                        <input is="emby-input" type="date" class="txtFullStartDate" label="Start Date" value="${escapeAttr(sDate)}" />
                     </div>
                     <span style="opacity:0.5; padding-top:15px;">to</span>
                     <div style="flex-grow:1;">
-                        <input is="emby-input" type="date" class="txtFullEndDate" label="End Date" value="${eDate}" />
+                        <input is="emby-input" type="date" class="txtFullEndDate" label="End Date" value="${escapeAttr(eDate)}" />
                     </div>
                 </div>
 

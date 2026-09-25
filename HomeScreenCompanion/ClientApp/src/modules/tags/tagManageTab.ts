@@ -38,8 +38,9 @@
  *   - `checkFormState` → `deps.checkFormState`.
  *   - `alert` → `deps.alert`.
  *   - `escapeHtml` is present in deps per the parallel `modals.ts`
- *     spec; the local `escAttr` / `escHtml` (legacy.js:3857-3858)
- *     are kept for byte-equivalence with the legacy output.
+ *     spec; `escapeHtml` / `escapeAttr` are imported from
+ *     `modules/dom/dom.ts` (C1 — unify HTML escaping), so the legacy
+ *     local `escAttr` / `escHtml` duplicates are gone.
  *
  * Legacy quirks preserved on purpose:
  *   - `pendingTagDeletes` / `pendingCollDeletes` maps are `let`-bound
@@ -61,6 +62,7 @@
  */
 
 import type { PluginConfigWithTagsLike } from '../toplists/topListsTab';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 
 /** Minimal slice of the Jellyfin `ApiClient` surface used here. */
 export interface TagManageTabApiClient {
@@ -206,13 +208,6 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
             }
         });
 
-        function escAttr(s: unknown): string {
-            return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-        }
-        function escHtml(s: unknown): string {
-            return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        }
-
         const btnStyle = 'cursor:pointer;border:none;border-radius:3px;padding:4px 12px;font-size:0.82em;font-weight:500;';
 
         function renderSection(title: string, items: readonly unknown[], isTagSection: boolean, headerExtra: string): string {
@@ -229,23 +224,23 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
                         ? '<span style="font-size:0.75em;background:#52B54B22;color:#52B54B;border:1px solid #52B54B55;border-radius:4px;padding:1px 6px;margin-left:8px;white-space:nowrap;">Managed by HSC Plugin</span>'
                         : '';
                     const typesVal = isTagSection ? (it.ItemTypes || []).map(function (t) { return t.toLowerCase(); }).join(',') : '';
-                    return '<tr class="tc-manage-row" data-rowname="' + escAttr(name.toLowerCase()) + '" data-managed="' + (managed && managed.length > 0 ? '1' : '0') + '" data-count="' + count + '" data-types="' + escAttr(typesVal) + '">' +
+                    return '<tr class="tc-manage-row" data-rowname="' + escapeAttr(name.toLowerCase()) + '" data-managed="' + (managed && managed.length > 0 ? '1' : '0') + '" data-count="' + count + '" data-types="' + escapeAttr(typesVal) + '">' +
                         '<td style="padding:9px 4px;border-bottom:1px solid var(--line-color);width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
                         (id
-                            ? '<a class="tc-item-name tc-nav-link" href="javascript:void(0)" data-navid="' + escAttr(id) + '" style="color:inherit;text-decoration:none;cursor:pointer;" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + escHtml(name) + '</a>'
-                            : '<span class="tc-item-name">' + escHtml(name) + '</span>') +
+                            ? '<a class="tc-item-name tc-nav-link" href="javascript:void(0)" data-navid="' + escapeAttr(id) + '" style="color:inherit;text-decoration:none;cursor:pointer;" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + escapeHtml(name) + '</a>'
+                            : '<span class="tc-item-name">' + escapeHtml(name) + '</span>') +
                         badge +
                         '</td>' +
                         '<td style="padding:9px 4px 9px 16px;border-bottom:1px solid var(--line-color);white-space:nowrap;color:var(--theme-text-secondary);font-size:0.88em;">' + count + ' items</td>' +
                         '<td style="padding:9px 4px 9px 8px;border-bottom:1px solid var(--line-color);white-space:nowrap;">' +
-                        '<button type="button" class="btnTcMark" style="' + btnStyle + 'background:#cc3333;color:#fff;" data-id="' + escAttr(id) + '" data-name="' + escAttr(name) + '" data-count="' + count + '" data-type="' + (isTagSection ? 'tag' : 'coll') + '">Remove</button>' +
+                        '<button type="button" class="btnTcMark" style="' + btnStyle + 'background:#cc3333;color:#fff;" data-id="' + escapeAttr(id) + '" data-name="' + escapeAttr(name) + '" data-count="' + count + '" data-type="' + (isTagSection ? 'tag' : 'coll') + '">Remove</button>' +
                         '</td>' +
                         '</tr>';
                 }).join('');
 
             return '<div id="' + sectionId + '" style="flex:1 1 300px;min-width:0;">' +
                 '<div style="display:flex;align-items:center;gap:30px;margin-bottom:12px;">' +
-                '<h3 style="margin:0;font-size:1em;text-transform:uppercase;letter-spacing:1px;color:#52B54B;">' + escHtml(title) + '</h3>' +
+                '<h3 style="margin:0;font-size:1em;text-transform:uppercase;letter-spacing:1px;color:#52B54B;">' + escapeHtml(title) + '</h3>' +
                 headerExtra +
                 '<button type="button" class="btnTcRefresh" style="' + btnStyle + 'background:transparent;color:var(--theme-text-secondary);border:1px solid var(--line-color);margin-left:auto;"><i class="md-icon" style="font-size:1em;vertical-align:middle;">refresh</i></button>' +
                 '</div>' +
@@ -295,7 +290,7 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
               '<div class="filter-dropdown-panel" id="tcTypeFilterDropdown">' +
               '<div class="filter-dropdown-label">Media type</div>' +
               presentGroups.map(function (g) {
-                  return '<label class="filter-chk-row"><input type="checkbox" class="cbTypeFilter" data-group="' + escAttr(g.label) + '"> <span>' + escHtml(g.label) + '</span></label>';
+                  return '<label class="filter-chk-row"><input type="checkbox" class="cbTypeFilter" data-group="' + escapeAttr(g.label) + '"> <span>' + escapeHtml(g.label) + '</span></label>';
               }).join('') +
               '</div></div>'
             : '';
@@ -470,7 +465,7 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
                     labels.map(function (l) {
                         return '<div style="display:flex;align-items:center;gap:6px;">' +
                             '<i class="md-icon" style="font-size:0.95em;opacity:0.7;">label</i>' +
-                            escHtml(l) + '</div>';
+                            escapeHtml(l) + '</div>';
                     }).join('');
                 tcTooltip.style.display = 'block';
             });
@@ -586,12 +581,12 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
                     if (activeManaged.length > 0) {
                         const what = isTag ? 'recreate this tag' : 'recreate this collection';
                         const warningText = activeManaged.length === 1
-                            ? 'Group <strong>' + escHtml(activeManaged[0]!.displayName) + '</strong> is active and may ' + what + ' on next sync.'
+                            ? 'Group <strong>' + escapeHtml(activeManaged[0]!.displayName) + '</strong> is active and may ' + what + ' on next sync.'
                             : activeManaged.length + ' active groups may ' + what + ' on next sync.';
                         const checkboxes = activeManaged.map(function (m) {
                             return '<label style="display:flex;align-items:center;gap:6px;margin-top:5px;cursor:pointer;">' +
-                                '<input type="checkbox" class="cbInactivateGroup" data-group-indices="' + escAttr(JSON.stringify([m.groupIndex])) + '"> ' +
-                                'Deactivate <strong>' + escHtml(m.displayName) + '</strong>' +
+                                '<input type="checkbox" class="cbInactivateGroup" data-group-indices="' + escapeAttr(JSON.stringify([m.groupIndex])) + '"> ' +
+                                'Deactivate <strong>' + escapeHtml(m.displayName) + '</strong>' +
                                 '</label>';
                         }).join('');
                         warning =
@@ -601,9 +596,9 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
                     }
                     const itemCount = isTag ? item.itemCount : (pendingCollDeletes[item.name.toLowerCase()]?.itemCount ?? 0);
                     return '<div style="padding:10px 0;border-bottom:1px solid var(--line-color);display:flex;align-items:flex-start;">' +
-                        '<button type="button" class="btnModalUndo" style="' + undoBtnStyle + '" data-key="' + escAttr(key) + '" data-type="' + (isTag ? 'tag' : 'coll') + '" title="Keep this one">✕</button>' +
+                        '<button type="button" class="btnModalUndo" style="' + undoBtnStyle + '" data-key="' + escapeAttr(key) + '" data-type="' + (isTag ? 'tag' : 'coll') + '" title="Keep this one">✕</button>' +
                         '<div style="flex:1;">' +
-                        '<span style="font-weight:500;">' + escHtml(name) + '</span>' +
+                        '<span style="font-weight:500;">' + escapeHtml(name) + '</span>' +
                         '<span style="color:var(--theme-text-secondary);font-size:0.88em;margin-left:8px;">(' + itemCount + ' items)</span>' +
                         warning +
                         '</div>' +
@@ -771,6 +766,6 @@ export function loadTagManageTab(view: HTMLElement, deps: TagManageTabDeps): voi
         }
 
     }).catch(function (err: unknown) {
-        container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + String(err) + '</div>';
+        container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + escapeHtml(String(err)) + '</div>';
     });
 }

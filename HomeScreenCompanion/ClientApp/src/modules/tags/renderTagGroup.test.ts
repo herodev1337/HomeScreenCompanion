@@ -541,4 +541,54 @@ describe('renderTagGroup', () => {
         expect(html).toContain('<textarea class="txtTagBlacklist"');
         expect(html).toContain('tt1234567\ntt7654321');
     });
+
+    // ─── C1: XSS / escaping regression coverage ─────────────────────────────
+
+    it('escapes a hostile tag name in every text/attribute slot', () => {
+        const { deps } = makeDeps();
+        const evilTag = '"><img src=x onerror=alert(1)>';
+        const html = renderTagGroup({ Tag: evilTag, Name: evilTag }, 0, deps);
+
+        expect(html).toContain('&lt;');
+        expect(html).toContain('&quot;');
+        expect(html).not.toContain('<img src=x');
+        expect(html).not.toContain('" onerror=');
+
+        // Parsed DOM: no injected element (the only legitimate <img> is the
+        // static poster-preview placeholder), no handler attribute.
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        expect(host.querySelector('img:not(.poster-preview-img)')).toBeNull();
+        expect(host.querySelector('[onerror]')).toBeNull();
+        // Input values round-trip to the original (entities are decoded by
+        // the parser, so the form still shows the real tag name).
+        expect(host.querySelector<HTMLInputElement>('.txtTagName')?.value).toBe(evilTag);
+        expect(host.querySelector<HTMLInputElement>('.txtEntryLabel')?.value).toBe(evilTag);
+        expect(host.querySelector<HTMLElement>('.tag-title')?.textContent).toBe(evilTag);
+    });
+
+    it('escapes a hostile AI watch-history user id and name', () => {
+        const miUsers = createMiUsersState();
+        miUsers.users = [{ Id: "u'1", Name: '" onmouseover=alert(1) <img src=x>' }];
+        const { deps } = makeDeps({ miUsers });
+        const html = renderTagGroup({
+            Tag: 'ai-list',
+            SourceType: 'AI',
+            AiIncludeRecentlyWatched: true,
+        }, 0, deps);
+
+        expect(html).toContain('&#39;');
+        expect(html).toContain('&quot;');
+        expect(html).toContain('&lt;');
+        expect(html).not.toContain('<img src=x');
+        expect(html).not.toContain('" onmouseover=');
+
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        expect(host.querySelector('img:not(.poster-preview-img)')).toBeNull();
+        expect(host.querySelector('[onmouseover]')).toBeNull();
+        const options = host.querySelectorAll<HTMLOptionElement>('.selAiWatchedUser option');
+        expect(options[1]?.value).toBe("u'1");
+        expect(options[1]?.textContent).toBe('" onmouseover=alert(1) <img src=x>');
+    });
 });

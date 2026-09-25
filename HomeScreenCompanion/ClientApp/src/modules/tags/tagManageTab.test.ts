@@ -147,6 +147,38 @@ describe('loadTagManageTab', () => {
         expect(rows.length).toBe(2);
     });
 
+    it('escapes a hostile tag name in the manage row (no HTML injection)', async () => {
+        const view = makeView();
+        const deps = makeDeps();
+        const evilName = '"><img src=x onerror=alert(1)>';
+        // happy-dom does not re-escape entities when reading `innerHTML`
+        // back, so capture the raw pre-parse markup through the setter.
+        const setSpy = vi.spyOn(Element.prototype, 'innerHTML', 'set');
+        try {
+            mockTagsAndColls(deps.fetchMock, [
+                { Id: 'evil-id', Name: evilName, ItemCount: 1, ItemTypes: ['movie'] },
+            ], []);
+            loadTagManageTab(view, deps);
+            await flush();
+            const rawHtml = setSpy.mock.calls
+                .map((c) => String(c[0]))
+                .find((s) => s.includes('tc-manage-row')) ?? '';
+
+            expect(rawHtml).toContain('&lt;');
+            expect(rawHtml).toContain('&quot;');
+            expect(rawHtml).not.toContain('<img');
+
+            const container = view.querySelector('#tcManageContainer') as HTMLElement;
+            expect(container.querySelector('img')).toBeNull();
+            expect(container.querySelector('[onerror]')).toBeNull();
+            // The visible name round-trips through the text node.
+            expect(container.querySelector('.tc-item-name')?.textContent).toBe(evilName);
+            expect(container.querySelector<HTMLButtonElement>('.btnTcMark')?.dataset.name).toBe(evilName);
+        } finally {
+            setSpy.mockRestore();
+        }
+    });
+
     it('renders the search input and sort select', async () => {
         const view = makeView();
         const deps = makeDeps();

@@ -31,6 +31,7 @@
 
 import type { OriginalConfigStateRef } from '../state/state';
 import type { HscUserLike } from './hscTab';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 
 /**
  * One row in the home-section `<select class="selHseLibrary">` dropdown.
@@ -94,8 +95,8 @@ export interface HseSavedSettings {
  *     the function emits an empty `<select>` (still wrapped in the
  *     outer `<div>`).
  *
- *   - `CustomName` is embedded un-escaped into a `placeholder="…"`
- *     attribute, with `"` → `&quot;` only. Callers are trusted.
+ *   - `CustomName` is escaped into the `value="…"` / `placeholder="…"`
+ *     attributes via {@link escapeAttr} (C1 — unify HTML escaping).
  *
  *   - `ViewType === 'cards'` is migrated to `''` (Emby's native
  *     default for Cards view).
@@ -191,8 +192,8 @@ export function buildHomeSectionFormHtml(
     });
     html += '</select></div>';
 
-    const customName = (s.CustomName || '').replace(/"/g, '&quot;');
-    const customNamePlaceholder = (defaultName || '').replace(/"/g, '&quot;');
+    const customName = escapeAttr(s.CustomName || '');
+    const customNamePlaceholder = escapeAttr(defaultName || '');
     html += '<div style="margin-bottom:12px;"><input is="emby-input" type="text" class="hse-field-str" data-field="CustomName" label="Custom Title" value="' + customName + '" placeholder="' + customNamePlaceholder + '"/></div>';
 
     // Emby native uses "" for Cards (default); migrate old stored "cards" value
@@ -265,7 +266,7 @@ export function buildHomeSectionFormHtml(
     html += '<select class="selHseLibrary" style="display:none;">';
     html += '<option value="auto"' + (curLibId === 'auto' ? ' selected' : '') + '>auto</option>';
     (libraryOptions || []).forEach((lib) => {
-        html += '<option value="' + lib.id + '"' + (curLibId === lib.id ? ' selected' : '') + '>' + lib.name + '</option>';
+        html += '<option value="' + escapeAttr(lib.id) + '"' + (curLibId === lib.id ? ' selected' : '') + '>' + escapeHtml(lib.name) + '</option>';
     });
     html += '</select>';
 
@@ -290,7 +291,7 @@ export function buildHomeSectionFormHtml(
         html += '<div style="display:none;">';
         (allLibraries || []).forEach((lib) => {
             const isChecked = !excludedIds.has(lib.id);
-            html += '<input type="checkbox" class="chkHseLibrary" value="' + lib.id + '"' + (isChecked ? ' checked' : '') + '/>';
+            html += '<input type="checkbox" class="chkHseLibrary" value="' + escapeAttr(lib.id) + '"' + (isChecked ? ' checked' : '') + '/>';
         });
         html += '</div>';
     }
@@ -891,7 +892,7 @@ export function initHomeSectionTab(row: HTMLElement, deps: InitHomeSectionTabDep
             const fieldsEl = tab.querySelector<HTMLElement>('.hse-fields-inner');
             if (fieldsEl) {
                 const message = (e instanceof Error) ? e.message : String(e);
-                fieldsEl.innerHTML = '<em style="color:#cc4444">Failed to load: ' + message + '</em>';
+                fieldsEl.innerHTML = '<em style="color:#cc4444">Failed to load: ' + escapeHtml(message) + '</em>';
             }
             tab.dataset.hseLoaded = '0';
         });

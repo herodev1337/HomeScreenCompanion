@@ -25,6 +25,7 @@
 // closure-bound arguments until the rest of the tab is migrated.
 
 import type { ManageState } from '../state/state';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 
 /**
  * Minimal shape of one home-screen section row. The legacy code only
@@ -179,13 +180,13 @@ export function renderManageSections(
 
     list.innerHTML = state.sections
         .map((s, i) => {
-            // Legacy renders the name un-escaped and falls back through
-            // CustomName -> Name -> SectionType -> 'Section N'.
+            // Name falls back through CustomName -> Name -> SectionType ->
+            // 'Section N' and is HTML-escaped into the text node (C1).
             const name = s.CustomName || s.Name || s.SectionType || ('Section ' + (i + 1));
             return [
                 '<div class="man-section-row" draggable="false" data-section-index="' + i + '">',
                 '<span class="drag-handle"><i class="md-icon">drag_indicator</i></span>',
-                '<span style="flex-grow:1;">' + name + '</span>',
+                '<span style="flex-grow:1;">' + escapeHtml(name) + '</span>',
                 '<button type="button" is="emby-button" class="man-btn-delete raised" data-section-index="' + i + '" title="Remove section">',
                 '<i class="md-icon">delete</i>',
                 '</button>',
@@ -460,7 +461,7 @@ export function loadHscManageTab(
     void deps.getHseUsers().then((raw) => {
         const users = ((raw || []) as readonly { Id: string; Name: string }[]).slice();
         const userOptions = users
-            .map((u) => '<option value="' + u.Id + '">' + u.Name + '</option>')
+            .map((u) => '<option value="' + escapeAttr(u.Id) + '">' + escapeHtml(u.Name) + '</option>')
             .join('');
         selUser.innerHTML = userOptions;
         selUser.dataset.originalOptions = JSON.stringify(users);

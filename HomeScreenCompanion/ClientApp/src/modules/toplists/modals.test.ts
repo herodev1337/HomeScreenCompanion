@@ -223,6 +223,59 @@ describe('showTopListModal', () => {
         expect(typeof args?.[8]).toBe('object');
     });
 
+    it('escapes a hostile display name in the modal header and placeholder', async () => {
+        const deps = makeDeps();
+        const evilName = '"><img src=x onerror=alert(1)>';
+        // happy-dom does not re-escape entities when reading `innerHTML`
+        // back, so capture the raw pre-parse markup through the setter.
+        const setSpy = vi.spyOn(Element.prototype, 'innerHTML', 'set');
+        try {
+            showTopListModal('mytag', evilName, vi.fn(), undefined, deps);
+            await flush();
+            const rawHtml = setSpy.mock.calls
+                .map((c) => String(c[0]))
+                .find((s) => s.includes('Top-List:')) ?? '';
+            expect(rawHtml).toContain('&lt;');
+            expect(rawHtml).toContain('&quot;');
+            expect(rawHtml).not.toContain('<img');
+
+            const modal = document.body.firstElementChild as HTMLElement | null;
+            expect(modal).not.toBeNull();
+            expect(modal!.querySelector('img')).toBeNull();
+            expect(modal!.querySelector('[onerror]')).toBeNull();
+            // The placeholder round-trips to the original display name.
+            expect(modal!.querySelector<HTMLInputElement>('.tlm-custom-name')?.placeholder).toBe(evilName);
+        } finally {
+            setSpy.mockRestore();
+        }
+    });
+
+    it('escapes hostile target-user names in the modal user picker', async () => {
+        const deps = makeDeps({
+            getHseUsers: vi.fn().mockResolvedValue([
+                { Id: "u'1", Name: "' onmouseover=alert(1) <img src=x>" },
+            ]) as unknown as () => Promise<HscUserLike[]>,
+        });
+        const setSpy = vi.spyOn(Element.prototype, 'innerHTML', 'set');
+        try {
+            showTopListModal('mytag', 'MyTag', vi.fn(), undefined, deps);
+            await flush();
+            const rawHtml = setSpy.mock.calls
+                .map((c) => String(c[0]))
+                .find((s) => s.includes('chkTlmUser')) ?? '';
+            expect(rawHtml).toContain('&#39;');
+            expect(rawHtml).toContain('&lt;img');
+
+            const modal = document.body.firstElementChild as HTMLElement | null;
+            expect(modal).not.toBeNull();
+            expect(modal!.querySelector('img')).toBeNull();
+            expect(modal!.querySelector('[onmouseover]')).toBeNull();
+            expect(modal!.querySelector('[onerror]')).toBeNull();
+        } finally {
+            setSpy.mockRestore();
+        }
+    });
+
     it('edit mode pre-populates from existingData', async () => {
         const deps = makeDeps();
         showTopListModal(

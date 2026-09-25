@@ -35,9 +35,9 @@
  *   - `_topListTagNames`      (mutable Set — registered on success)
  *   - the Dashboard globals `confirm` / `alert`
  *
- * `escapeHtml` is imported from `../dom/dom` (the canonical leaf). The
- * two local escape helpers in the legacy (`escAttr` / `escHtml`) match
- * `users.ts` byte-for-byte and stay local helpers.
+ * `escapeHtml` / `escapeAttr` are imported from `../dom/dom` (the
+ * canonical leaf); the legacy local `escAttr` / `escHtml` duplicates
+ * have been removed (C1 — unify HTML escaping).
  *
  * Legacy quirks preserved on purpose:
  * - checkbox class names are `chkTlmUser` for tag-driven modals and
@@ -67,6 +67,7 @@ import { executeTopListCreationSteps } from './creation';
 import { buildUserMultiSelectHtml, wireUserMultiSelect } from '../homesections/users';
 import { buildBadgePickerHtml, initBadgePicker, readBadgeStyle } from './badgePicker';
 import { PLUGIN_ID } from '../state/state';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 
 /**
  * Minimal slice of the Jellyfin `ApiClient` surface consumed by the
@@ -237,15 +238,6 @@ function sanitizeTlName(name: string | null | undefined): string {
     return safe.length === 0 ? 'unknown' : safe;
 }
 
-/** Shared inline `escAttr` / `escHtml` helpers — same shapes as in `users.ts` / `legacy.js`. */
-function escAttr(s: unknown): string {
-    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-}
-
-function escHtml(s: unknown): string {
-    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 /** Read one of the `existingData` fields with a type-narrowing cast. */
 function readExistingString(d: unknown, key: string): string {
     if (typeof d !== 'object' || d === null) return '';
@@ -364,7 +356,7 @@ export function showTopListModal(
 
         const html =
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;">' +
-            '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">' + (existingData ? 'Edit' : 'Create') + ' Top-List: ' + escHtml(displayName) + '</h3>' +
+            '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">' + (existingData ? 'Edit' : 'Create') + ' Top-List: ' + escapeHtml(displayName || '') + '</h3>' +
             '<button type="button" class="btnTlmClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button>' +
             '</div>' +
 
@@ -383,7 +375,7 @@ export function showTopListModal(
 
             '<div style="' + fieldStyle + '">' +
             '<label style="' + labelStyle + '">Custom Title</label>' +
-            '<input type="text" class="tlm-custom-name" style="' + inputStyle + '" placeholder="' + escAttr(displayName) + '" />' +
+            '<input type="text" class="tlm-custom-name" style="' + inputStyle + '" placeholder="' + escapeAttr(displayName || '') + '" />' +
             '</div>' +
 
             '<div style="' + fieldStyle + '">' +
@@ -582,7 +574,7 @@ export function showManualTopListModal(
                 { val: 'tv', label: 'When TV Display Mode is on' },
                 { val: 'mobile,desktop', label: 'When TV Display Mode is off' }
             ].map((o) => {
-                return '<option value="' + escAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
+                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
             }).join('');
 
             const imageOptions = [
@@ -590,7 +582,7 @@ export function showManualTopListModal(
                 { val: 'Primary', label: 'Primary' },
                 { val: 'Thumb', label: 'Thumb' }
             ].map((o) => {
-                return '<option value="' + escAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
+                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
             }).join('');
 
             const titleText = isEdit ? 'Edit Manual Top-List' : 'Create Manual Top-List';
@@ -600,7 +592,7 @@ export function showManualTopListModal(
             if (!innerBox) return;
             innerBox.innerHTML =
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">' +
-                '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">' + escHtml(titleText) + '</h3>' +
+                '<h3 style="margin:0;font-size:1.1em;color:#52B54B;">' + escapeHtml(titleText) + '</h3>' +
                 '<button type="button" class="btnMtlClose" style="background:transparent;border:none;color:inherit;cursor:pointer;padding:2px;opacity:0.6;line-height:1;"><i class="md-icon">close</i></button>' +
                 '</div>' +
 
@@ -611,11 +603,11 @@ export function showManualTopListModal(
 
                 '<div style="' + fieldStyle + '">' +
                 '<label style="' + labelStyle + '">List Name</label>' +
-                '<input type="text" class="mtlListName" style="' + inputStyle + '" placeholder="e.g. My Favorites"' + (isEdit ? ' readonly style="' + inputStyle + 'opacity:0.6;cursor:not-allowed;"' : '') + ' value="' + escAttr(presetName) + '" /></div>' +
+                '<input type="text" class="mtlListName" style="' + inputStyle + '" placeholder="e.g. My Favorites"' + (isEdit ? ' readonly style="' + inputStyle + 'opacity:0.6;cursor:not-allowed;"' : '') + ' value="' + escapeAttr(presetName) + '" /></div>' +
 
                 '<div style="' + fieldStyle + '">' +
                 '<label style="' + labelStyle + '">Custom Title <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:0.7;">(shown on home screen)</span></label>' +
-                '<input type="text" class="mtlCustomName" style="' + inputStyle + '" placeholder="Defaults to list name" value="' + escAttr(presetCustomName) + '" /></div>' +
+                '<input type="text" class="mtlCustomName" style="' + inputStyle + '" placeholder="Defaults to list name" value="' + escapeAttr(presetCustomName) + '" /></div>' +
 
                 '<div style="' + fieldStyle + '"><span style="' + labelStyle + '">Target Users</span>' +
                 '<div>' + usersHtml + '</div></div>' +
@@ -653,7 +645,7 @@ export function showManualTopListModal(
                 '<div style="border-top:1px solid var(--line-color);padding-top:16px;margin-top:8px;display:flex;gap:10px;align-items:center;justify-content:flex-end;">' +
                 '<button type="button" class="btnMtlCancel" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:var(--theme-text-primary);border-radius:3px;padding:8px 18px;font-size:0.9em;">Cancel</button>' +
                 '<button type="button" class="btnMtlCreate" disabled style="cursor:pointer;border:none;background:#52B54B;color:#fff;border-radius:4px;padding:10px 26px;font-size:0.95em;font-weight:600;display:flex;align-items:center;gap:6px;">' +
-                '<i class="md-icon" style="font-size:1em;">playlist_add</i>' + escHtml(createBtnLabel) + '</button>' +
+                '<i class="md-icon" style="font-size:1em;">playlist_add</i>' + escapeHtml(createBtnLabel) + '</button>' +
                 '</div>';
 
             deps.initBadgePicker(modal);
@@ -681,12 +673,12 @@ export function showManualTopListModal(
                     return;
                 }
                 listEl.innerHTML = selectedMovies.map((m, idx) => {
-                    const label = escHtml(m.Name) + (m.Year ? ' (' + escHtml(String(m.Year)) + ')' : '');
+                    const label = escapeHtml(m.Name) + (m.Year ? ' (' + escapeHtml(String(m.Year)) + ')' : '');
                     const upDis = idx === 0 ? ' disabled' : '';
                     const dnDis = idx === selectedMovies.length - 1 ? ' disabled' : '';
                     return '<div style="display:flex;align-items:center;gap:5px;padding:5px 2px;border-bottom:1px solid rgba(128,128,128,0.15);">' +
                         '<span style="min-width:22px;font-size:0.8em;opacity:0.55;font-weight:600;text-align:right;">' + (idx + 1) + '.</span>' +
-                        '<span style="flex:1;font-size:0.88em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(m.Name) + '">' + label + '</span>' +
+                        '<span style="flex:1;font-size:0.88em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeAttr(m.Name) + '">' + label + '</span>' +
                         '<button type="button" class="btnMtlUp" data-idx="' + idx + '"' + upDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move up">▲</button>' +
                         '<button type="button" class="btnMtlDown" data-idx="' + idx + '"' + dnDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move down">▼</button>' +
                         '<button type="button" class="btnMtlRemove" data-idx="' + idx + '" style="cursor:pointer;border:none;background:transparent;color:#cc3333;padding:2px 4px;font-size:0.9em;line-height:1;" title="Remove">✕</button>' +
@@ -735,11 +727,11 @@ export function showManualTopListModal(
                 resultsBox!.innerHTML = hits.map((m) => {
                     const itemId = typeof m.ItemId === 'string' ? m.ItemId : '';
                     const added = itemId ? alreadyIds.has(itemId) : false;
-                    const label = escHtml(m.Name || '') + (m.Year != null ? ' (' + m.Year + ')' : '');
-                    return '<div class="mtlSearchResult" data-itemid="' + escAttr(itemId) + '"' +
-                        ' data-imdbid="' + escAttr(m.ImdbId) + '"' +
-                        ' data-name="' + escAttr(m.Name) + '"' +
-                        ' data-year="' + escAttr(String(m.Year || '')) + '"' +
+                    const label = escapeHtml(m.Name || '') + (m.Year != null ? ' (' + m.Year + ')' : '');
+                    return '<div class="mtlSearchResult" data-itemid="' + escapeAttr(itemId) + '"' +
+                        ' data-imdbid="' + escapeAttr(m.ImdbId || '') + '"' +
+                        ' data-name="' + escapeAttr(m.Name || '') + '"' +
+                        ' data-year="' + escapeAttr(String(m.Year || '')) + '"' +
                         ' style="padding:7px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid rgba(128,128,128,0.12);' +
                         (added ? 'opacity:0.42;pointer-events:none;' : '') + '">' +
                         label + (added ? ' <span style="font-size:0.8em;">(already added)</span>' : '') + '</div>';
@@ -857,7 +849,7 @@ export function showManualTopListModal(
                     })
                     .catch((err: unknown) => {
                         createBtn.disabled = false;
-                        createBtn.innerHTML = '<i class="md-icon" style="font-size:1em;">playlist_add</i>' + escHtml(createBtnLabel);
+                        createBtn.innerHTML = '<i class="md-icon" style="font-size:1em;">playlist_add</i>' + escapeHtml(createBtnLabel);
                         errEl.textContent = (err as { message?: string }).message || String(err);
                     });
             });
@@ -866,7 +858,7 @@ export function showManualTopListModal(
             const innerBox = modal.querySelector<HTMLElement>('div');
             if (!innerBox) return;
             innerBox.innerHTML =
-                '<div style="color:#cc3333;padding:10px 0;">Failed to load: ' + ((err as { message?: string }).message || String(err)).replace(/</g, '&lt;') + '</div>' +
+                '<div style="color:#cc3333;padding:10px 0;">Failed to load: ' + escapeHtml((err as { message?: string }).message || String(err)) + '</div>' +
                 '<div style="margin-top:16px;text-align:right;">' +
                 '<button type="button" class="btnMtlClose" style="cursor:pointer;border:1px solid var(--line-color);background:transparent;color:inherit;border-radius:3px;padding:6px 14px;font-size:0.9em;">Close</button>' +
                 '</div>';
@@ -913,7 +905,7 @@ export function loadInlineEditForm(
     const labelStyle = 'font-size:0.82em;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;opacity:0.65;display:block;margin-bottom:5px;';
     const fieldStyle = 'margin-bottom:14px;';
 
-    const deleteHtml = '<button type="button" is="emby-button" class="raised btnTlDelete" data-name="' + escAttr(tagName) + '" style="background:#cc3333 !important;color:#fff;"><i class="md-icon" style="margin-right:5px;">delete</i>Delete top-list</button>';
+    const deleteHtml = '<button type="button" is="emby-button" class="raised btnTlDelete" data-name="' + escapeAttr(tagName) + '" style="background:#cc3333 !important;color:#fff;"><i class="md-icon" style="margin-right:5px;">delete</i>Delete top-list</button>';
 
     body.innerHTML = '<div style="padding:8px 0;opacity:0.6;font-size:0.9em;">Loading… <span class="tc-dot-loader"><span></span><span></span><span></span></span></div>';
 
@@ -936,7 +928,7 @@ export function loadInlineEditForm(
             const data = res[2] as ManualItemsResultLike;
 
             if (!data.Success) {
-                body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load: ' + escHtml(data.Message || 'Unknown error') + '</div>';
+                body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load: ' + escapeHtml(data.Message || 'Unknown error') + '</div>';
                 return;
             }
 
@@ -956,7 +948,7 @@ export function loadInlineEditForm(
                 { val: 'tv', label: 'When TV Display Mode is on' },
                 { val: 'mobile,desktop', label: 'When TV Display Mode is off' }
             ].map((o) => {
-                return '<option value="' + escAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
+                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetDisplay ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
             }).join('');
 
             const imageOptions = [
@@ -964,7 +956,7 @@ export function loadInlineEditForm(
                 { val: 'Primary', label: 'Primary' },
                 { val: 'Thumb', label: 'Thumb' }
             ].map((o) => {
-                return '<option value="' + escAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escHtml(o.label) + '</option>';
+                return '<option value="' + escapeAttr(o.val) + '"' + (o.val === presetImageType ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
             }).join('');
 
             const wrapper = document.createElement('div');
@@ -976,7 +968,7 @@ export function loadInlineEditForm(
 
                 '<div style="' + fieldStyle + '">' +
                 '<label style="' + labelStyle + '">Custom Title <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:0.7;">(shown on home screen)</span></label>' +
-                '<input type="text" class="mtlCustomName" style="' + inputStyle + '" placeholder="Defaults to list name" value="' + escAttr(presetCustomName) + '" /></div>' +
+                '<input type="text" class="mtlCustomName" style="' + inputStyle + '" placeholder="Defaults to list name" value="' + escapeAttr(presetCustomName) + '" /></div>' +
 
                 '<div style="' + fieldStyle + '"><span style="' + labelStyle + '">Target Users</span>' +
                 '<div>' + usersHtml + '</div></div>' +
@@ -1035,12 +1027,12 @@ export function loadInlineEditForm(
                     return;
                 }
                 listEl.innerHTML = selectedMovies.map((m, idx) => {
-                    const label = escHtml(m.Name) + (m.Year ? ' (' + escHtml(String(m.Year)) + ')' : '');
+                    const label = escapeHtml(m.Name) + (m.Year ? ' (' + escapeHtml(String(m.Year)) + ')' : '');
                     const upDis = idx === 0 ? ' disabled' : '';
                     const dnDis = idx === selectedMovies.length - 1 ? ' disabled' : '';
                     return '<div style="display:flex;align-items:center;gap:5px;padding:5px 2px;border-bottom:1px solid rgba(128,128,128,0.15);">' +
                         '<span style="min-width:22px;font-size:0.8em;opacity:0.55;font-weight:600;text-align:right;">' + (idx + 1) + '.</span>' +
-                        '<span style="flex:1;font-size:0.88em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(m.Name) + '">' + label + '</span>' +
+                        '<span style="flex:1;font-size:0.88em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeAttr(m.Name) + '">' + label + '</span>' +
                         '<button type="button" class="btnMtlUp" data-idx="' + idx + '"' + upDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move up">▲</button>' +
                         '<button type="button" class="btnMtlDown" data-idx="' + idx + '"' + dnDis + ' style="cursor:pointer;border:none;background:transparent;color:inherit;padding:2px 4px;opacity:0.7;font-size:0.9em;line-height:1;" title="Move down">▼</button>' +
                         '<button type="button" class="btnMtlRemove" data-idx="' + idx + '" style="cursor:pointer;border:none;background:transparent;color:#cc3333;padding:2px 4px;font-size:0.9em;line-height:1;" title="Remove">✕</button>' +
@@ -1070,8 +1062,8 @@ export function loadInlineEditForm(
                 resultsBox2!.innerHTML = hits.map((m) => {
                     const itemId = typeof m.ItemId === 'string' ? m.ItemId : '';
                     const added = itemId ? alreadyIds.has(itemId) : false;
-                    const lbl = escHtml(m.Name || '') + (m.Year != null ? ' (' + m.Year + ')' : '');
-                    return '<div class="mtlSearchResult" data-itemid="' + escAttr(itemId) + '" data-imdbid="' + escAttr(m.ImdbId) + '" data-name="' + escAttr(m.Name) + '" data-year="' + escAttr(String(m.Year || '')) + '" style="padding:7px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid rgba(128,128,128,0.12);' + (added ? 'opacity:0.42;pointer-events:none;' : '') + '">' + lbl + (added ? ' <span style="font-size:0.8em;">(already added)</span>' : '') + '</div>';
+                    const lbl = escapeHtml(m.Name || '') + (m.Year != null ? ' (' + m.Year + ')' : '');
+                    return '<div class="mtlSearchResult" data-itemid="' + escapeAttr(itemId) + '" data-imdbid="' + escapeAttr(m.ImdbId || '') + '" data-name="' + escapeAttr(m.Name || '') + '" data-year="' + escapeAttr(String(m.Year || '')) + '" style="padding:7px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid rgba(128,128,128,0.12);' + (added ? 'opacity:0.42;pointer-events:none;' : '') + '">' + lbl + (added ? ' <span style="font-size:0.8em;">(already added)</span>' : '') + '</div>';
                 }).join('');
                 resultsBox2!.style.display = 'block';
             }
@@ -1210,7 +1202,7 @@ export function loadInlineEditForm(
             (body as HTMLElement & { tlSaveForm?: () => Promise<void> }).tlSaveForm = manualSaveForm;
 
         }).catch((err: unknown) => {
-            body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load: ' + escHtml((err as { message?: string }).message || String(err)) + '</div>';
+            body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load: ' + escapeHtml((err as { message?: string }).message || String(err)) + '</div>';
         });
 
     } else {
@@ -1241,7 +1233,7 @@ export function loadInlineEditForm(
 
                 '<div style="' + fieldStyle + '">' +
                 '<label style="' + labelStyle + '">Custom Title</label>' +
-                '<input type="text" class="tlm-custom-name" style="' + inputStyle + '" placeholder="' + escAttr(displayName) + '" />' +
+                '<input type="text" class="tlm-custom-name" style="' + inputStyle + '" placeholder="' + escapeAttr(displayName || '') + '" />' +
                 '</div>' +
 
                 '<div style="' + fieldStyle + '">' +
@@ -1365,7 +1357,7 @@ export function loadInlineEditForm(
             (body as HTMLElement & { tlSaveForm?: () => Promise<void> }).tlSaveForm = regularSaveForm;
 
         }).catch((err: unknown) => {
-            body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load users: ' + escHtml((err as { message?: string }).message || String(err)) + '</div>';
+            body.innerHTML = '<div style="color:#cc3333;padding:8px 0;">Failed to load users: ' + escapeHtml((err as { message?: string }).message || String(err)) + '</div>';
         });
     }
 }
@@ -1470,10 +1462,10 @@ export function showCreateTopListChooser(
                 const badge = hasTopList
                     ? '<span style="font-size:0.72em;background:rgba(180,140,50,0.18);color:#c9a84c;border-radius:3px;padding:1px 6px;margin-left:6px;white-space:nowrap;">top-list</span>'
                     : '';
-                return '<button type="button" class="btnSelectTag" data-name="' + escAttr(name) + '" ' +
+                return '<button type="button" class="btnSelectTag" data-name="' + escapeAttr(name) + '" ' +
                     'style="width:100%;cursor:pointer;background:transparent;border:none;border-bottom:1px solid var(--line-color);' +
                     'padding:10px 4px;display:flex;align-items:center;color:inherit;text-align:left;">' +
-                    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(name) + badge + '</span>' +
+                    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(name) + badge + '</span>' +
                     '<span style="margin-left:12px;white-space:nowrap;font-size:0.85em;color:var(--theme-text-secondary);">' + count + ' movies</span>' +
                     '</button>';
             }).join('');

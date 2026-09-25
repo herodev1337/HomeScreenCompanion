@@ -51,6 +51,30 @@ export function escapeHtml(str: unknown): string {
 }
 
 /**
+ * Escape characters that have a special meaning in an HTML attribute
+ * value. This is {@link escapeHtml} plus the single-quote replacement,
+ * so the result is safe in **both** double-quoted and single-quoted
+ * attributes (and in `onclick="fn('…')"`-style inline handlers).
+ *
+ * Replacements:
+ *   - `&`  → `&amp;`   (first, to avoid double-escaping the entities)
+ *   - `<`  → `&lt;`
+ *   - `>`  → `&gt;`
+ *   - `"`  → `&quot;`
+ *   - `'`  → `&#39;`
+ *
+ * Non-string input is coerced via `String()`, same contract as
+ * {@link escapeHtml}. Use this for every value interpolated into a
+ * quoted attribute; use {@link escapeHtml} for text nodes.
+ *
+ * @param str Anything coercible to a string.
+ * @returns   The escaped string. Empty input → empty output.
+ */
+export function escapeAttr(str: unknown): string {
+    return escapeHtml(str).replace(/'/g, '&#39;');
+}
+
+/**
  * For a vertical drag gesture at `y`, find which of `container`'s direct
  * children (matching the supplied CSS selector, with `.dragging` excluded)
  * the cursor is "above the midpoint" of. Returns the child whose
@@ -126,10 +150,11 @@ function findDragAfterElement(
  * Test button, and a Remove button. Used in the tag-row builder for the
  * External source type.
  *
- * `value` is embedded into the `value="..."` attribute **without**
- * escaping — this is the legacy behavior. The `txtTagUrl` field is a plain
- * text input; if you ever start passing user-controlled strings that may
- * contain `"`, wrap them with {@link escapeHtml} at the call site.
+ * `value` is embedded into the `value="..."` attribute through
+ * {@link escapeAttr}, so quotes / angle brackets / ampersands in a
+ * stored URL cannot break out of the attribute (the browser decodes
+ * the entities back to the original text for the input's value, so the
+ * rendered behavior is unchanged).
  *
  * @param value  Initial URL text. Falsy values (`null`, `undefined`, `''`)
  *               render as an empty input.
@@ -139,7 +164,7 @@ function findDragAfterElement(
  * @returns      The row's HTML string.
  */
 export function getUrlRowHtml(value: string | null | undefined, limit: number | undefined): string {
-    const val = value || '';
+    const val = escapeAttr(value || '');
     const lim = limit !== undefined ? limit : 0;
     return `
             <div class="url-row" style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">

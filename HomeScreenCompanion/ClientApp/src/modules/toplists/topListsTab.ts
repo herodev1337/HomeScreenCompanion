@@ -22,9 +22,9 @@
 //   - the self-recursive `loadTopListsTab(view)` calls after create /
 //     delete / refresh (lifted as `deps.reload`)
 //
-// `escapeHtml` is imported from `../dom/dom` (the extracted leaf);
-// `escAttr` (quote+ampersand only) has no extracted home yet and stays a
-// local helper, same as in the legacy source.
+// `escapeHtml` / `escapeAttr` are imported from `../dom/dom` (the
+// extracted leaf); the legacy local `escAttr` duplicate has been removed
+// (C1 — unify HTML escaping).
 //
 // Legacy quirks preserved on purpose:
 //   - `window.ApiClient.accessToken()` is called WITHOUT the usual
@@ -38,7 +38,7 @@
 //   - the success/failure of the initial `Promise.all` decides between
 //     the full tab markup and a bare `Failed to load: ...` div.
 
-import { escapeHtml } from '../dom/dom';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 import type { FetchLike, PluginConfigLike } from './creation';
 
 /** Minimal shape of `GET HomeScreenCompanion/Manage/Tags`. */
@@ -158,8 +158,6 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
             return safe.length === 0 ? 'unknown' : safe;
         }
 
-        function escAttr(s: unknown) { return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
-
         const searchInputStyle = 'background:var(--plugin-input-bg);border:1px solid var(--plugin-input-border);border-radius:4px;padding:5px 10px;font-size:0.9em;color:var(--plugin-popup-color);width:400px;max-width:100%;';
 
         const realTagNamesLower = new Set((tagsData.Tags || []).map(function (t) { return (t.Name || '').toLowerCase(); }));
@@ -193,7 +191,7 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
                 const typeBadge = isManual
                     ? '<span class="tag-indicator toplist" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">format_list_numbered</i> Manual</span>'
                     : '<span class="tag-indicator tag" style="margin-left:0;margin-right:12px;flex-shrink:0;"><i class="md-icon" style="font-size:1.1em;">label</i> ' + escapeHtml(item.tagName) + '</span>';
-                const editJson = escAttr(JSON.stringify({
+                const editJson = escapeAttr(JSON.stringify({
                     tagName: item.tagName,
                     displayName: item.displayName,
                     isManual: item.isManual,
@@ -204,7 +202,7 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
                     badgeStyle: item.badgeStyle,
                     maxItems: String(item.maxItems || '0')
                 }));
-                return '<div class="tag-row" data-tlname="' + escAttr(item.tagName.toLowerCase()) + '" data-ismanual="' + (isManual ? '1' : '0') + '" data-count="' + item.count + '" data-editjson="' + editJson + '">' +
+                return '<div class="tag-row" data-tlname="' + escapeAttr(item.tagName.toLowerCase()) + '" data-ismanual="' + (isManual ? '1' : '0') + '" data-count="' + item.count + '" data-editjson="' + editJson + '">' +
                     '<div class="tl-row-header tag-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px;cursor:pointer;">' +
                     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' +
                     typeBadge +
@@ -388,6 +386,6 @@ export function loadTopListsTab(view: Element, deps: TopListsTabDeps): void {
         container.addEventListener('click', container._tlClickHandler);
 
     }).catch(function (err: unknown) {
-        container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + String(err) + '</div>';
+        container.innerHTML = '<div style="color:#cc3333;padding:20px;">Failed to load: ' + escapeHtml(String(err)) + '</div>';
     });
 }

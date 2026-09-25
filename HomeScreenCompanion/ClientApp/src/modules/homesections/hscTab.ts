@@ -17,6 +17,8 @@
 // surface. Until the rest of the HSC handling is migrated, the caller in
 // legacy.js keeps wrapping this with the closure-bound arguments.
 
+import { escapeAttr, escapeHtml } from '../dom/dom';
+
 /**
  * Minimal shape we need from the saved HSC config. The full shape lives
  * in `types/dtos.ts` (Phase 4 deliverable); this avoids a cross-cycle import.
@@ -63,7 +65,7 @@ export function renderHscTab(
     const sourceOptions = users
         .map((u) => {
             const selected = config.HomeSyncSourceUserId === u.Id ? ' selected' : '';
-            return `<option value="${u.Id}"${selected}>${u.Name}</option>`;
+            return `<option value="${escapeAttr(u.Id)}"${selected}>${escapeHtml(u.Name)}</option>`;
         })
         .join('');
 
@@ -72,8 +74,8 @@ export function renderHscTab(
             const checked = (config.HomeSyncTargetUserIds || []).indexOf(u.Id) >= 0 ? ' checked' : '';
             return (
                 '<div class="hsc-user-row"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;width:100%;">' +
-                `<input is="emby-checkbox" type="checkbox" class="hsc-target-chk" value="${u.Id}"${checked} />` +
-                `<span>${u.Name}</span>` +
+                `<input is="emby-checkbox" type="checkbox" class="hsc-target-chk" value="${escapeAttr(u.Id)}"${checked} />` +
+                `<span>${escapeHtml(u.Name)}</span>` +
                 '</label></div>'
             );
         })

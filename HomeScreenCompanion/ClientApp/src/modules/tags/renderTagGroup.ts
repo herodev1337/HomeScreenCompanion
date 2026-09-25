@@ -32,6 +32,7 @@
  */
 
 import { migrateCommaSeparated } from '../filters/criteria';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 import type { MediaInfoFilterGroup, SavedFilter } from '../filters/savedFilters';
 import type { DateInterval, NamedItem } from '../filters/rows';
 import type { MiFilterDeps } from '../filters/miFilters';
@@ -431,7 +432,7 @@ export function renderTagGroup(
     const newClass = '';
 
     const html = `
-        <div class="tag-row ${inactiveClass} ${newClass}" data-index="${idx}" data-tag="${tagName.toLowerCase()}" data-last-modified="${lastMod}" data-dirty="false">
+        <div class="tag-row ${inactiveClass} ${newClass}" data-index="${idx}" data-tag="${escapeAttr(tagName.toLowerCase())}" data-last-modified="${escapeAttr(lastMod)}" data-dirty="false">
             <div class="tag-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px; cursor:pointer;">
                 <div style="display:flex; align-items:center;">
                     <div class="header-actions" style="margin-right:15px; display:flex; align-items:center;" onclick="event.stopPropagation()">
@@ -446,7 +447,7 @@ export function renderTagGroup(
                     </div>
                     <div class="tag-info" style="display:flex; align-items:center;">
                         <span class="source-badge">${sourceBadgeHtml}</span>
-                        <span class="tag-title" style="font-weight:bold; font-size:1.1em;">${labelName || tagName || 'New'}</span>
+                        <span class="tag-title" style="font-weight:bold; font-size:1.1em;">${escapeHtml(labelName || tagName || 'New')}</span>
                         <span class="badge-container" style="display:flex; align-items:center;">${indicatorsHtml}</span>
                     </div>
                 </div>
@@ -467,7 +468,7 @@ export function renderTagGroup(
                 </div>
 
                 <div class="tab-content general-tab">
-                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtEntryLabel" type="text" label="Display Name" value="${labelName}" /></div>
+                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtEntryLabel" type="text" label="Display Name" value="${escapeAttr(labelName)}" /></div>
 
                     <div style="margin-bottom: 15px;">
                         <label class="selectLabel">Source Type</label>
@@ -524,7 +525,7 @@ export function renderTagGroup(
                             <textarea is="emby-textarea" class="txtAiPrompt" rows="3"
                                 label="Prompt"
                                 style="width:100%; resize:vertical; box-sizing:border-box;"
-                                placeholder="e.g. Give me the best thriller movies from the 2000s">${cfg.AiPrompt || ''}</textarea>
+                                placeholder="e.g. Give me the best thriller movies from the 2000s">${escapeHtml(cfg.AiPrompt || '')}</textarea>
                             <div class="fieldDescription">Write your intent. The system will automatically format the output as a structured movie/show list. You don't need to specify a format.</div>
                         </div>
 
@@ -541,7 +542,7 @@ export function renderTagGroup(
                                 <label class="selectLabel">User for watch history</label>
                                 <select is="emby-select" class="selAiWatchedUser" style="width:100%;">
                                     <option value="">-- Select user --</option>
-                                    ${(deps.miUsers.users || []).map((u) => '<option value="' + u.Id + '"' + (u.Id === (cfg.AiRecentlyWatchedUserId || '') ? ' selected' : '') + '>' + u.Name + '</option>').join('')}
+                                    ${(deps.miUsers.users || []).map((u) => '<option value="' + escapeAttr(u.Id) + '"' + (u.Id === (cfg.AiRecentlyWatchedUserId || '') ? ' selected' : '') + '>' + escapeHtml(u.Name) + '</option>').join('')}
                                 </select>
                             </div>
                             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -622,7 +623,7 @@ export function renderTagGroup(
                 </div>
 
             <div class="tab-content tagname-tab" style="display:none;">
-                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtTagName" type="text" label="Tag Name" value="${tagName}" placeholder="${labelName}" /></div>
+                    <div class="inputContainer" style="flex-grow:1;"><input is="emby-input" class="txtTagName" type="text" label="Tag Name" value="${escapeAttr(tagName)}" placeholder="${escapeAttr(labelName)}" /></div>
                     <div class="tag-tab-controls" style="margin-top:10px;">
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label>
@@ -681,7 +682,7 @@ export function renderTagGroup(
 
                     <div class="collection-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${cfg.EnableCollection ? 'block' : 'none'};">
                         <div class="inputContainer">
-                            <input is="emby-input" type="text" class="txtCollectionName" label="Collection Name" value="${collName}" placeholder="${labelName}" />
+                            <input is="emby-input" type="text" class="txtCollectionName" label="Collection Name" value="${escapeAttr(collName)}" placeholder="${escapeAttr(labelName)}" />
                             <div class="fieldDescription">Leave empty to use Display Name.</div>
                         </div>
 
@@ -710,18 +711,18 @@ export function renderTagGroup(
                                 <textarea is="emby-textarea" class="txtCollectionDescription" rows="3"
                                     label="Description"
                                     placeholder="Optional description for this collection..."
-                                    style="width:100%; resize:vertical; box-sizing:border-box;">${collDescription}</textarea>
+                                    style="width:100%; resize:vertical; box-sizing:border-box;">${escapeHtml(collDescription)}</textarea>
                             </div>
 
                             <div style="margin-top:15px;">
                                 <p style="margin:0 0 8px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Collection Poster</p>
                                 <div class="poster-preview-container" style="margin-bottom:8px; display:${collPosterPath ? 'block' : 'none'};">
-                                    <span class="poster-filename" style="font-size:0.85em; opacity:0.7;">${collPosterPath ? collPosterPath.split(/[\\\\/]/).pop() : ''}</span>
+                                    <span class="poster-filename" style="font-size:0.85em; opacity:0.7;">${collPosterPath ? escapeHtml(collPosterPath.split(/[\\\\/]/).pop()) : ''}</span>
                                     <button type="button" class="btnRemovePoster" style="margin-left:10px; font-size:0.8em; background:transparent; border:none; color:#e55; cursor:pointer; vertical-align:middle;">✕ Remove</button>
                                 </div>
                                 <img class="poster-preview-img" src="" alt="" style="max-width:120px; max-height:180px; border-radius:4px; display:none; margin-bottom:8px;" />
                                 <input type="file" class="inputPosterFile" accept="image/*" style="display:none;" />
-                                <input type="hidden" class="hiddenPosterPath" value="${collPosterPath}" />
+                                <input type="hidden" class="hiddenPosterPath" value="${escapeAttr(collPosterPath)}" />
                                 <button type="button" is="emby-button" class="btnChoosePoster raised" style="width:100%; background:transparent; border:2px dashed rgba(128,128,128,0.4); color:var(--theme-text-secondary);">
                                     <i class="md-icon" style="margin-right:5px;">image</i>Choose Poster Image
                                 </button>
@@ -752,7 +753,7 @@ export function renderTagGroup(
                     </div>
                     <div class="playlist-settings" style="margin-left: 20px; padding-left: 15px; border-left: 2px solid var(--line-color); margin-top: 10px; display: ${cfg.EnablePlaylist ? 'block' : 'none'};">
                         <div class="inputContainer">
-                            <input is="emby-input" type="text" class="txtPlaylistName" label="Playlist Name" value="${playlistName}" placeholder="${labelName}" />
+                            <input is="emby-input" type="text" class="txtPlaylistName" label="Playlist Name" value="${escapeAttr(playlistName)}" placeholder="${escapeAttr(labelName)}" />
                             <div class="fieldDescription">Leave empty to use Display Name.</div>
                         </div>
                         <div style="margin-top:12px;">
@@ -765,7 +766,7 @@ export function renderTagGroup(
                 <div class="tab-content advanced-tab" style="display:none;">
                     <div class="inputContainer">
                         <p style="margin:0 0 5px 0; font-size:0.9em; font-weight:bold; opacity:0.7;">Blacklist / Ignore (IMDB IDs)</p>
-                        <textarea class="txtTagBlacklist" rows="2" placeholder="tt1234567&#10;tt9876543" style="width:100%;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:44px;max-height:120px;overflow-y:auto;">${blacklist}</textarea>
+                        <textarea class="txtTagBlacklist" rows="2" placeholder="tt1234567&#10;tt9876543" style="width:100%;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:44px;max-height:120px;overflow-y:auto;">${escapeHtml(blacklist)}</textarea>
                         <div class="fieldDescription">Items with these IDs will never be tagged or added to collection.</div>
                     </div>
                 </div>

@@ -26,6 +26,7 @@
 
 import type { HseUserCacheState } from '../state/state';
 import type { HscUserLike } from './hscTab';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 
 /**
  * Minimal slice of the Jellyfin `ApiClient` surface that
@@ -137,43 +138,6 @@ export interface UserOption {
 }
 
 /**
- * Escape characters that have a special meaning inside HTML
- * **attribute** values. Replacements:
- *   - `&` → `&amp;`
- *   - `"` → `&quot;`
- *
- * Single quotes are intentionally NOT escaped because the legacy
- * function embedded these strings into double-quoted attributes only
- * (the `value="..."`, `data-name="..."`, and `class="..."` slots).
- * Mirrors the canonical `escapeHtml` in `modules/dom/dom.ts` minus
- * the `<` / `>` replacements — those are not needed inside
- * attribute values, and the snapshot equivalence is preserved.
- *
- * Non-string input is coerced via `String()`. `null` / `undefined`
- * become `''` after the `||` short-circuit, which matches the
- * legacy contract for missing fields.
- */
-function escAttr(s: unknown): string {
-    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-}
-
-/**
- * Escape characters that have a special meaning inside HTML text
- * content. Replacements:
- *   - `&` → `&amp;`
- *   - `<` → `&lt;`
- *   - `>` → `&gt;`
- *
- * Double quotes are NOT escaped here — the legacy function only used
- * `escHtml` inside `<span>` text nodes, never inside attribute
- * values. The asymmetry vs. `escAttr` is intentional and pinned by
- * the test suite.
- */
-function escHtml(s: unknown): string {
-    return (typeof s === 'string' ? s : '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/**
  * Build the HTML for the "Target Users" multi-select dropdown used by
  * the home-section tab and by the top-list modal.
  *
@@ -218,8 +182,8 @@ export function buildUserMultiSelectHtml(
     const rows = users.map((u) => {
         const chk = sel.indexOf(u.Id) !== -1 ? ' checked' : '';
         return '<div class="checkboxContainer" style="margin:2px 0;">' +
-            '<label><input type="checkbox" is="emby-checkbox" class="' + escAttr(checkboxClass) + '" value="' + escAttr(u.Id) + '" data-name="' + escAttr(u.Name) + '"' + chk + '>' +
-            '<span>' + escHtml(u.Name) + '</span></label></div>';
+            '<label><input type="checkbox" is="emby-checkbox" class="' + escapeAttr(checkboxClass) + '" value="' + escapeAttr(u.Id) + '" data-name="' + escapeAttr(u.Name) + '"' + chk + '>' +
+            '<span>' + escapeHtml(u.Name) + '</span></label></div>';
     }).join('');
     const checkedNames = users
         .filter((u) => sel.indexOf(u.Id) !== -1)
@@ -236,7 +200,7 @@ export function buildUserMultiSelectHtml(
         'box-sizing:border-box;text-align:left;';
     return '<div class="filter-dropdown-wrapper hsc-user-dropdown" style="width:100%;">' +
         '<button type="button" class="hsc-user-dropdown-btn" style="' + btnStyle + '">' +
-        '<span class="hsc-user-dropdown-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(lbl) + '</span>' +
+        '<span class="hsc-user-dropdown-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(lbl) + '</span>' +
         '<i class="md-icon hsc-user-dropdown-caret" style="font-size:1em;margin-left:6px;flex-shrink:0;">expand_more</i>' +
         '</button>' +
         '<div class="filter-dropdown-panel" style="min-width:220px;width:100%;box-sizing:border-box;">' + rows + '</div>' +

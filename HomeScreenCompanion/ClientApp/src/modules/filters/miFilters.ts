@@ -36,6 +36,7 @@
 
 import { buildCriterion, migrateCommaSeparated, parseCriterion } from './criteria';
 import type { MediaInfoFilterGroup } from './savedFilters';
+import { escapeAttr, escapeHtml } from '../dom/dom';
 
 const MI_TEXT_MATCH_PROPS: readonly string[] = [
     'Tag', 'Title', 'EpisodeTitle', 'Overview', 'Studio', 'Genre',
@@ -237,17 +238,6 @@ export interface MiFilterDeps {
 }
 
 /**
- * Escape a value for textarea *content* (legacy inline at 1070/1123/1127).
- * Only `&`, `<`, `>` are escaped — the legacy call sites do NOT escape
- * double quotes here (the value sits between the textarea tags, not in an
- * attribute). Keep this separate from `escapeHtml` (modules/dom/dom.ts),
- * which also escapes `"`.
- */
-function escapeText(val: string): string {
-    return val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/**
  * The contains/exact `<select class="selMiTextOp">` shared by the Tag
  * branch and the text-match branch (legacy.js:1059-1062 / 1116-1119 —
  * byte-identical markup in both places).
@@ -265,7 +255,7 @@ function textOpSelectHtml(selectedOp: string | undefined): string {
  * 1127 — byte-identical markup in all three places).
  */
 function textAreaHtml(placeholder: string, val: string): string {
-    return '<textarea class="txtMiValue" placeholder="' + placeholder + '" rows="1" style="flex:1;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:32px;max-height:120px;overflow-y:auto;">' + escapeText(val) + '</textarea>';
+    return '<textarea class="txtMiValue" placeholder="' + escapeAttr(placeholder) + '" rows="1" style="flex:1;resize:none;overflow:hidden;padding:6px 8px;font-size:inherit;font-family:inherit;background:var(--plugin-input-bg,rgba(255,255,255,0.08));border:1px solid var(--plugin-input-border,rgba(255,255,255,0.2));border-radius:3px;color:inherit;line-height:1.4;min-height:32px;max-height:120px;overflow-y:auto;">' + escapeHtml(val) + '</textarea>';
 }
 
 /**
@@ -314,7 +304,7 @@ export function getMiValueHtml(
             specialOpts += '<option value="__current__"' + ('__current__' === savedUserId ? ' selected' : '') + '>Current user (viewer)</option>';
         }
         const uOpts = specialOpts + (deps.users || []).map(function (u) {
-            return '<option value="' + u.Id + '"' + (u.Id === savedUserId ? ' selected' : '') + '>' + u.Name + '</option>';
+            return '<option value="' + escapeAttr(u.Id) + '"' + (u.Id === savedUserId ? ' selected' : '') + '>' + escapeHtml(u.Name) + '</option>';
         }).join('');
         userHtml = '<select class="selMiUser" is="emby-select" style="flex:0 0 auto;min-width:110px;">' + uOpts + '</select>';
     }
@@ -324,7 +314,7 @@ export function getMiValueHtml(
         const cpList = prop === 'Collection' ? deps.collections : deps.playlists;
         const cpOpts = cpList.map(function (o) {
             const n = o.Name || '';
-            return '<option value="' + n.replace(/"/g, '&quot;') + '"' + (n === savedVal ? ' selected' : '') + '>' + n + '</option>';
+            return '<option value="' + escapeAttr(n) + '"' + (n === savedVal ? ' selected' : '') + '>' + escapeHtml(n) + '</option>';
         }).join('');
         return '<select class="selMiValue" is="emby-select" style="flex:1;"><option value="">-- Select --</option>' + cpOpts + '</select>';
     }
@@ -333,7 +323,7 @@ export function getMiValueHtml(
         const tagTextOpHtml = textOpSelectHtml(tagTextOp);
         if (deps.tags.length > 0) {
             const tagOpts = deps.tags.map(function (t) {
-                return '<option value="' + t.replace(/"/g, '&quot;') + '"' + (t === savedVal ? ' selected' : '') + '>' + t + '</option>';
+                return '<option value="' + escapeAttr(t) + '"' + (t === savedVal ? ' selected' : '') + '>' + escapeHtml(t) + '</option>';
             }).join('');
             return tagTextOpHtml + '<select class="selMiValue" is="emby-select" style="flex:1;"><option value="">-- Select tag --</option>' + tagOpts + '</select>';
         }
