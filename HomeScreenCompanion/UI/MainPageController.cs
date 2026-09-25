@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using HomeScreenCompanion.UIBaseClasses;
 using MediaBrowser.Controller;
+using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI.Views;
 
@@ -15,15 +16,18 @@ namespace HomeScreenCompanion.UI
     {
         private readonly PluginInfo pluginInfo;
         private readonly MainPageOptionsStore optionsStore;
+        private readonly ILogger logger;
 
         public MainPageController(
             PluginInfo pluginInfo,
             IServerApplicationHost applicationHost,
-            MainPageOptionsStore optionsStore)
+            MainPageOptionsStore optionsStore,
+            ILogger logger)
             : base(pluginInfo.Id)
         {
             this.pluginInfo = pluginInfo;
             this.optionsStore = optionsStore;
+            this.logger = logger;
             this.PageInfo = new PluginPageInfo
             {
                 Name = "HomeScreenCompanion",
@@ -38,7 +42,7 @@ namespace HomeScreenCompanion.UI
 
         public override Task<IPluginUIView> CreateDefaultPageView()
         {
-            IPluginUIView view = new MainPageView(this.pluginInfo, this.optionsStore);
+            IPluginUIView view = new MainPageView(this.pluginInfo, this.optionsStore, this.logger);
             return Task.FromResult(view);
         }
     }
