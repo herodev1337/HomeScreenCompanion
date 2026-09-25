@@ -54,6 +54,11 @@ namespace HomeScreenCompanion.UI
                 }
             }
 
+            if (commandId == "OpenReleaseNotes")
+            {
+                return new ReleaseNotesDialog(this.PluginId, this.MainPageUi?.ReleaseNotesUrl);
+            }
+
             return await base.RunCommand(itemId, commandId, data);
         }
 

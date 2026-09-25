@@ -51,5 +51,13 @@ namespace HomeScreenCompanion.UI
         // from PluginConfiguration.TagConfig. For now the row type exposes just
         // the fields needed by EditorDxGrid (Name, Tag, Enabled, Source).
         public EditorDxGrid Tags { get; set; } = new EditorDxGrid();
+
+        public CaptionItem UpdatesCaption { get; set; } = new CaptionItem("Updates");
+
+        public ButtonItem OpenReleaseNotesButton { get; set; } = new ButtonItem("Open release notes")
+        {
+            Icon = IconNames.open_in_new,
+            Data1 = "OpenReleaseNotes"
+        };
     }
 }
