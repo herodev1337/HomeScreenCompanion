@@ -1,6 +1,7 @@
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Plugins.UI;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Drawing;
 using System;
@@ -10,7 +11,7 @@ using System.Linq;
 
 namespace HomeScreenCompanion
 {
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbImage
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasUIPages, IHasThumbImage
     {
         public override string Name => "Home Screen Companion";
 
@@ -30,36 +31,7 @@ namespace HomeScreenCompanion
         public static IApplicationPaths AppPaths { get; private set; } = null!;
         public static new IXmlSerializer XmlSerializer { get; private set; } = null!;
 
-        public IEnumerable<PluginPageInfo> GetPages()
-        {
-            var assembly = GetType().Assembly;
-
-            var htmlPath = assembly.GetManifestResourceNames().FirstOrDefault(r => r.EndsWith("configPage.html"));
-            var jsPath = assembly.GetManifestResourceNames().FirstOrDefault(r => r.EndsWith("configPage.js"));
-
-            if (htmlPath == null || jsPath == null)
-            {
-                return new List<PluginPageInfo>();
-            }
-
-            return new[]
-            {
-                new PluginPageInfo
-                {
-                    Name = "HomeScreenCompanion",
-                    EmbeddedResourcePath = htmlPath,
-
-                    EnableInMainMenu = true,
-                    DisplayName = "Home Screen Companion",
-                    MenuIcon = "home"
-                },
-                new PluginPageInfo
-                {
-                    Name = "HomeScreenCompanionJS",
-                    EmbeddedResourcePath = jsPath
-                }
-            };
-        }
+        public IReadOnlyCollection<IPluginUIPageController> UIPageControllers { get; } = Array.Empty<IPluginUIPageController>();
 
         public Stream GetThumbImage()
         {
