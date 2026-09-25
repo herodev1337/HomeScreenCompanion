@@ -23,6 +23,9 @@ namespace HomeScreenCompanion
         public static int LastSectionsCopied { get; private set; } = 0;
         public static List<string> ExecutionLog { get; } = new List<string>();
         public static DateTime? LastStartedUtc { get; private set; }
+
+        public const string HscTaskKey = "HomeSectionSyncTask";
+        public const string HscTaskName = "Home Screen Sync";
         private RunLog _log;
 
         public HomeSectionSyncTask(IUserManager userManager, ILogManager logManager)

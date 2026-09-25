@@ -1,5 +1,6 @@
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Services;
+using MediaBrowser.Model.Tasks;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -34,10 +35,30 @@ namespace HomeScreenCompanion
             {
                 LastSyncTime = HomeSectionSyncTask.LastSyncTime,
                 IsRunning = HomeSectionSyncTask.IsRunning,
-                LastSyncResult = HomeSectionSyncTask.LastSyncResult,
+                LastSyncResult = BuildTaskInfo(),
                 SectionsCopied = HomeSectionSyncTask.LastSectionsCopied,
                 Logs = logs,
                 StartedUtc = HomeSectionSyncTask.LastStartedUtc?.ToString("o") ?? ""
+            };
+        }
+
+        private static TaskInfo BuildTaskInfo()
+        {
+            var lastResultText = HomeSectionSyncTask.LastSyncResult;
+            return new TaskInfo
+            {
+                Key = HomeSectionSyncTask.HscTaskKey,
+                Name = HomeSectionSyncTask.HscTaskName,
+                State = HomeSectionSyncTask.IsRunning ? TaskState.Running : TaskState.Idle,
+                LastExecutionResult = new TaskResult
+                {
+                    Status = HscResultMapper.ToCompletionStatus(lastResultText),
+                    Name = HomeSectionSyncTask.HscTaskName,
+                    Key = HomeSectionSyncTask.HscTaskKey,
+                    StartTimeUtc = HomeSectionSyncTask.LastStartedUtc ?? DateTimeOffset.MinValue,
+                    EndTimeUtc = HomeSectionSyncTask.LastStartedUtc ?? DateTimeOffset.MinValue,
+                    ErrorMessage = string.IsNullOrEmpty(lastResultText) ? null : lastResultText
+                }
             };
         }
 

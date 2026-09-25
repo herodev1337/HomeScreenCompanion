@@ -1,16 +1,10 @@
 using System.Collections.Generic;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Tasks;
 
 namespace HomeScreenCompanion
 {
-    public class ExternalItemDto
-    {
-        public string Name { get; set; }
-        public string Imdb { get; set; }
-        public string Tmdb { get; set; }
-    }
-
     public class MdbListItem
     {
         public string title { get; set; }
@@ -55,22 +49,11 @@ namespace HomeScreenCompanion
         public string imdb { get; set; }
     }
 
-    public class HscUserDto
-    {
-        public string Id { get; set; } = "";
-        public string Name { get; set; } = "";
-    }
-
-    public class HscUsersResponse
-    {
-        public List<HscUserDto> Users { get; set; } = new List<HscUserDto>();
-    }
-
     public class HscSyncStatusResponse
     {
         public string LastSyncTime { get; set; } = "";
         public bool IsRunning { get; set; }
-        public string LastSyncResult { get; set; } = "";
+        public TaskInfo LastSyncResult { get; set; }
         public int SectionsCopied { get; set; }
         public List<string> Logs { get; set; } = new List<string>();
         public string StartedUtc { get; set; } = "";

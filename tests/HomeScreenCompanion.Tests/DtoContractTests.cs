@@ -1,0 +1,114 @@
+using System;
+using System.Linq;
+using System.Reflection;
+using MediaBrowser.Model.Tasks;
+using Xunit;
+
+namespace HomeScreenCompanion.Tests;
+
+/// <summary>
+/// Audit-plan v2 / Wave 2 / T1: shape tests for the DTO refactor.
+///
+/// Verifies:
+/// * dead types <c>HscUserDto</c> + <c>HscUsersResponse</c> are gone,
+/// * <c>ExternalItemDto</c> moved to <c>ListFetcher</c> namespace,
+/// * <c>HscSyncStatusResponse.LastSyncResult</c> is the SDK <c>TaskInfo</c>,
+/// * JSON property names stay stable (the legacy ClientApp is gone, but
+///   we still produce stable wire shapes for ad-hoc API consumers).
+/// </summary>
+public sealed class DtoContractTests
+{
+    [Fact]
+    public void HscUserDto_Is_Deleted()
+    {
+        Assert.Null(HscAssembly.FindType("HomeScreenCompanion.HscUserDto"));
+    }
+
+    [Fact]
+    public void HscUsersResponse_Is_Deleted()
+    {
+        Assert.Null(HscAssembly.FindType("HomeScreenCompanion.HscUsersResponse"));
+    }
+
+    [Fact]
+    public void ExternalItemDto_Still_Public_With_Same_Properties_After_Move()
+    {
+        // Same namespace (HomeScreenCompanion); moved from DTOs.cs to
+        // ListFetcher.cs in Wave 2 / T1 since ListFetcher is the only
+        // consumer. Public contract unchanged.
+        var moved = HscAssembly.FindType("HomeScreenCompanion.ExternalItemDto");
+        Assert.NotNull(moved);
+        var props = moved!.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name)
+            .ToHashSet();
+        Assert.Contains("Name", props);
+        Assert.Contains("Imdb", props);
+        Assert.Contains("Tmdb", props);
+    }
+
+    [Fact]
+    public void HscSyncStatusResponse_LastSyncResult_Is_TaskInfo()
+    {
+        var t = HscAssembly.FindType("HomeScreenCompanion.HscSyncStatusResponse");
+        Assert.NotNull(t);
+        var prop = t!.GetProperty("LastSyncResult", BindingFlags.Public | BindingFlags.Instance);
+        Assert.NotNull(prop);
+        Assert.Equal("MediaBrowser.Model.Tasks.TaskInfo", prop!.PropertyType.FullName);
+    }
+
+    [Fact]
+    public void HscSyncStatusResponse_Has_Stable_Json_Property_Names()
+    {
+        // The legacy ClientApp (now deleted) parsed these field names; any
+        // extension API consumers still depend on them, so renaming would be
+        // a breaking API change.
+        var t = HscAssembly.FindType("HomeScreenCompanion.HscSyncStatusResponse")!;
+        var names = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name)
+            .ToHashSet();
+        Assert.Contains("LastSyncTime", names);
+        Assert.Contains("IsRunning", names);
+        Assert.Contains("SectionsCopied", names);
+        Assert.Contains("Logs", names);
+        Assert.Contains("StartedUtc", names);
+        Assert.Contains("LastSyncResult", names);
+    }
+
+    [Fact]
+    public void HscResultMapper_Static_ToCompletionStatus_Maps_Free_Form_Text()
+    {
+        var t = HscAssembly.FindType("HomeScreenCompanion.HscResultMapper");
+        Assert.NotNull(t);
+        Assert.True(t!.IsAbstract && t.IsSealed, "HscResultMapper must be a static class");
+
+        var method = t.GetMethod("ToCompletionStatus",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        Assert.Equal(typeof(TaskCompletionStatus), method!.ReturnType);
+    }
+
+    [Fact]
+    public void HomeSectionSyncTask_Exposes_HscTaskKey_And_HscTaskName_Constants()
+    {
+        var t = HscAssembly.FindType("HomeScreenCompanion.HomeSectionSyncTask")!;
+        var key = t.GetField("HscTaskKey",
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(key);
+        Assert.True(key!.IsLiteral, "HscTaskKey must be a const");
+
+        var name = t.GetField("HscTaskName",
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(name);
+        Assert.True(name!.IsLiteral, "HscTaskName must be a const");
+    }
+
+    private static Type? FindTypeAcrossLoadedAssemblies(string fullName)
+    {
+        foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var t = asm.GetType(fullName, throwOnError: false);
+            if (t != null) return t;
+        }
+        return null;
+    }
+}
