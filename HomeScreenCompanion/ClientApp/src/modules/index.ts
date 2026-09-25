@@ -1455,6 +1455,22 @@ export default function (view: HTMLElement): void {
             appState.viewShow.formAc = formAc;
             const signal = formAc.signal;
 
+            const closeFilterDrop = (e: MouseEvent): void => {
+                const dropPanel = view.querySelector<HTMLElement>('#filterDropdownPanel');
+                const dropBtn = view.querySelector<HTMLElement>('#btnFilterDropdown');
+                const dropCaret = view.querySelector<HTMLElement>('#filterDropdownCaret');
+                if (!dropPanel || !dropBtn || !dropCaret) return;
+                const target = e.target as Node | null;
+                if (!target) return;
+                if (!dropPanel.contains(target) && target !== dropBtn) {
+                    dropPanel.classList.remove('open');
+                    dropCaret.textContent = 'expand_more';
+                }
+            };
+            document.addEventListener('click', closeFilterDrop, { signal });
+            document.addEventListener('click', closeSpeedDial, { signal });
+            window.addEventListener('beforeunload', beforeUnloadHandler, { signal });
+
             form.addEventListener('input', changeHandler, { signal });
             form.addEventListener('change', changeHandler, { signal });
             form.addEventListener('input', (e) => {
@@ -1696,15 +1712,6 @@ export default function (view: HTMLElement): void {
                             const open = dropPanel.classList.toggle('open');
                             dropCaret.textContent = open ? 'expand_less' : 'expand_more';
                         });
-
-                        document.addEventListener('click', function closeFilterDrop(e: MouseEvent) {
-                            const target = e.target as Node | null;
-                            if (!target) return;
-                            if (!dropPanel.contains(target) && target !== dropBtn) {
-                                dropPanel.classList.remove('open');
-                                dropCaret.textContent = 'expand_more';
-                            }
-                        });
                     }
                 }
 
@@ -1798,6 +1805,10 @@ export default function (view: HTMLElement): void {
         });
 
         view.addEventListener('viewhide', () => {
+            if (appState.viewShow.formAc) {
+                appState.viewShow.formAc.abort();
+                appState.viewShow.formAc = null;
+            }
             if (appState.viewShow.statusInterval) {
                 clearInterval(appState.viewShow.statusInterval);
                 appState.viewShow.statusInterval = null;
@@ -1822,7 +1833,6 @@ export default function (view: HTMLElement): void {
             if (speedDial) speedDial.classList.remove('open');
             if (syncMenu) syncMenu.classList.remove('open');
         }
-        document.addEventListener('click', closeSpeedDial);
 
         function runTask(key: string, label: string): void {
             const api = getApi();
@@ -1875,12 +1885,6 @@ export default function (view: HTMLElement): void {
                 e.returnValue = '';
             }
         }
-        window.addEventListener('beforeunload', beforeUnloadHandler);
-
-        view.addEventListener('viewhide', function () {
-            document.removeEventListener('click', closeSpeedDial);
-            window.removeEventListener('beforeunload', beforeUnloadHandler);
-        }, { once: true });
 
         view.querySelectorAll<HTMLElement>('.page-tab-btn').forEach((btn) => {
             btn.addEventListener('click', function () {
@@ -1956,9 +1960,4 @@ export default function (view: HTMLElement): void {
                 if (manageContainer && !manageContainer.dataset.loaded) loadHscManageTabFn(view);
             }
         });
-
-        const origStatusInterval = appState.viewShow.statusInterval;
-        if (origStatusInterval) clearInterval(origStatusInterval);
-        const finalStatusInterval = setInterval(() => refreshStatusFn(view), 5000);
-        appState.viewShow.statusInterval = finalStatusInterval;
 }
