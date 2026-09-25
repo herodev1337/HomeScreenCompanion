@@ -1,9 +1,13 @@
+using HomeScreenCompanion.UI;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Drawing;
+using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,19 +23,51 @@ namespace HomeScreenCompanion
 
         public override string Description => "Auto-tagging, collection management and home screen sync for Emby.";
 
-        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+        private readonly IServerApplicationHost _applicationHost;
+        private readonly ILogger _logger;
+        private MainPageOptionsStore _mainPageOptionsStore;
+        private List<IPluginUIPageController> _uiPageControllers;
+
+        public Plugin(
+            IApplicationPaths applicationPaths,
+            IXmlSerializer xmlSerializer,
+            IServerApplicationHost applicationHost,
+            IJsonSerializer jsonSerializer,
+            IFileSystem fileSystem,
+            ILogManager logManager)
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
             AppPaths = applicationPaths;
             XmlSerializer = xmlSerializer;
+            _applicationHost = applicationHost;
+            _logger = logManager.GetLogger("HomeScreenCompanion");
+            _mainPageOptionsStore = new MainPageOptionsStore(
+                applicationPaths,
+                fileSystem,
+                jsonSerializer,
+                _logger,
+                Name);
         }
 
         public static Plugin? Instance { get; private set; }
         public static IApplicationPaths AppPaths { get; private set; } = null!;
         public static new IXmlSerializer XmlSerializer { get; private set; } = null!;
 
-        public IReadOnlyCollection<IPluginUIPageController> UIPageControllers { get; } = Array.Empty<IPluginUIPageController>();
+        public IReadOnlyCollection<IPluginUIPageController> UIPageControllers
+        {
+            get
+            {
+                if (_uiPageControllers == null)
+                {
+                    _uiPageControllers = new List<IPluginUIPageController>
+                    {
+                        new MainPageController(this.GetPluginInfo(), _applicationHost, _mainPageOptionsStore)
+                    };
+                }
+                return _uiPageControllers.AsReadOnly();
+            }
+        }
 
         public Stream GetThumbImage()
         {
