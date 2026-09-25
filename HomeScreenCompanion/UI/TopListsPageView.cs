@@ -13,7 +13,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Registers the top-lists sub-page with Emby's SDK declarative UI.
-    /// Audit-plan v2 / Wave 1 / U5.
     /// </summary>
     public class TopListsPageController : ControllerBase
     {
@@ -48,7 +47,7 @@ namespace HomeScreenCompanion.UI
 
     /// <summary>
     /// Backs the <see cref="TopListsPageUI"/> on save and dispatches the
-    /// Add* button commands. Audit-plan v2 / Wave 1 / U5.
+    /// Add* button commands.
     /// </summary>
     public class TopListsPageView : PluginPageView
     {

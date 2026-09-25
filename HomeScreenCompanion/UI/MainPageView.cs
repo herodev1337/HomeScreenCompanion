@@ -14,8 +14,6 @@ namespace HomeScreenCompanion.UI
     /// mapper (<see cref="MainPageConfigMapper"/>) writes both surfaces
     /// — JSON-only on the new SDK store, XML-compatible via
     /// <see cref="Plugin.UpdateConfiguration"/> for the existing endpoints.
-    ///
-    /// Audit-plan v2 / Wave 1 / U3 + Wave 2 / T3.
     /// </summary>
     public class MainPageView : PluginPageView
     {

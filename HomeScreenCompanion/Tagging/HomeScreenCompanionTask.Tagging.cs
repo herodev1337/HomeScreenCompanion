@@ -61,12 +61,7 @@ namespace HomeScreenCompanion
 
         // Apply tags phase: diffs the desired tag set against current tags on every library item
         // (movies + episodes + seasons), applies adds/removes (unless DryRun), updates per-group
-        // stats, and emits the phase banner. Reads run-scoped state from instance fields populated
-        // by Execute() and the supplied RunContext; returns the deltas the epilogue summary needs.
-        //
-        // Note: C# 7.x async methods cannot declare out parameters, so the three counters are
-        // returned as a tuple. Call site destructures them back into Execute()'s scope so the
-        // downstream epilogue references continue to work unchanged.
+        // stats, and emits the phase banner.
         private async Task<(int tagsAdded, int tagsRemoved, int itemsChanged)> ApplyTagsPhase(RunContext ctx)
         {
             var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
@@ -198,11 +193,7 @@ namespace HomeScreenCompanion
         // `tagOutputItems` (no shared desired-tags map) and re-evaluates MediaInfo
         // matching for episodes/seasons the same way the full-sync phase does, but
         // scoped to one tagConfig. Sets `gs.TagsAdded` / `gs.TagsRemoved` for the
-        // summary footer. Returns the deltas the epilogue needs.
-        //
-        // The diff logic (should-have / has-tag, Debug trace, DryRun handling,
-        // update-count yielding) is preserved bit-for-bit from the original inline
-        // code in RunSingleEntryInternalAsync so external behaviour is unchanged.
+        // summary footer.
         private async Task<(int tagsAdded, int tagsRemoved)> ApplyTagsPhaseSingle(
             RunContext ctx,
             TagConfig tagConfig,

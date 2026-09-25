@@ -5,7 +5,6 @@ namespace HomeScreenCompanion
     /// <summary>
     /// Maps the HSC task's free-form status text ("Success", "Failed:
     /// …", empty) onto the SDK's <see cref="TaskCompletionStatus"/>.
-    /// Audit-plan v2 / Wave 2 / T1.
     /// </summary>
     internal static class HscResultMapper
     {

@@ -16,12 +16,6 @@ namespace HomeScreenCompanion
         // they no longer need closure-captured locals or instance fields.
         // Uses plain fields (no `required`) because the project targets netstandard2.0 where the
         // required-metadata runtime attribute is not available.
-        //
-        // The 17 _run* instance fields that previously lived on HomeScreenCompanionTask itself
-        // moved here as part of E1 (single-run guard + run-state isolation). They are still
-        // reachable from the partials (Tagging/Collections/Playlists) via property shims on the
-        // task class that delegate to the active RunContext; that keeps the move transparent to
-        // the phase helpers without touching the partials.
         private sealed class RunContext
         {
             public PluginConfiguration Config;
@@ -64,10 +58,6 @@ namespace HomeScreenCompanion
         // Returns false when validation fails or the group should be skipped — caller
         // inspects `isAiSkip` to decide whether to return (true, message) for the
         // intentional AI skip, or (false, message) for a hard failure.
-        //
-        // Validation failure messages are identical to the pre-refactor inline
-        // messages (and set LastRunStatus + write the same _log lines) so external
-        // behaviour is preserved bit-for-bit.
         private bool BuildSingleEntryContext(string entryName, out RunContext ctx, out string message, out bool isAiSkip)
         {
             ctx = null!;

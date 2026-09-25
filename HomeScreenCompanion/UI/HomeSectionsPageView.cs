@@ -10,7 +10,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Registers the home-sections sub-page with Emby's SDK declarative UI.
-    /// Audit-plan v2 / Wave 1 / U6.
     /// </summary>
     public class HomeSectionsPageController : ControllerBase
     {
@@ -47,7 +46,6 @@ namespace HomeScreenCompanion.UI
     /// Backs the <see cref="HomeSectionsPageUI"/> on save and dispatches
     /// the ApplyTag button. Drag-reorder calls back through
     /// <see cref="MediaBrowser.Controller.IUserManager.MoveHomeSectionsAsync"/>.
-    /// Audit-plan v2 / Wave 1 / U6.
     /// </summary>
     public class HomeSectionsPageView : PluginPageView
     {

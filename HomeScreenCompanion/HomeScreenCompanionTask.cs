@@ -2,6 +2,7 @@ using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
@@ -40,12 +41,10 @@ namespace HomeScreenCompanion
 
         // Single-run guard shared by Execute (scheduled) and RunSingleEntryAsync (HTTP).
         // Acquired at the top of each entry point so a second caller is rejected immediately
-        // instead of interleaving with the active run. Internal so the test project can
-        // exercise it without an Emby task instance.
+        // instead of interleaving with the active run.
         private readonly RunGate _runGate = new RunGate();
 
-        // The RunContext created for the active run. Per-run state (formerly the 17 _run*
-        // instance fields below) lives on RunContext; the _run* property shims below
+        // The RunContext created for the active run. The _run* property shims below
         // delegate to this field so the partials (Tagging/Collections/Playlists) keep
         // reading them transparently. Set by BuildRunContext (full sync) and
         // BuildSingleEntryContext (single entry) before any phase helper runs.
@@ -58,13 +57,9 @@ namespace HomeScreenCompanion
         public static DateTime? LastStartedUtc { get; private set; }
 
         // Per-run state shims — backwards-compatible accessors that delegate to the
-        // active RunContext. The 17 fields they replace used to live directly on
-        // HomeScreenCompanionTask and were shared by Execute() and RunSingleEntryAsync,
-        // which is what E1 fixes by moving the data into RunContext. The phase helpers
-        // in Tagging/Collections/Playlists continue to read `_runFoo`; the property
-        // shims route the access to the context that BuildRunContext /
-        // BuildSingleEntryContext just set, so behaviour is identical to the previous
-        // instance-field layout.
+        // active RunContext. The phase helpers in Tagging/Collections/Playlists continue
+        // to read `_runFoo`; the property shims route the access to the context that
+        // BuildRunContext / BuildSingleEntryContext just set.
         private Dictionary<Guid, HashSet<string>>? _runDesiredTagsMap
         {
             get => _currentRunContext?.DesiredTagsMap;
@@ -170,7 +165,7 @@ namespace HomeScreenCompanion
         }
 
         // Per-entry caches used by RunSingleEntryInternalAsync's fetch + apply-tags AND
-        // by Execute's loop (after E4 both call sites funnel through BuildMatchCaches).
+        // by Execute's loop (both call sites funnel through BuildMatchCaches).
         // Populated based on what the supplied tag sources' criteria need; when no tag
         // source needs MediaInfo evaluation, all caches except PreloadedUsers stay empty.
         // Passed around explicitly so the phase helpers don't need instance-field plumbing.
@@ -188,25 +183,7 @@ namespace HomeScreenCompanion
 
         // Unified match-cache builder used by both Execute (full sync, over all active tag
         // configs) and RunSingleEntryInternalAsync (single entry, over the one tagConfig).
-        //
-        // Before E4 this body existed in two places — once as BuildSingleEntryMatchCaches
-        // (root, single-tag iteration) and once inline in Execute (root, over all active
-        // tag configs). Both implementations were character-for-character equivalent
-        // modulo the iteration source; this helper takes the iteration source as a
-        // parameter so the body lives in exactly one place.
-        //
-        // Callers:
-        //   • Single-entry: BuildMatchCaches(new[] { tagConfig }, allItems) — preserves the
-        //     pre-E4 BuildSingleEntryMatchCaches semantics (no Active filter, SourceType
-        //     membership in `needsMediaInfoEval` triggers cache build).
-        //   • Full sync:    BuildMatchCaches(ctx.Config.Tags.Where(t => t.Active).ToList(),
-        //     ctx.AllItems) — pre-filter to active tags in the caller matches the previous
-        //     Execute inline block's `Where(t.Active && …)` guards; the unioned iteration
-        //     over GetAllCriteria then implicitly gates the per-criterion loops on
-        //     "has MediaInfoFilters/MediaInfoConditions".
-        //
-        // Pure refactor — every observable output (cache contents, dictionary key sets,
-        // value types) is identical to the pre-E4 inline blocks.
+        // Both call sites pass their tag-source iteration; the body lives in exactly one place.
         private MatchCaches BuildMatchCaches(IReadOnlyCollection<TagConfig> tagSources, IReadOnlyCollection<BaseItem> allItems)
         {
             var caches = new MatchCaches
@@ -904,21 +881,11 @@ namespace HomeScreenCompanion
 
                                         BaseItem itemToTag = child;
 
-                                        if (child.GetType().Name.Contains("PlaylistItem"))
-                                        {
-                                            try
-                                            {
-                                                var inner = ((dynamic)child).Item;
-                                                if (inner != null) itemToTag = inner;
-                                            }
-                                            catch { }
-                                        }
-
                                         if (itemToTag.GetType().Name.Contains("Episode"))
                                         {
                                             try
                                             {
-                                                var series = ((dynamic)itemToTag).Series;
+                                                var series = (itemToTag as Episode)?.Series ?? (itemToTag as Season)?.Series;
                                                 if (series != null) itemToTag = series;
                                             }
                                             catch { }
@@ -1619,8 +1586,7 @@ namespace HomeScreenCompanion
                         {
                             if (child == null) continue;
                             BaseItem itemToTag = child;
-                            if (child.GetType().Name.Contains("PlaylistItem")) { try { var inner = ((dynamic)child).Item; if (inner != null) itemToTag = inner; } catch { } }
-                            if (itemToTag.GetType().Name.Contains("Episode")) { try { var series = ((dynamic)itemToTag).Series; if (series != null) itemToTag = series; } catch { } }
+                            if (itemToTag.GetType().Name.Contains("Episode")) { try { var series = (itemToTag as Episode)?.Series ?? (itemToTag as Season)?.Series; if (series != null) itemToTag = series; } catch { } }
                             if (!IsTaggableTopLevelItem(itemToTag)) continue;
                             var imdb = itemToTag.GetProviderId("Imdb");
                             if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb)) continue;
@@ -2534,20 +2500,6 @@ namespace HomeScreenCompanion
             if (metaChanged)
                 _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null);
         }
-
-        // ───────────────────────── Phase helpers (decomposition) ─────────────────────────
-        // The Execute() and RunSingleEntryInternalAsync() methods dispatch through phase
-        // helpers that now live in per-feature partials:
-        //   RunContext/HomeScreenCompanionTask.cs   — BuildRunContext, BuildSingleEntryContext, RunContext
-        //   Tagging/HomeScreenCompanionTask.cs      — ApplyTagsPhase, ApplyTagsPhaseSingle
-        //   Collections/HomeScreenCompanionTask.cs  — CollectionsPhase, CollectionsPhaseSingle
-        //   Playlists/HomeScreenCompanionTask.cs    — PlaylistsPhase, SyncPlaylistsForEntryAsync
-        //   HomeSections/HomeScreenCompanionTask.cs — HomeSectionsPhase, HomeSectionsPhaseSingle, ManageHomeSections
-        //   TopLists/HomeScreenCompanionTask.cs     — TopListsPhase, SyncTopListFolders
-        //   Diagnostics/HomeScreenCompanionTask.cs  — WriteGroupBlock, WriteSingleRunFooter, BuildFinalStatus, …
-        //   MediaInfo/HomeScreenCompanionTask.cs    — ItemMatchesMediaInfo, ExtractMediaInfo, ResolveItemForMediaInfo, …
-        // The host keeps the cross-cutting helpers below plus the small WriteResultsBlock /
-        // BuildSingleEntrySummary / WriteFetchLine plumbing shared by both entry points.
 
         private void WriteResultsBlock(List<GroupRunStats> displayStatsList, bool dryRun, bool logMissing)
         {

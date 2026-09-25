@@ -58,10 +58,7 @@ namespace HomeScreenCompanion
         }
 
         // Collections phase: creates / updates / deletes the BoxSets that mirror each group's
-        // matched items. Reads run-scoped state from instance fields populated by Execute()
-        // and the supplied RunContext; returns the per-action counters the epilogue summary
-        // needs. The associated CleanupBoxSetTags call stays in Execute() — it touches
-        // tagsRemoved, which is an outer local.
+        // matched items.
         private async Task<(int collCreated, int collUpdated, int collWouldCreate, int collWouldUpdate, int collDeleted)> CollectionsPhase(
             RunContext ctx, CancellationToken cancellationToken)
         {
@@ -184,14 +181,9 @@ namespace HomeScreenCompanion
             return (collCreated, collUpdated, collWouldCreate, collWouldUpdate, collDeleted);
         }
 
-        // Collection phase for single-entry mode. Mirrors the lines that used to be
-        // inlined at the end of RunSingleEntryInternalAsync — operates on a single
-        // `cName` + per-group `collectionOutputItems` rather than the multi-group
-        // `_runDesiredCollectionsMap`. Mutates `gs.Collection*`, writes the same
-        // section banner ("» Collections"), per-collection debug + summary lines,
-        // and returns the result count (0 = up-to-date, 1 = created, >1 = updated
-        // with `collResult` added/removed). `allItems` is only used for the debug
-        // diff map (IDs → labels).
+        // Collection phase for single-entry mode. Operates on a single `cName` +
+        // per-group `collectionOutputItems` rather than the multi-group
+        // `_runDesiredCollectionsMap`.
         private async Task<int> CollectionsPhaseSingle(
             RunContext ctx,
             TagConfig tagConfig,

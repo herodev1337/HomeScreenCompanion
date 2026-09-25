@@ -10,8 +10,6 @@ namespace HomeScreenCompanion.UI
     /// <summary>
     /// Persists the <see cref="MainPageUI"/> instance to a JSON file under
     /// <see cref="IApplicationPaths.PluginConfigurationsPath"/>.
-    ///
-    /// Audit-plan v2 / Wave 1 / U3: parallel to <c>EmbyPluginUiTemplate/Storage/MyOptionsStore.cs</c>.
     /// </summary>
     public class MainPageOptionsStore : SimpleFileStore<MainPageUI>
     {

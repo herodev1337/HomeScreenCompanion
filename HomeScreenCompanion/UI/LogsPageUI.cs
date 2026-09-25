@@ -7,10 +7,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Declarative model for the "Logs" page.
-    ///
-    /// Audit-plan v2 / Wave 1 / U7. Re-renders automatically when the
-    /// view raises <c>UIViewInfoChanged</c> — no 5s polling needed (the
-    /// SDK dialog refreshes on the event).
     /// </summary>
     public class LogsPageUI : EditableOptionsBase
     {

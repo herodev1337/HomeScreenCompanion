@@ -6,16 +6,9 @@ namespace HomeScreenCompanion.UI
     /// Typed mapper between the SDK declarative-UI model
     /// (<see cref="MainPageUI"/>) and the legacy XML config
     /// (<see cref="PluginConfiguration"/>).
-    ///
-    /// Audit-plan v2 / Wave 2 / T3: keeps both surfaces in sync without
-    /// duplicating field definitions. Tag rows continue to live on
-    /// <see cref="PluginConfiguration.Tags"/> as legacy
-    /// <c>TagConfig</c> entries until U4 / T6 swap them for the SDK
-    /// row type — the mapper does not yet touch the row list.
     /// </summary>
     public static class MainPageConfigMapper
     {
-        /// <summary>Apply the UI's scalar settings onto the legacy XML config.</summary>
         public static PluginConfiguration ToPluginConfig(MainPageUI ui)
         {
             if (ui == null) return new PluginConfiguration();

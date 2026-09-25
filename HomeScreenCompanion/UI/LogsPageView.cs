@@ -11,7 +11,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Registers the logs sub-page with Emby's SDK declarative UI.
-    /// Audit-plan v2 / Wave 1 / U7.
     /// </summary>
     public class LogsPageController : ControllerBase
     {
@@ -47,7 +46,6 @@ namespace HomeScreenCompanion.UI
     /// <summary>
     /// Backs the <see cref="LogsPageUI"/> and re-reads
     /// <see cref="HomeScreenCompanionTask.ExecutionLog"/> on Refresh.
-    /// Audit-plan v2 / Wave 1 / U7.
     /// </summary>
     public class LogsPageView : PluginPageView
     {

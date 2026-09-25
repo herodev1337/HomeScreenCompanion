@@ -8,12 +8,6 @@ namespace HomeScreenCompanion.UI
     /// <summary>
     /// Per-row edit model used by the Tag rules editor grid in
     /// <see cref="MainPageUI.Tags"/>.
-    ///
-    /// Audit-plan v2 / Wave 1 / U3-U4. The full set of fields (currently ~40
-    /// on <c>PluginConfiguration.TagConfig</c>) is added by T3, which is the
-    /// task that slims <c>PluginConfiguration</c> down to a snapshot of
-    /// <c>TagConfigRow</c>. Until then, U4 only needs the gating fields plus
-    /// the Run/OpenLogs buttons.
     /// </summary>
     public class TagConfigRow : EditableOptionsBase
     {

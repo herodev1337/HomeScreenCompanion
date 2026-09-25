@@ -8,13 +8,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Declarative model for the main configuration page.
-    ///
-    /// Audit-plan v2: holds every scalar setting that
-    /// <c>PluginConfiguration</c> carried before T3 (external list API
-    /// keys + AI provider keys/models + the live task knobs). Tag rows
-    /// stay on <see cref="EditorDxGrid"/> until U4/U6 expand them. See
-    /// <see cref="MainPageConfigMapper"/> for the typed round-trip with
-    /// <see cref="PluginConfiguration"/>.
     /// </summary>
     public class MainPageUI : EditableOptionsBase
     {

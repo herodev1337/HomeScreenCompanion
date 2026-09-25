@@ -64,9 +64,8 @@ namespace HomeScreenCompanion
         }
 
         /// <summary>
-        /// Audit-plan v2 / Wave 2 / T2: typed status endpoint returning
-        /// the SDK <see cref="TaskInfo"/> directly. The new SDK-UI pages
-        /// (U7's LogsPage) bind to this shape.
+        /// Typed status endpoint returning the SDK <see cref="TaskInfo"/>
+        /// directly. The new SDK-UI pages (U7's LogsPage) bind to this shape.
         /// </summary>
         public object Get(HscGetStatusV2Request request)
         {
@@ -82,8 +81,8 @@ namespace HomeScreenCompanion
         }
 
         /// <summary>
-        /// Audit-plan v2 / Wave 2 / T2: typed run endpoint that wraps
-        /// the SDK's <see cref="HomeScreenCompanionTask.RunSingleEntryAsync"/>.
+        /// Typed run endpoint that wraps the SDK's
+        /// <see cref="HomeScreenCompanionTask.RunSingleEntryAsync"/>.
         /// Returns the updated <see cref="HscStatusResponse"/> so the
         /// SDK-UI can re-render from one roundtrip.
         /// </summary>
@@ -149,11 +148,10 @@ namespace HomeScreenCompanion
 
         public object Get(HscDebugMethodsRequest request)
         {
-            // Audit-plan v2 / Wave 2 / T2: replaces the runtime reflection
-            // BFS over IUserManager with a static list of the methods the
-            // plugin actually uses. The SDK's IUserManager is stable, so
-            // we don't need runtime discovery — and avoiding reflection
-            // makes the endpoint AOT-friendly.
+            // Replaces the runtime reflection BFS over IUserManager with a
+            // static list of the methods the plugin actually uses. The SDK's
+            // IUserManager is stable, so we don't need runtime discovery —
+            // and avoiding reflection makes the endpoint AOT-friendly.
             var lines = new System.Text.StringBuilder();
             lines.AppendLine($"Runtime type: {_userManager.GetType().FullName}");
             lines.AppendLine();
@@ -351,18 +349,6 @@ namespace HomeScreenCompanion
             {
                 return new HscApplyTagHomeSectionsResponse { Success = false, Message = ex.Message };
             }
-        }
-
-        private static ContentSection CopySectionWithoutId(ContentSection source)
-        {
-            var copy = new ContentSection();
-            foreach (var prop in typeof(ContentSection).GetProperties())
-            {
-                if (prop.Name == "Id") continue;
-                if (prop.CanRead && prop.CanWrite)
-                    prop.SetValue(copy, prop.GetValue(source));
-            }
-            return copy;
         }
 
         public object Get(HscGetSectionSchemaRequest request)

@@ -15,7 +15,6 @@ namespace HomeScreenCompanion
     {
         private async Task SyncPlaylistsForEntryAsync(TagConfig tagConfig, List<BaseItem> collectionOutputItems, bool dryRun, GroupRunStats? gs = null)
         {
-            // Playlist sync — one individual playlist per user in PlaylistUserIds
             if (tagConfig.EnablePlaylist && !dryRun)
             {
                 string _plLogName = string.IsNullOrWhiteSpace(tagConfig.PlaylistName) ? tagConfig.Name : tagConfig.PlaylistName;
@@ -175,7 +174,6 @@ namespace HomeScreenCompanion
                                 long innerItemId = pItem.InternalId;
                                 if (pItem.GetType().Name.Contains("PlaylistItem"))
                                 {
-                                    try { var temp = ((dynamic)pItem).Item; if (temp != null) innerItemId = ((BaseItem)temp).InternalId; } catch { }
                                 }
 
                                 currentEntryMap.TryAdd(innerItemId, entryId);
@@ -226,7 +224,6 @@ namespace HomeScreenCompanion
                                 long innerItemId = pItem.InternalId;
                                 if (pItem.GetType().Name.Contains("PlaylistItem"))
                                 {
-                                    try { var temp = ((dynamic)pItem).Item; if (temp != null) innerItemId = ((BaseItem)temp).InternalId; } catch { }
                                 }
                                 if (entryByInner.TryAdd(innerItemId, entryId))
                                     currentOrder.Add(innerItemId);
@@ -288,7 +285,6 @@ namespace HomeScreenCompanion
 
         private async Task PlaylistsPhase(RunContext ctx)
         {
-            // Playlist sync — once per group, with the union of all its sources.
             // Skipped for groups where any source failed, so a bad fetch never empties the playlist.
             if (_runGroupPlaylistItems!.Count > 0)
             {

@@ -1,5 +1,7 @@
 // Partial of HomeScreenCompanionTask — MediaInfo responsibilities (filter groups, criterion evaluation, series/episode resolution).
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
@@ -73,46 +75,36 @@ namespace HomeScreenCompanion
             var info = new CachedMediaInfo { AudioLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase) };
             try
             {
-                dynamic dynItem = itemToCheck;
-                try
-                {
-                    int defaultWidth = (int)dynItem.Width;
-                    if (defaultWidth >= 7680) info.Is8k = true;
-                    else if (defaultWidth >= 3800) info.Is4k = true;
-                    else if (defaultWidth >= 1900 && !info.Is4k && !info.Is8k) info.Is1080 = true;
-                    else if (defaultWidth >= 1200 && !info.Is1080 && !info.Is4k && !info.Is8k) info.Is720 = true;
-                    else if (defaultWidth > 0 && !info.Is720 && !info.Is1080 && !info.Is4k && !info.Is8k) info.IsSd = true;
-                }
-                catch { }
+                int defaultWidth = itemToCheck.Width;
+                if (defaultWidth >= 7680) info.Is8k = true;
+                else if (defaultWidth >= 3800) info.Is4k = true;
+                else if (defaultWidth >= 1900 && !info.Is4k && !info.Is8k) info.Is1080 = true;
+                else if (defaultWidth >= 1200 && !info.Is1080 && !info.Is4k && !info.Is8k) info.Is720 = true;
+                else if (defaultWidth > 0 && !info.Is720 && !info.Is1080 && !info.Is4k && !info.Is8k) info.IsSd = true;
 
-                System.Collections.IEnumerable streams = null;
-                try { streams = dynItem.GetMediaStreams(); } catch { }
-                if (streams == null)
-                {
-                    try
-                    {
-                        var sources = dynItem.GetMediaSources(false);
-                        if (sources != null) { foreach (var src in sources) { if (src.MediaStreams != null) { streams = src.MediaStreams; break; } } }
-                    }
-                    catch { }
-                }
-                if (streams == null) { try { streams = dynItem.MediaStreams; } catch { } }
+                List<MediaStream>? streams = null;
+                try { streams = itemToCheck.GetMediaStreams(); } catch { }
+                if (streams == null) { streams = itemToCheck.MediaStreams; }
 
                 if (streams != null)
                 {
-                    foreach (dynamic stream in streams)
+                    foreach (var stream in streams)
                     {
                         try
                         {
-                            string type = stream.Type?.ToString() ?? "";
-                            string codec = stream.Codec?.ToString() ?? "";
-                            string profile = stream.Profile?.ToString() ?? "";
-                            string videoRange = "";
-                            try { videoRange = stream.VideoRange?.ToString() ?? ""; } catch { }
+                            string type = stream.Type.ToString();
+                            string codec = stream.Codec ?? "";
+                            string profile = stream.Profile ?? "";
+                            string videoRange = stream.VideoRange ?? "";
 
                             if (type.Equals("Video", StringComparison.OrdinalIgnoreCase))
                             {
-                                try { int w = (int)stream.Width; if (w >= 7680) info.Is8k = true; else if (w >= 3800) info.Is4k = true; else if (w >= 1900 && !info.Is4k && !info.Is8k) info.Is1080 = true; else if (w >= 1200 && !info.Is1080 && !info.Is4k && !info.Is8k) info.Is720 = true; else if (w > 0 && !info.Is720 && !info.Is1080 && !info.Is4k && !info.Is8k) info.IsSd = true; } catch { }
+                                int w = stream.Width ?? 0;
+                                if (w >= 7680) info.Is8k = true;
+                                else if (w >= 3800) info.Is4k = true;
+                                else if (w >= 1900 && !info.Is4k && !info.Is8k) info.Is1080 = true;
+                                else if (w >= 1200 && !info.Is1080 && !info.Is4k && !info.Is8k) info.Is720 = true;
+                                else if (w > 0 && !info.Is720 && !info.Is1080 && !info.Is4k && !info.Is8k) info.IsSd = true;
                                 if (codec.IndexOf("hevc", StringComparison.OrdinalIgnoreCase) >= 0 || codec.IndexOf("h265", StringComparison.OrdinalIgnoreCase) >= 0) info.IsHevc = true;
                                 if (codec.IndexOf("av1", StringComparison.OrdinalIgnoreCase) >= 0) info.IsAv1 = true;
                                 if (codec.IndexOf("h264", StringComparison.OrdinalIgnoreCase) >= 0 || codec.IndexOf("avc", StringComparison.OrdinalIgnoreCase) >= 0) info.IsH264 = true;
@@ -127,12 +119,20 @@ namespace HomeScreenCompanion
                                 if (codec.IndexOf("dts", StringComparison.OrdinalIgnoreCase) >= 0) { info.IsDts = true; if (profile.IndexOf("ma", StringComparison.OrdinalIgnoreCase) >= 0) info.IsDtsHdMa = true; }
                                 if (codec.IndexOf("ac3", StringComparison.OrdinalIgnoreCase) >= 0 || codec.IndexOf("eac3", StringComparison.OrdinalIgnoreCase) >= 0) info.IsAc3 = true;
                                 if (codec.IndexOf("aac", StringComparison.OrdinalIgnoreCase) >= 0) info.IsAac = true;
-                                try { int ch = (int)stream.Channels; if (ch == 1) info.IsMono = true; else if (ch == 2) info.IsStereo = true; else if (ch == 6) info.Is51 = true; else if (ch >= 8) info.Is71 = true; } catch { }
-                                try { var lang = stream.Language?.ToString(); if (!string.IsNullOrWhiteSpace(lang)) info.AudioLanguages.Add(lang); } catch { }
+                                int ch = stream.Channels ?? 0;
+                                if (ch == 1) info.IsMono = true;
+                                else if (ch == 2) info.IsStereo = true;
+                                else if (ch == 6) info.Is51 = true;
+                                else if (ch >= 8) info.Is71 = true;
+                                var lang = stream.Language;
+                                if (!string.IsNullOrWhiteSpace(lang)) info.AudioLanguages.Add(lang);
                                 // Music-specific audio stream properties (only populated for Audio/MusicVideo items)
-                                try { int br = (int)stream.BitRate; if (br > 0) info.BitRate = br / 1000; } catch { }
-                                try { int sr = (int)stream.SampleRate; if (sr > 0) info.SampleRate = sr; } catch { }
-                                try { int bps = (int)stream.BitDepth; if (bps > 0) info.BitsPerSample = bps; } catch { }
+                                int br = stream.BitRate ?? 0;
+                                if (br > 0) info.BitRate = br / 1000;
+                                int sr = stream.SampleRate ?? 0;
+                                if (sr > 0) info.SampleRate = sr;
+                                int bps = stream.BitDepth ?? 0;
+                                if (bps > 0) info.BitsPerSample = bps;
                             }
                         }
                         catch { }
@@ -142,8 +142,10 @@ namespace HomeScreenCompanion
                 info.DateModifiedDays = TryGetDateModified(itemToCheck);
                 info.FileSizeMb = TryGetFileSize(itemToCheck);
                 // Music item-level properties (IndexNumber = track, ParentIndexNumber = disc)
-                try { int tn = (int)dynItem.IndexNumber; if (tn > 0) info.TrackNumber = tn; } catch { }
-                try { int dn = (int)dynItem.ParentIndexNumber; if (dn > 0) info.DiscNumber = dn; } catch { }
+                int tn = itemToCheck.IndexNumber ?? 0;
+                if (tn > 0) info.TrackNumber = tn;
+                int dn = itemToCheck.ParentIndexNumber ?? 0;
+                if (dn > 0) info.DiscNumber = dn;
             }
             catch { }
             return info;
@@ -225,7 +227,7 @@ namespace HomeScreenCompanion
             {
                 try
                 {
-                    var parentSeries = ((dynamic)item).Series as BaseItem;
+                    BaseItem? parentSeries = (item as Episode)?.Series ?? (item as Season)?.Series;
                     if (parentSeries?.Tags != null && parentSeries.Tags.Length > 0)
                         itemTags = itemTags.Concat(parentSeries.Tags)
                                            .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -585,8 +587,7 @@ namespace HomeScreenCompanion
         {
             if (item.GetType().Name.Contains("Episode"))
             {
-                try { return ((dynamic)item).Series?.Name as string; } catch { }
-                return null;
+                return (item as Episode)?.Series?.Name ?? (item as Season)?.Series?.Name;
             }
             return item.Name;
         }
@@ -625,25 +626,21 @@ namespace HomeScreenCompanion
         {
             try
             {
-                dynamic d = item;
-                try
+                string albumArtist = (item as MusicAlbum)?.AlbumArtist ?? "";
+                if (!string.IsNullOrEmpty(albumArtist) &&
+                    (exact ? string.Equals(albumArtist, name, StringComparison.OrdinalIgnoreCase)
+                           : albumArtist.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0))
+                    return true;
+
+                if (item is IHasArtist hasArtist && hasArtist.Artists != null)
                 {
-                    string albumArtist = d.AlbumArtist ?? "";
-                    if (exact ? string.Equals(albumArtist, name, StringComparison.OrdinalIgnoreCase)
-                              : albumArtist.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
-                        return true;
+                    foreach (string a in hasArtist.Artists)
+                    {
+                        if (a != null && (exact ? string.Equals(a, name, StringComparison.OrdinalIgnoreCase)
+                                                : a.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0))
+                            return true;
+                    }
                 }
-                catch { }
-                try
-                {
-                    System.Collections.IEnumerable artists = d.Artists;
-                    if (artists != null)
-                        foreach (string a in artists)
-                            if (a != null && (exact ? string.Equals(a, name, StringComparison.OrdinalIgnoreCase)
-                                                    : a.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0))
-                                return true;
-                }
-                catch { }
             }
             catch { }
             return false;
@@ -651,14 +648,9 @@ namespace HomeScreenCompanion
 
         private static bool MatchesAlbumTitle(BaseItem item, string name, bool exact)
         {
-            try
-            {
-                dynamic d = item;
-                string album = d.Album ?? "";
-                return exact ? string.Equals(album, name, StringComparison.OrdinalIgnoreCase)
-                             : album.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0;
-            }
-            catch { return false; }
+            string album = item.Album ?? "";
+            return exact ? string.Equals(album, name, StringComparison.OrdinalIgnoreCase)
+                         : album.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private int CountWatchedByUsers(BaseItem item,
@@ -729,14 +721,14 @@ namespace HomeScreenCompanion
 
         private static double? TryGetDateModified(BaseItem item)
         {
-            try { dynamic d = item; DateTime dt = d.DateModified; return (DateTime.UtcNow - dt).TotalDays; }
-            catch { return null; }
+            if (item.DateModified == default) return null;
+            return (DateTime.UtcNow - item.DateModified.UtcDateTime).TotalDays;
         }
 
         private static double? TryGetFileSize(BaseItem item)
         {
-            try { dynamic d = item; long? sz = d.Size; return sz.HasValue ? (double?)(sz.Value / 1048576.0) : null; }
-            catch { return null; }
+            if (item.Size <= 0) return null;
+            return item.Size / 1048576.0;
         }
 
     }

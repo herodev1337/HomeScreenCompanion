@@ -35,8 +35,7 @@ namespace HomeScreenCompanion
         {
             try
             {
-                dynamic d = item;
-                var extraType = d.ExtraType;
+                var extraType = item.ExtraType;
                 if (extraType != null)
                 {
                     var s = extraType.ToString();
@@ -44,7 +43,7 @@ namespace HomeScreenCompanion
                         return s; // ThemeSong, ThemeVideo, Trailer, BehindTheScenes, etc.
                 }
             }
-            catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException) { }
+            catch (InvalidOperationException) { }
             return item.GetType().Name;
         }
 

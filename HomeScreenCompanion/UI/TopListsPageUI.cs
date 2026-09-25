@@ -6,10 +6,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Declarative model for the "Top Lists" page.
-    ///
-    /// Audit-plan v2 / Wave 1 / U5. Lists each top-list source (MdbList /
-    /// Trakt / TMDB) configured by the user, with three "Add" buttons and
-    /// a movies-picker launcher per item.
     /// </summary>
     public class TopListsPageUI : EditableOptionsBase
     {

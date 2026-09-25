@@ -9,8 +9,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Registers the main configuration page with Emby's SDK declarative UI.
-    ///
-    /// Audit-plan v2 / Wave 1 / U3.
     /// </summary>
     public class MainPageController : ControllerBase
     {

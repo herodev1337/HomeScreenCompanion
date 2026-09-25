@@ -12,10 +12,6 @@ namespace HomeScreenCompanion.UI
     /// <summary>
     /// Movie picker dialog opened from <see cref="TopListsPageView"/> via
     /// <c>RunCommand("PickMovies:{TagName}")</c>.
-    ///
-    /// Audit-plan v2 / Wave 1 / U5. Search runs server-side via
-    /// <see cref="HomeScreenCompanionTask"/>; the dialog re-renders on
-    /// <c>RaiseUIViewInfoChanged()</c>.
     /// </summary>
     public class MoviesPickerDialog : PluginDialogView
     {

@@ -7,10 +7,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Declarative model for the "Home Sections" page.
-    ///
-    /// Audit-plan v2 / Wave 1 / U6. Lets the admin choose a user, drag-reorder
-    /// the home-screen sections owned by that user, and apply a tag-config's
-    /// section layout.
     /// </summary>
     public class HomeSectionsPageUI : EditableOptionsBase
     {

@@ -4,8 +4,6 @@ namespace HomeScreenCompanion.UI
 {
     /// <summary>
     /// Read-only dialog showing the configured release-notes URL.
-    ///
-    /// Audit-plan v2 / Wave 1 / U7.
     /// </summary>
     public class ReleaseNotesDialog : PluginDialogView
     {

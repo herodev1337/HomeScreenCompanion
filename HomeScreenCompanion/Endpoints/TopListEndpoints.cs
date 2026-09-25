@@ -475,8 +475,7 @@ namespace HomeScreenCompanion
 
                         if (sortPaths.TryGetValue(li.Path, out var newSort))
                         {
-                            var prop = li.GetType().GetProperty("SortName");
-                            if (prop?.CanWrite == true) prop.SetValue(li, newSort);
+                            li.SortName = newSort;
                         }
 
                         // Point poster and thumb at our local ranked images

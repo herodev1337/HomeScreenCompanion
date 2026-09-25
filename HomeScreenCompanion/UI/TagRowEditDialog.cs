@@ -14,8 +14,6 @@ namespace HomeScreenCompanion.UI
     /// to the live <c>HomeScreenCompanionTask</c> via
     /// <see cref="HomeScreenCompanionTask.RunSingleEntryAsync"/> and to the
     /// run log via <see cref="HomeScreenCompanionTask.ExecutionLog"/>.
-    ///
-    /// Audit-plan v2 / Wave 1 / U4.
     /// </summary>
     public static class TagRowEditor
     {

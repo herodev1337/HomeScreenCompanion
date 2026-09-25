@@ -7,9 +7,9 @@ namespace HomeScreenCompanion
     public class PluginConfiguration : BasePluginConfiguration
     {
         /// <summary>
-        /// Canonical default AI system prompt. Audit-plan v2 / Wave 2 / T3
-        /// exposes this as a constant so the SDK UI model (<see cref="HomeScreenCompanion.UI.MainPageUI"/>)
-        /// can match the legacy XML config's default without duplication.
+        /// Canonical default AI system prompt. Exposed as a constant so the SDK UI model
+        /// (<see cref="HomeScreenCompanion.UI.MainPageUI"/>) can match the legacy XML config's
+        /// default without duplication.
         /// </summary>
         public const string DefaultAiSystemPrompt =
             "You are a movie and TV show recommendation assistant. " +
