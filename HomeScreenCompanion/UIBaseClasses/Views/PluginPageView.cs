@@ -1,12 +1,12 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using MediaBrowser.Model.Plugins.UI.Views;
 
-namespace HomeScreenCompanion.Spike.UIBaseClasses.Views
+namespace HomeScreenCompanion.UIBaseClasses.Views
 {
     public abstract class PluginPageView : PluginViewBase, IPluginPageView
     {
         protected PluginPageView(string pluginId)
-        : base(pluginId)
+            : base(pluginId)
         {
         }
 
