@@ -295,5 +295,24 @@ namespace HomeScreenCompanion
             }
         }
 
+        // Date-schedule evaluator used by every "is this group active right now?" call site
+        // (HomeSections, Collections, HomeSectionSyncTask keeps its own copy). Returns true when
+        // `intervals` is null/empty or when the current local time falls inside at least one
+        // Weekly / EveryYear / one-off interval.
+        private bool IsScheduleActive(List<DateInterval> intervals)
+        {
+            if (intervals == null || intervals.Count == 0) return true;
+            var now = DateTime.Now;
+            foreach (var interval in intervals)
+            {
+                bool match = false;
+                if (interval.Type == "Weekly") { if (!string.IsNullOrEmpty(interval.DayOfWeek) && interval.DayOfWeek.IndexOf(now.DayOfWeek.ToString(), StringComparison.OrdinalIgnoreCase) >= 0) match = true; }
+                else if (interval.Type == "EveryYear") { if (interval.Start.HasValue && interval.End.HasValue) { var sDay = Math.Min(interval.Start.Value.Day, DateTime.DaysInMonth(now.Year, interval.Start.Value.Month)); var eDay = Math.Min(interval.End.Value.Day, DateTime.DaysInMonth(now.Year, interval.End.Value.Month)); var s = new DateTime(now.Year, interval.Start.Value.Month, sDay); var e = new DateTime(now.Year, interval.End.Value.Month, eDay); if (e < s) e = e.AddYears(1); if (now.Date >= s.Date && now.Date <= e.Date) match = true; } }
+                else { if ((!interval.Start.HasValue || now.Date >= interval.Start.Value.Date) && (!interval.End.HasValue || now.Date <= interval.End.Value.Date)) match = true; }
+                if (match) return true;
+            }
+            return false;
+        }
+
     }
 }
