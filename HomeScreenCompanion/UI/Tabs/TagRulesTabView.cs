@@ -74,12 +74,16 @@ namespace HomeScreenCompanion.UI.Tabs
 
         public override void OnDialogResult(IPluginUIView dialogView, bool completedOk, object data)
         {
-            if (completedOk && dialogView is AddSourceDialog add)
+            if (completedOk && dialogView is AddSourceDialog add && add.CreatedTag != null)
             {
-                var type = add.Options?.SourceType ?? "External";
-                var config = CreateBlankTagConfig(type);
-                Plugin.Instance?.Configuration?.Tags?.Add(config);
-                Plugin.Instance?.SaveConfiguration();
+                // AddSourceDialog already persisted the new TagConfig inside
+                // its OnOkCommand (the SDK does not always propagate
+                // OnDialogResult reliably). Either path refreshes the list.
+                this.RebuildRuleList();
+                this.RaiseUIViewInfoChanged();
+            }
+            else if (completedOk && dialogView is AddSourceDialog)
+            {
                 this.RebuildRuleList();
                 this.RaiseUIViewInfoChanged();
             }
@@ -130,30 +134,6 @@ namespace HomeScreenCompanion.UI.Tabs
                 };
                 page.Rules.Add(item);
             }
-        }
-
-        private static TagConfig CreateBlankTagConfig(string sourceType)
-        {
-            var n = 1;
-            var existing = Plugin.Instance?.Configuration?.Tags?
-                .Select(t => t.Name)
-                .ToHashSet() ?? new System.Collections.Generic.HashSet<string>();
-            string name;
-            do
-            {
-                name = sourceType + "-Tag-" + n;
-                n++;
-            } while (existing.Contains(name));
-
-            return new TagConfig
-            {
-                Active = true,
-                Name = name,
-                Tag = name,
-                SourceType = sourceType,
-                Limit = 50,
-                EnableTag = true,
-            };
         }
 
         private void DeleteRule(string name)

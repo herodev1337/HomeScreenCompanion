@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using Emby.Web.GenericEdit;
+using Emby.Web.GenericEdit.Common;
 using Emby.Web.GenericEdit.Elements;
 using Emby.Web.GenericEdit.Elements.List;
 using MediaBrowser.Model.Attributes;
@@ -29,10 +31,15 @@ namespace HomeScreenCompanion.UI.Tabs
         public SpacerItem SpacerManage { get; set; } = new SpacerItem();
         public CaptionItem ManageCaption { get; set; } = new CaptionItem("Manage");
 
-        [DisplayName("Source user id")]
-        [Description("User id whose home sections are being edited.")]
+        [DisplayName("Source user")]
+        [Description("User whose home sections are being edited.")]
+        [SelectItemsSource(nameof(SourceUserOptions))]
+        [AutoPostBack(HomeScreenTabView.UserListRefreshCommand, nameof(SourceUserId))]
         [VisibleCondition(nameof(View), ValueCondition.IsEqual, nameof(HomeScreenViews.Manage))]
         public string SourceUserId { get; set; } = "";
+
+        [Browsable(false)]
+        public List<EditorSelectOption> SourceUserOptions { get; set; } = new List<EditorSelectOption>();
 
         public ButtonItem RefreshSectionsButton { get; set; } = new ButtonItem("Refresh sections")
         {
@@ -55,13 +62,14 @@ namespace HomeScreenCompanion.UI.Tabs
         public SpacerItem SpacerSync { get; set; } = new SpacerItem();
         public CaptionItem SyncCaption { get; set; } = new CaptionItem("Copy & sync");
 
-        [DisplayName("Source user id")]
+        [DisplayName("Source user")]
         [Description("User whose home sections drive the sync.")]
+        [SelectItemsSource(nameof(SourceUserOptions))]
         [VisibleCondition(nameof(View), ValueCondition.IsEqual, nameof(HomeScreenViews.Sync))]
         public string SyncSourceUserId { get; set; } = "";
 
         [DisplayName("Target user ids")]
-        [Description("One user id per line.")]
+        [Description("One user id per line. Leave empty to fall back to the configured targets.")]
         [EditMultiline(4)]
         [VisibleCondition(nameof(View), ValueCondition.IsEqual, nameof(HomeScreenViews.Sync))]
         public string TargetUserIds { get; set; } = "";

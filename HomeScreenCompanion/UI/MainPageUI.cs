@@ -99,17 +99,9 @@ namespace HomeScreenCompanion.UI
         [EditMultiline(6)]
         public string AiSystemPrompt { get; set; } = PluginConfiguration.DefaultAiSystemPrompt;
 
-        // ─── Tag rules + Updates groups ────────────────────────────────
+        // ─── Updates / release notes group ─────────────────────────────
 
-        public SpacerItem BeforeTags { get; set; } = new SpacerItem();
-
-        public CaptionItem TagsCaption { get; set; } = new CaptionItem("Tag rules");
-
-        // U4 expands this into a per-row edit dialog; the row type
-        // (TagConfigRow) lives alongside this file. For now the grid
-        // shows placeholder rows; the rows-to-config mapping is owned
-        // by U4/T6, which know about TagConfig vs TagConfigRow.
-        public EditorDxGrid Tags { get; set; } = new EditorDxGrid();
+        public SpacerItem BeforeUpdates { get; set; } = new SpacerItem();
 
         public CaptionItem UpdatesCaption { get; set; } = new CaptionItem("Updates");
 
@@ -118,5 +110,10 @@ namespace HomeScreenCompanion.UI
             Icon = IconNames.open_in_new,
             Data1 = "OpenReleaseNotes"
         };
+
+        [DisplayName("Quick help")]
+        public LabelItem HelpCaption { get; set; } = new LabelItem(
+            "All other plugin settings (API keys, AI providers, system prompt, schedule, " +
+            "run behaviour, backup & restore) live on the Settings tab.");
     }
 }

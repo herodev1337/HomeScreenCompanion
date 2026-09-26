@@ -50,6 +50,20 @@ namespace HomeScreenCompanion.UI.Tabs
             Data1 = RunCommand,
         };
 
+        [DisplayName("Auto-refresh")]
+        [Description("Re-read the run log every N seconds while this tab is open.")]
+        [AutoPostBack(LogsTabView.AutoRefreshToggleCommand, nameof(AutoRefreshEnabled))]
+        public bool AutoRefreshEnabled { get; set; } = false;
+
+        [DisplayName("Auto-refresh interval (seconds)")]
+        [Description("10 - 600. Only used when Auto-refresh is on.")]
+        [MinValue(10)]
+        [MaxValue(600)]
+        [VisibleCondition(nameof(AutoRefreshEnabled), SimpleCondition.IsTrue)]
+        public int AutoRefreshSeconds { get; set; } = 15;
+
+        public LabelItem AutoRefreshStateLabel { get; set; } = new LabelItem("Auto-refresh: off");
+
         public SpacerItem SpacerLog { get; set; } = new SpacerItem();
 
         public CaptionItem LogCaption { get; set; } = new CaptionItem("Live execution log");

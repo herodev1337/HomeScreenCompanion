@@ -50,6 +50,14 @@ namespace HomeScreenCompanion.UI.Tabs
                     // branch is hit only when the parent button itself
                     // is clicked. Returning self keeps the view stable.
                     return Task.FromResult<IPluginUIView>(this);
+
+                // Defensive guard — certain SDK clients (or stale
+                // dialogs) sometimes dispatch a Cancel as a RunCommand
+                // rather than via IPluginDialogView.OnCancelCommand.
+                // Returning self keeps the page stable instead of
+                // surfacing a 500.
+                case "Cancel":
+                    return Task.FromResult<IPluginUIView>(this);
             }
 
             if (commandId.StartsWith("EditTopList:"))
@@ -88,12 +96,9 @@ namespace HomeScreenCompanion.UI.Tabs
         {
             if (completedOk && dialogView is TopListEditDialog edited)
             {
-                var lists = Plugin.Instance?.Configuration?.TopLists;
-                if (lists != null && !lists.Any(t => string.Equals(t.TagName, edited.Source.TagName, StringComparison.OrdinalIgnoreCase)))
-                {
-                    lists.Add(edited.Source);
-                }
-                Plugin.Instance?.SaveConfiguration();
+                // TopListEditDialog.OnOkCommand already persists the entry
+                // via UpdateConfiguration. Just refresh the list so any
+                // new / renamed row shows up immediately.
                 this.RebuildList();
                 this.RaiseUIViewInfoChanged();
             }
@@ -134,15 +139,16 @@ namespace HomeScreenCompanion.UI.Tabs
         private static TopListHomeSection CreateBlank(string source)
         {
             var n = 1;
-            var existing = Plugin.Instance?.Configuration?.TopLists?
-                .Select(t => t.TagName)
-                .ToHashSet() ?? new System.Collections.Generic.HashSet<string>();
+            var existingNames = (Plugin.Instance?.Configuration?.TopLists ?? new System.Collections.Generic.List<TopListHomeSection>())
+                .Select(t => t.TagName ?? string.Empty)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             string name;
             do
             {
                 name = source + "-List-" + n;
                 n++;
-            } while (existing.Contains(name));
+            } while (existingNames.Contains(name));
 
             return new TopListHomeSection
             {
