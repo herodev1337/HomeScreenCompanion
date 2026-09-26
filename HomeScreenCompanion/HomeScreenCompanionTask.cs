@@ -2025,46 +2025,6 @@ namespace HomeScreenCompanion
 
 
 
-        private bool IsBoxSetHomeSectionEntry(TagConfig tc)
-        {
-            if (!tc.EnableHomeSection || tc.SourceType != "LocalCollection" || string.IsNullOrEmpty(tc.LocalSourceId)) return false;
-            var sd = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            try { sd = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(tc.HomeSectionSettings ?? "{}") ?? sd; } catch { return false; }
-            if (!sd.TryGetValue("ItemTypes", out var itJson) || string.IsNullOrEmpty(itJson)) return false;
-            string[] it;
-            try { it = _jsonSerializer.DeserializeFromString<string[]>(itJson) ?? Array.Empty<string>(); }
-            catch { it = itJson.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray(); }
-            return it.Any(t => string.Equals(t, "BoxSet", StringComparison.OrdinalIgnoreCase));
-        }
-
-        private bool ApplyTagToSourceBoxSet(TagConfig tc, string tagName, bool dryRun, CancellationToken cancellationToken)
-        {
-            // Only ADDS the tag to the target BoxSet. Removal of stale tags is handled by CleanupBoxSetTags
-            // after all entries have run, so multiple entries sharing the same tag don't undo each other.
-            if (!IsBoxSetHomeSectionEntry(tc) || string.IsNullOrEmpty(tagName)) return false;
-
-            var allBoxSets = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = new[] { "BoxSet" }, Recursive = true });
-            var target = allBoxSets.FirstOrDefault(b => string.Equals(b.Name, tc.LocalSourceId, StringComparison.OrdinalIgnoreCase));
-            if (target == null) { _log.Debug($"  Collection '{tc.LocalSourceId}' not found in library — cannot tag it"); return false; }
-
-            var hasTag = (target.Tags ?? Array.Empty<string>()).Any(t => string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase));
-            if (!hasTag)
-            {
-                target.AddTag(tagName);
-                if (!dryRun)
-                {
-                    try { _libraryManager.UpdateItem(target, target.Parent, ItemUpdateType.MetadataEdit, null); }
-                    catch (Exception ex) { _log.Warn($"Could not save tag on collection '{target.Name}': {ex.Message}"); }
-                }
-                _log.Debug($"  Collection '{target.Name}' {(dryRun ? "would be tagged" : "tagged")} with '{tagName}'");
-            }
-            else
-            {
-                _log.Debug($"  Collection '{target.Name}' already has tag '{tagName}'");
-            }
-            return true;
-        }
-
 
 
 
@@ -2270,37 +2230,6 @@ namespace HomeScreenCompanion
 
 
 
-
-        private void ApplyCollectionMeta(BaseItem item, string cName,
-            Dictionary<string, string> descriptions, Dictionary<string, string> posters, bool debug)
-        {
-            bool metaChanged = false;
-
-            if (descriptions.TryGetValue(cName, out var desc) && !string.IsNullOrWhiteSpace(desc))
-            {
-                item.Overview = desc;
-                metaChanged = true;
-            }
-
-            if (posters.TryGetValue(cName, out var posterPath) && File.Exists(posterPath))
-            {
-                var imageInfo = new ItemImageInfo
-                {
-                    Path = posterPath,
-                    Type = ImageType.Primary,
-                    DateModified = File.GetLastWriteTimeUtc(posterPath)
-                };
-                var otherImages = (item.ImageInfos ?? Array.Empty<ItemImageInfo>())
-                    .Where(i => i.Type != ImageType.Primary).ToList();
-                otherImages.Add(imageInfo);
-                item.ImageInfos = otherImages.ToArray();
-                _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.ImageUpdate, null);
-                _log.Debug($"  {cName}  →  poster applied");
-            }
-
-            if (metaChanged)
-                _libraryManager.UpdateItem(item, item.Parent, ItemUpdateType.MetadataEdit, null);
-        }
 
         private void WriteResultsBlock(List<GroupRunStats> displayStatsList, bool dryRun, bool logMissing)
         {
