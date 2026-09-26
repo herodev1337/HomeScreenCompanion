@@ -63,6 +63,10 @@ public class PureFunctionTests
         HscAssembly.FindStaticMethod(T, name, args)
             ?? throw new MissingMethodException(T, name);
 
+    private static MethodInfo S(string typeFullName, string methodName, params Type[] args) =>
+        HscAssembly.FindStaticMethod(typeFullName, methodName, args)
+            ?? throw new MissingMethodException(typeFullName, methodName);
+
     private static object? Invoke(MethodInfo m, params object?[] args) => m.Invoke(null, args);
 
     // ─── MatchesAny(string[], string) ─────────────────────────────────────────────
@@ -501,13 +505,13 @@ public class PureFunctionTests
         });
     }
 
-    // ─── SanitizeTopListFolderName(string) ────────────────────────────────────────
+    // ─── FolderNames.Sanitize(string) ────────────────────────────────────────
 
     [Fact]
     public void SanitizeTopListFolderName_Cases()
     {
         HscAssembly.EnsureAvailable();
-        var m = S("SanitizeTopListFolderName", typeof(string));
+        var m = S("HomeScreenCompanion.FolderNames", "Sanitize", typeof(string));
 
         Snap.Match(new
         {

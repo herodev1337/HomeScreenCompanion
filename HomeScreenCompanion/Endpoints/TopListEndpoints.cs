@@ -50,7 +50,7 @@ namespace HomeScreenCompanion
                     return new MergeTopListVersionsResponse { Success = false, Message = "TagName is required." };
 
                 var dataPath = Plugin.Instance.DataFolderPath;
-                var sanitized = SanitizeFolderName(request.TagName);
+                var sanitized = FolderNames.Sanitize(request.TagName);
                 var folderPath = Path.Combine(dataPath, "toplists", sanitized);
 
                 var (indexed, merged) = MergeTopListVersionsTask.MergeAndProbeFolder(
@@ -69,7 +69,7 @@ namespace HomeScreenCompanion
             try
             {
                 var dataPath = Plugin.Instance.DataFolderPath;
-                var sanitized = SanitizeFolderName(request.TagName);
+                var sanitized = FolderNames.Sanitize(request.TagName);
                 var folderPath = Path.Combine(dataPath, "toplists", sanitized);
                 Directory.CreateDirectory(folderPath);
 
@@ -121,7 +121,7 @@ namespace HomeScreenCompanion
                 foreach (var item in items)
                 {
                     if (string.IsNullOrEmpty(item.Path)) continue;
-                    var baseName = SanitizeFolderName(item.Name);
+                    var baseName = FolderNames.Sanitize(item.Name);
                     if (item.ProductionYear.HasValue && item.ProductionYear > 0)
                         baseName += $" ({item.ProductionYear})";
                     if (!seenKeys.Add(baseName)) continue;
@@ -387,7 +387,7 @@ namespace HomeScreenCompanion
                     return new PrepareTopListFolderResponse { Success = false, Message = "ListName is required." };
 
                 var dataPath = Plugin.Instance.DataFolderPath;
-                var sanitized = SanitizeFolderName(request.ListName);
+                var sanitized = FolderNames.Sanitize(request.ListName);
                 var folderPath = Path.Combine(dataPath, "toplists", sanitized);
                 Directory.CreateDirectory(folderPath);
 
@@ -413,7 +413,7 @@ namespace HomeScreenCompanion
                         imdbLookup.TryGetValue(entry.ImdbId.Trim(), out mediaItem);
                     }
                     if (mediaItem == null || string.IsNullOrEmpty(mediaItem.Path)) continue;
-                    var baseName = SanitizeFolderName(mediaItem.Name);
+                    var baseName = FolderNames.Sanitize(mediaItem.Name);
                     if (mediaItem.ProductionYear.HasValue && mediaItem.ProductionYear > 0)
                         baseName += $" ({mediaItem.ProductionYear})";
                     if (!seenKeys.Add(baseName)) continue;
@@ -776,14 +776,14 @@ namespace HomeScreenCompanion
         {
             try
             {
-                var sanitized = SanitizeFolderName(request.ListName);
+                var sanitized = FolderNames.Sanitize(request.ListName);
                 var folderPath = Path.Combine(Plugin.Instance.DataFolderPath, "toplists", sanitized);
                 if (!Directory.Exists(folderPath))
                     return new GetManualTopListItemsResponse { Success = false, Message = "Folder not found." };
 
                 var config = Plugin.Instance.Configuration;
                 var tlConfig = (config.TopLists ?? new System.Collections.Generic.List<TopListHomeSection>())
-                    .FirstOrDefault(t => string.Equals(SanitizeFolderName(t.TagName), sanitized, StringComparison.OrdinalIgnoreCase));
+                    .FirstOrDefault(t => string.Equals(FolderNames.Sanitize(t.TagName), sanitized, StringComparison.OrdinalIgnoreCase));
 
                 var customName = "";
                 var displayMode = "";
@@ -828,7 +828,7 @@ namespace HomeScreenCompanion
             try
             {
                 var dataPath = Plugin.Instance.DataFolderPath;
-                var sanitized = SanitizeFolderName(request.TagName);
+                var sanitized = FolderNames.Sanitize(request.TagName);
                 var folderPath = Path.Combine(dataPath, "toplists", sanitized);
                 if (Directory.Exists(folderPath))
                     Directory.Delete(folderPath, true);
@@ -837,7 +837,7 @@ namespace HomeScreenCompanion
                 if (config?.TopLists != null)
                 {
                     var tl = config.TopLists.FirstOrDefault(t =>
-                        string.Equals(SanitizeFolderName(t.TagName), sanitized, StringComparison.OrdinalIgnoreCase));
+                        string.Equals(FolderNames.Sanitize(t.TagName), sanitized, StringComparison.OrdinalIgnoreCase));
                     if (tl != null)
                     {
                         foreach (var tracking in tl.HomeSectionTracked ?? new List<HomeSectionTracking>())
@@ -1224,13 +1224,6 @@ namespace HomeScreenCompanion
             }
             catch (Exception ex) { _logger.Warn($"[TopList] Build IMDb lookup failed: {ex.Message}"); }
             return lookup;
-        }
-
-        private static string SanitizeFolderName(string name)
-        {
-            var invalid = Path.GetInvalidFileNameChars();
-            var safe = new string((name ?? "unknown").Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c).ToArray()).Trim('.');
-            return string.IsNullOrWhiteSpace(safe) ? "unknown" : safe;
         }
     }
 }

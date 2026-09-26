@@ -91,7 +91,7 @@ namespace HomeScreenCompanion
                     var entry = new BackupTopList { Config = tl, IsManual = !managedTags.Contains(tl.TagName.Trim()) };
                     if (entry.IsManual)
                     {
-                        var folderPath = Path.Combine(dataPath, "toplists", SanitizeFolderName(tl.TagName));
+                        var folderPath = Path.Combine(dataPath, "toplists", FolderNames.Sanitize(tl.TagName));
                         entry.Items = ReadTopListMovies(folderPath)
                             .Select(m => new BackupTopListItem { ImdbId = m.ImdbId, ItemId = m.ItemId, Name = m.Name, Year = m.Year })
                             .ToList();
@@ -233,7 +233,7 @@ namespace HomeScreenCompanion
                         try { settings = _jsonSerializer.DeserializeFromString<Dictionary<string, string>>(tl.HomeSectionSettings) ?? settings; }
                         catch (Exception ex) { _logger.Warn($"[Backup] Settings parse failed for top-list '{tl.TagName}': {ex.Message}"); }
                         var badgeStyle = settings.TryGetValue("BadgeStyle", out var bs) && !string.IsNullOrEmpty(bs) ? bs : "neutral";
-                        var folderPath = Path.Combine(dataPath, "toplists", SanitizeFolderName(tl.TagName));
+                        var folderPath = Path.Combine(dataPath, "toplists", FolderNames.Sanitize(tl.TagName));
 
                         // Rebuild the folder so the library (existing or about to be created) has content.
                         // Tag-based folders are refilled by every sync run anyway; manual folders only exist

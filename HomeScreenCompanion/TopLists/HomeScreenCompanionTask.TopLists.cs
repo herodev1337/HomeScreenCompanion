@@ -23,7 +23,7 @@ namespace HomeScreenCompanion
             var configuredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var tl in config.TopLists ?? new List<TopListHomeSection>())
                 if (!string.IsNullOrWhiteSpace(tl.TagName))
-                    configuredNames.Add(SanitizeTopListFolderName(tl.TagName));
+                    configuredNames.Add(FolderNames.Sanitize(tl.TagName));
 
             // Remove folders for tags that no longer exist in config
             if (Directory.Exists(topListsPath))
@@ -84,7 +84,7 @@ namespace HomeScreenCompanion
                 if (string.IsNullOrWhiteSpace(tl.TagName)) continue;
                 if (!managedTagNames.Contains(tl.TagName)) continue;
 
-                var sanitized = SanitizeTopListFolderName(tl.TagName);
+                var sanitized = FolderNames.Sanitize(tl.TagName);
                 var folderPath = Path.Combine(topListsPath, sanitized);
                 Directory.CreateDirectory(folderPath);
 
@@ -143,7 +143,7 @@ namespace HomeScreenCompanion
                 foreach (var item in items)
                 {
                     if (string.IsNullOrEmpty(item.Path)) continue;
-                    var baseName = SanitizeTopListFolderName(item.Name);
+                    var baseName = FolderNames.Sanitize(item.Name);
                     if (item.ProductionYear.HasValue && item.ProductionYear > 0)
                         baseName += $" ({item.ProductionYear})";
                     if (!seenKeys.Add(baseName)) continue;
@@ -245,13 +245,6 @@ namespace HomeScreenCompanion
             }
         }
 
-        private static string SanitizeTopListFolderName(string name)
-        {
-            var invalid = Path.GetInvalidFileNameChars();
-            var safe = new string((name ?? "unknown").Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c).ToArray()).Trim('.');
-            return string.IsNullOrWhiteSpace(safe) ? "unknown" : safe;
-        }
-
         private void TopListsPhase(RunContext ctx, CancellationToken cancellationToken)
         {
             CleanupDisabledPlaylists(ctx.Config, ctx.DryRun);
@@ -263,17 +256,14 @@ namespace HomeScreenCompanion
 
         // Writes tag_ranks/<tag>.json — the IMDb ids of a tag's matched items in source order,
         // used by SyncTopListFolders to number .strm files. Lives here next to SyncTopListFolders
-        // since the two share the tag_ranks directory + folder-name sanitization.
+        // since the two share the tag_ranks directory.
         private void WriteRankFile(string tagName, List<string> imdbIds)
         {
             try
             {
                 var rankDir = Path.Combine(Plugin.Instance.DataFolderPath, "tag_ranks");
                 Directory.CreateDirectory(rankDir);
-                var invalidChars = Path.GetInvalidFileNameChars();
-                var rankSafe = new string((tagName ?? "unknown").Select(c => Array.IndexOf(invalidChars, c) >= 0 ? '_' : c).ToArray()).Trim('.');
-                if (string.IsNullOrWhiteSpace(rankSafe)) rankSafe = "unknown";
-                var rankFile = Path.Combine(rankDir, rankSafe + ".json");
+                var rankFile = Path.Combine(rankDir, FolderNames.Sanitize(tagName) + ".json");
                 _jsonSerializer.SerializeToFile(imdbIds, rankFile);
             }
             catch { }
