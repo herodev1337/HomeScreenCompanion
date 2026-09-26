@@ -3,15 +3,18 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using HomeScreenCompanion.UI;
+using HomeScreenCompanion.UI.Tabs;
 using MediaBrowser.Model.Logging;
 using Xunit;
 
 namespace HomeScreenCompanion.Tests;
 
 /// <summary>
-/// Audit-plan v2 / Wave 1 / U4: shape tests for
-/// <see cref="TagConfigRow"/> + the per-row edit dialog + the
-/// editor factory. Typed surface.
+/// Audit-plan v2 / Wave 1 / U4 + Wave 2 / U11: shape tests for the
+/// tag-rule editor. Verifies the existing
+/// <see cref="TagConfigRow"/> model, the dialog under its new
+/// <c>HomeScreenCompanion.UI.Tabs</c> location, and the
+/// <see cref="TagRuleEditUI"/> model.
 /// </summary>
 public sealed class TagRowDialogTests
 {
@@ -60,29 +63,39 @@ public sealed class TagRowDialogTests
     [Fact]
     public void TagRowEditDialog_Extends_PluginDialogView()
     {
-        Assert.Equal("HomeScreenCompanion.UIBaseClasses.Views.PluginDialogView", typeof(TagRowEditDialog).BaseType?.FullName);
+        Assert.Equal("HomeScreenCompanion.UIBaseClasses.Views.PluginDialogView",
+            typeof(TagRowEditDialog).BaseType?.FullName);
     }
 
     [Fact]
-    public void TagRowEditor_OpenFor_Returns_Dialog_With_Row_As_ContentData()
+    public void TagRowEditDialog_Ctor_Takes_TagConfig()
     {
-        var row = new TagConfigRow();
-        var dialog = TagRowEditor.OpenFor(Guid.NewGuid().ToString(), row, new NullLogger());
-        Assert.NotNull(dialog);
+        var ctor = typeof(TagRowEditDialog).GetConstructor(
+            new[] { typeof(string), typeof(TagConfig), typeof(ILogger) });
+        Assert.NotNull(ctor);
+    }
+
+    [Fact]
+    public void TagRowEditDialog_Sets_ContentData_To_TagRuleEditUI()
+    {
+        var config = new TagConfig { Name = "T1", Tag = "tag1", SourceType = "External" };
+        var dialog = new TagRowEditDialog(Guid.NewGuid().ToString(), config, new NullLogger());
 
         var contentDataProp = typeof(TagRowEditDialog).BaseType!.BaseType!
             .GetProperty("ContentData", BindingFlags.Public | BindingFlags.Instance)!;
-        Assert.Same(row, contentDataProp.GetValue(dialog));
+        var contentData = contentDataProp.GetValue(dialog);
+        Assert.NotNull(contentData);
+        Assert.IsType<TagRuleEditUI>(contentData);
     }
 
     [Fact]
     public async Task TagRowEditDialog_RunCommand_OpenLogs_Returns_A_Different_View()
     {
-        var row = new TagConfigRow();
-        var dialog = TagRowEditor.OpenFor(Guid.NewGuid().ToString(), row, new NullLogger());
+        var config = new TagConfig { Name = "T2", Tag = "tag2", SourceType = "External" };
+        var dialog = new TagRowEditDialog(Guid.NewGuid().ToString(), config, new NullLogger());
 
-        var openLogs = typeof(TagRowEditDialog).GetMethod("RunCommand")!;
-        var task = (Task)openLogs.Invoke(dialog, new object?[] { "row1", "OpenLogs", null })!;
+        var runCommand = typeof(TagRowEditDialog).GetMethod("RunCommand")!;
+        var task = (Task)runCommand.Invoke(dialog, new object?[] { "row1", "OpenLogs", null })!;
         await task;
 
         var resultProp = task.GetType().GetProperty("Result")!;
@@ -92,13 +105,13 @@ public sealed class TagRowDialogTests
     }
 
     [Fact]
-    public async Task TagRowEditDialog_RunCommand_Unknown_Command_Returns_Self()
+    public async Task TagRowEditDialog_RunCommand_Unknown_Command_Returns_Null()
     {
-        var row = new TagConfigRow();
-        var dialog = TagRowEditor.OpenFor(Guid.NewGuid().ToString(), row, new NullLogger());
+        var config = new TagConfig { Name = "T3", Tag = "tag3", SourceType = "External" };
+        var dialog = new TagRowEditDialog(Guid.NewGuid().ToString(), config, new NullLogger());
 
-        var openLogs = typeof(TagRowEditDialog).GetMethod("RunCommand")!;
-        var task = (Task)openLogs.Invoke(dialog, new object?[] { "row1", "Refresh", null })!;
+        var runCommand = typeof(TagRowEditDialog).GetMethod("RunCommand")!;
+        var task = (Task)runCommand.Invoke(dialog, new object?[] { "row1", "Refresh", null })!;
         await task;
 
         var resultProp = task.GetType().GetProperty("Result")!;
