@@ -4,6 +4,7 @@ using HomeScreenCompanion.UI.Tabs;
 using HomeScreenCompanion.UIBaseClasses;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI;
@@ -26,6 +27,7 @@ namespace HomeScreenCompanion.UI
         private readonly IHttpClient _httpClient;
         private readonly IJsonSerializer _jsonSerializer;
         private readonly IServerApplicationHost _applicationHost;
+        private readonly IUserManager _userManager;
         private readonly ILogger _logger;
         private readonly List<IPluginUIPageController> _tabPages;
 
@@ -35,6 +37,7 @@ namespace HomeScreenCompanion.UI
             MainPageOptionsStore optionsStore,
             IHttpClient httpClient,
             IJsonSerializer jsonSerializer,
+            IUserManager userManager,
             ITaskManager taskManager,
             ILogger logger)
             : base(pluginInfo.Id)
@@ -44,6 +47,7 @@ namespace HomeScreenCompanion.UI
             this._httpClient = httpClient;
             this._jsonSerializer = jsonSerializer;
             this._applicationHost = applicationHost;
+            this._userManager = userManager;
             this._logger = logger;
             this.PageInfo = new PluginPageInfo
             {
@@ -72,9 +76,7 @@ namespace HomeScreenCompanion.UI
                     "Home Screen",
                     () => new HomeScreenTabView(
                         pluginInfo,
-                        httpClient,
-                        jsonSerializer,
-                        applicationHost,
+                        userManager,
                         taskManager,
                         logger)),
                 new TabPageController(

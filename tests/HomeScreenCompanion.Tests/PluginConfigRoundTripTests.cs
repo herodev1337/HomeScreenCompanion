@@ -1,15 +1,19 @@
 using System.Linq;
 using System.Reflection;
 using HomeScreenCompanion.UI;
+using HomeScreenCompanion.UI.Tabs;
 using Xunit;
 
 namespace HomeScreenCompanion.Tests;
 
 /// <summary>
-/// Audit-plan v2 / Wave 2 / T3: round-trip tests for the typed
-/// <see cref="MainPageConfigMapper"/>. Verifies that every scalar
-/// property on <c>MainPageUI</c> maps 1:1 onto <c>PluginConfiguration</c>
-/// and back, and that lossy fields (none in v2) are filtered out.
+/// Round-trip tests for the typed <see cref="MainPageConfigMapper"/>.
+/// Verifies that the trimmed quick-access scalars on
+/// <c>MainPageUI</c> (Run interval, DryRunMode, AiSystemPrompt) map 1:1
+/// onto <c>PluginConfiguration</c> and back, and that the rest of the
+/// scalar surface (API keys, AI provider keys/models, advanced toggles)
+/// round-trips through <see cref="SettingsConfigMapper"/> /
+/// <see cref="SettingsTabUI"/>.
 /// </summary>
 public sealed class PluginConfigRoundTripTests
 {
@@ -28,14 +32,80 @@ public sealed class PluginConfigRoundTripTests
     }
 
     [Fact]
-    public void ToPluginConfig_Copies_Every_Scalar_Setting()
+    public void ToPluginConfig_Copies_QuickAccess_Scalars()
     {
+        // MainPageUI is the quick-access landing tab — only the
+        // day-to-day scalars live here. The "full" scalar surface
+        // (API keys, AI provider settings, advanced toggles) lives
+        // on SettingsTabUI instead.
         var ui = new MainPageUI
         {
+            RunIntervalMinutes = 90,
             DryRunMode = true,
-            ExtendedConsoleOutput = true,
-            LogMissingItems = true,
-            PreserveTagsOnEmptyResult = false,
+            AiSystemPrompt = "custom prompt",
+        };
+
+        var config = MainPageConfigMapper.ToPluginConfig(ui);
+
+        Assert.True(config.DryRunMode);
+        Assert.Equal("custom prompt", config.AiSystemPrompt);
+        Assert.Equal(90, ui.RunIntervalMinutes); // local property; not persisted (no setter target on PluginConfiguration)
+    }
+
+    [Fact]
+    public void ToPluginConfig_Falls_Back_To_Default_When_Prompt_Is_Empty()
+    {
+        var ui = new MainPageUI { AiSystemPrompt = "" };
+
+        var config = MainPageConfigMapper.ToPluginConfig(ui);
+
+        Assert.Equal(PluginConfiguration.DefaultAiSystemPrompt, config.AiSystemPrompt);
+    }
+
+    [Fact]
+    public void HydrateFrom_Populates_QuickAccess_Scalars_From_The_Legacy_Config()
+    {
+        var config = new PluginConfiguration
+        {
+            DryRunMode = true,
+            AiSystemPrompt = "gpt-prompt-v2",
+        };
+
+        var ui = new MainPageUI();
+        MainPageConfigMapper.HydrateFrom(ui, config);
+
+        Assert.True(ui.DryRunMode);
+        Assert.Equal("gpt-prompt-v2", ui.AiSystemPrompt);
+    }
+
+    [Fact]
+    public void HydrateFrom_Survives_A_Full_Round_Trip()
+    {
+        // Set scalars on the UI → map to config → map back → compare.
+        var original = new MainPageUI
+        {
+            DryRunMode = true,
+            AiSystemPrompt = "round-trip prompt",
+        };
+
+        var config = MainPageConfigMapper.ToPluginConfig(original);
+
+        var roundTripped = new MainPageUI();
+        MainPageConfigMapper.HydrateFrom(roundTripped, config);
+
+        Assert.Equal(original.DryRunMode, roundTripped.DryRunMode);
+        Assert.Equal(original.AiSystemPrompt, roundTripped.AiSystemPrompt);
+    }
+
+    [Fact]
+    public void SettingsConfigMapper_Roundtrips_The_Full_Scalar_Surface()
+    {
+        // Companion to ToPluginConfig_Copies_QuickAccess_Scalars:
+        // the API keys / AI provider settings / advanced toggles that
+        // used to live on MainPageUI now live on SettingsTabUI and
+        // round-trip through SettingsConfigMapper.
+        var ui = new SettingsTabUI
+        {
             TraktClientId = "trakt-abc",
             MdblistApiKey = "mdb-xyz",
             TmdbApiKey = "tmdb-123",
@@ -47,10 +117,15 @@ public sealed class PluginConfigRoundTripTests
             ClaudeModel = "claude-sonnet",
             OllamaBaseUrl = "http://gpu-host:11434",
             OllamaModel = "qwen2",
+            DryRunMode = true,
+            ExtendedConsoleOutput = true,
+            LogMissingItems = true,
+            PreserveTagsOnEmptyResult = false,
+            RunIntervalMinutes = 90,
             AiSystemPrompt = "custom prompt",
         };
 
-        var config = MainPageConfigMapper.ToPluginConfig(ui);
+        var config = SettingsConfigMapper.ToPluginConfig(ui);
 
         Assert.True(config.DryRunMode);
         Assert.True(config.ExtendedConsoleOutput);
@@ -68,57 +143,6 @@ public sealed class PluginConfigRoundTripTests
         Assert.Equal("http://gpu-host:11434", config.OllamaBaseUrl);
         Assert.Equal("qwen2", config.OllamaModel);
         Assert.Equal("custom prompt", config.AiSystemPrompt);
-    }
-
-    [Fact]
-    public void ToPluginConfig_Falls_Back_To_Default_When_Prompt_Is_Empty()
-    {
-        var ui = new MainPageUI { AiSystemPrompt = "" };
-
-        var config = MainPageConfigMapper.ToPluginConfig(ui);
-
-        Assert.Equal(PluginConfiguration.DefaultAiSystemPrompt, config.AiSystemPrompt);
-    }
-
-    [Fact]
-    public void HydrateFrom_Populates_All_Scalars_From_The_Legacy_Config()
-    {
-        var config = new PluginConfiguration
-        {
-            TraktClientId = "trakt-xyz",
-            OpenAiModel = "gpt-4-turbo",
-            DryRunMode = true,
-        };
-
-        var ui = new MainPageUI();
-        MainPageConfigMapper.HydrateFrom(ui, config);
-
-        Assert.Equal("trakt-xyz", ui.TraktClientId);
-        Assert.Equal("gpt-4-turbo", ui.OpenAiModel);
-        Assert.True(ui.DryRunMode);
-    }
-
-    [Fact]
-    public void HydrateFrom_Survives_A_Full_Round_Trip()
-    {
-        // Set scalars on the UI → map to config → map back → compare.
-        var original = new MainPageUI
-        {
-            DryRunMode = true,
-            MdblistApiKey = "mdb-original",
-            PreserveTagsOnEmptyResult = false,
-            ClaudeModel = "claude-opus",
-        };
-
-        var config = MainPageConfigMapper.ToPluginConfig(original);
-
-        var roundTripped = new MainPageUI();
-        MainPageConfigMapper.HydrateFrom(roundTripped, config);
-
-        Assert.Equal(original.DryRunMode, roundTripped.DryRunMode);
-        Assert.Equal(original.MdblistApiKey, roundTripped.MdblistApiKey);
-        Assert.Equal(original.PreserveTagsOnEmptyResult, roundTripped.PreserveTagsOnEmptyResult);
-        Assert.Equal(original.ClaudeModel, roundTripped.ClaudeModel);
     }
 
     [Fact]
