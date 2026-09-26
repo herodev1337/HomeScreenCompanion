@@ -49,23 +49,8 @@ namespace HomeScreenCompanion.UI
                     .FirstOrDefault(t => t.Name == tagName);
                 if (existing != null)
                 {
-                    var row = new TagConfigRow
-                    {
-                        Name = existing.Name,
-                        Tag = existing.Tag,
-                        Enabled = existing.EnableTag,
-                        Source = existing.SourceType,
-                        EnableCollection = existing.EnableCollection,
-                        CollectionName = existing.CollectionName,
-                        EnableTag = existing.EnableTag
-                    };
-                    return TagRowEditor.OpenFor(this.PluginId, row, this.Logger);
+                    return new Tabs.TagRowEditDialog(this.PluginId, existing, this.Logger);
                 }
-            }
-
-            if (commandId == "OpenReleaseNotes")
-            {
-                return new ReleaseNotesDialog(this.PluginId, this.MainPageUi?.ReleaseNotesUrl);
             }
 
             return await base.RunCommand(itemId, commandId, data);

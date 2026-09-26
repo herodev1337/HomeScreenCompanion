@@ -1,5 +1,6 @@
 using HomeScreenCompanion.UI;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Net;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Model.Plugins;
@@ -8,6 +9,7 @@ using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Logging;
+using MediaBrowser.Model.Tasks;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -24,6 +26,9 @@ namespace HomeScreenCompanion
         public override string Description => "Auto-tagging, collection management and home screen sync for Emby.";
 
         private readonly IServerApplicationHost _applicationHost;
+        private readonly IHttpClient _httpClient;
+        private readonly IJsonSerializer _jsonSerializer;
+        private readonly ITaskManager _taskManager;
         private readonly ILogger _logger;
         private MainPageOptionsStore _mainPageOptionsStore;
         private List<IPluginUIPageController> _uiPageControllers;
@@ -34,11 +39,16 @@ namespace HomeScreenCompanion
             IServerApplicationHost applicationHost,
             IJsonSerializer jsonSerializer,
             IFileSystem fileSystem,
+            IHttpClient httpClient,
+            ITaskManager taskManager,
             ILogManager logManager)
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
             _applicationHost = applicationHost;
+            _jsonSerializer = jsonSerializer;
+            _httpClient = httpClient;
+            _taskManager = taskManager;
             _logger = logManager.GetLogger("HomeScreenCompanion");
             _mainPageOptionsStore = new MainPageOptionsStore(
                 applicationPaths,
@@ -58,10 +68,14 @@ namespace HomeScreenCompanion
                 {
                     _uiPageControllers = new List<IPluginUIPageController>
                     {
-                        new MainPageController(this.GetPluginInfo(), _applicationHost, _mainPageOptionsStore, _logger),
-                        new TopListsPageController(this.GetPluginInfo(), _applicationHost, _logger),
-                        new HomeSectionsPageController(this.GetPluginInfo(), _applicationHost, _logger),
-                        new LogsPageController(this.GetPluginInfo(), _applicationHost, _logger)
+                        new MainPageController(
+                            this.GetPluginInfo(),
+                            _applicationHost,
+                            _mainPageOptionsStore,
+                            _httpClient,
+                            _jsonSerializer,
+                            _taskManager,
+                            _logger)
                     };
                 }
                 return _uiPageControllers.AsReadOnly();
