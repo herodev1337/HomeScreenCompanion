@@ -1,0 +1,9 @@
+{
+  "category": "Library",
+  "description": "Auto-tagging, collection management and home screen sync for Emby.",
+  "guid": "7c10708f-43e4-4d69-923c-77d01802315b",
+  "name": "Home Screen Companion",
+  "overview": "Syncs tags and collections from MDBList, Trakt, Playlists, TMDB and AI prompts; mirrors them into BoxSets and home-screen sections per user.",
+  "owner": "HomeScreenCompanion",
+  "version": "@@VERSION@@"
+}
