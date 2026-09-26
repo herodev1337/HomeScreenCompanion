@@ -166,6 +166,30 @@ namespace HomeScreenCompanion
         // ExtendedItemsQuery class moved to HomeSections/HomeScreenCompanionTask.cs
         // (used only by BuildContentSection, which is also there).
 
+        // Per-phase outcome records threaded through Execute's pipeline. Each phase method
+        // returns its own outcome (carrying only the values it produced) so the next phase
+        // can read them without re-walking the run context.
+        private struct FetchOutcome
+        {
+            public bool AiConfigChanged;
+        }
+
+        private struct MatchOutcome
+        {
+            public int TagsAdded;
+            public int TagsRemoved;
+        }
+
+        private struct CollOutcome
+        {
+            public int CollCreated;
+            public int CollUpdated;
+            public int CollWouldCreate;
+            public int CollWouldUpdate;
+            public int CollDeleted;
+            public int CleanupBoxSetTagsRemoved;
+        }
+
         internal class GroupRunStats
         {
             public string? DisplayName;
@@ -238,852 +262,20 @@ namespace HomeScreenCompanion
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            if (!await _runGate.TryEnterAsync(cancellationToken))
+            var (entered, ctx) = await TryEnterAndInitializeRun(cancellationToken);
+            if (!entered || ctx == null)
                 return;
             try
             {
-                lock (ExecutionLog) ExecutionLog.Clear();
-                LastStartedUtc = DateTime.UtcNow;
-                LastRunStatus = "Running...";
-
-                if (!BuildRunContext(out var ctx)) return;
-
-                int activeGroupTotal = ctx.Config.Tags.Count(t => t.Active && !string.IsNullOrWhiteSpace(t.Tag));
-
-                var fetcher = new ListFetcher(_httpClient, _jsonSerializer);
-                _runDesiredTagsMap = new Dictionary<Guid, HashSet<string>>();
-                _runAllScannedEpisodeItems = new Dictionary<Guid, BaseItem>();
-                _runAllScannedSeasonItems = new Dictionary<Guid, BaseItem>();
-                _runDesiredCollectionsMap = new Dictionary<string, HashSet<long>>(StringComparer.OrdinalIgnoreCase);
-                _runCollectionDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                _runCollectionPosters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                _runManagedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                _runActiveCollections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                _runFailedFetches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                // A group with several sources (URLs / local sources) is stored as one flat TagConfig per
-                // source. Playlists and rank files must be built from the union of all sources in the group,
-                // so they are accumulated here and written once after the loop.
-                _runGroupPlaylistItems = new Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>(StringComparer.OrdinalIgnoreCase);
-                var rankIdsByTag = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-                // Groups where a source failed / returned nothing — their playlists are left untouched
-                _runPlaylistGroupsToSkip = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                var previouslyManagedTags = LoadFileHistory("homescreencompanion_history.txt");
-                foreach (var t in previouslyManagedTags) _runManagedTags!.Add(t);
-
-                _runPreviouslyManagedCollections = LoadFileHistory("homescreencompanion_collections.txt");
-                // Also track collection names from inactive groups so they get cleaned up
-                // even if the group was only ever run via single-entry sync (which doesn't update history)
-                foreach (var tc in ctx.Config.Tags)
-                {
-                    if (tc.EnableCollection && !string.IsNullOrWhiteSpace(tc.Tag))
-                    {
-                        string cn = string.IsNullOrWhiteSpace(tc.CollectionName) ? tc.Tag.Trim() : tc.CollectionName.Trim();
-                        if (!_runPreviouslyManagedCollections!.Contains(cn))
-                            _runPreviouslyManagedCollections!.Add(cn);
-                    }
-                }
-
-                TagCacheManager.Instance.Initialize(Plugin.Instance.DataFolderPath, _jsonSerializer);
-                TagCacheManager.Instance.ClearCache();
-
-                double step = 30.0 / (ctx.Config.Tags.Count > 0 ? ctx.Config.Tags.Count : 1);
-                double currentProgress = 0;
-
-                // Per-run match caches — unified helper shared with RunSingleEntryInternalAsync.
-                // Active-tag pre-filter in the caller matches the previous inline block's
-                // `Where(t.Active && …)` guards so the unioned iteration inside BuildMatchCaches
-                // gates identically on "has MediaInfoFilters/MediaInfoConditions".
-                var matchCaches = BuildMatchCaches(
-                    ctx.Config.Tags.Where(t => t.Active).ToList(),
-                    ctx.AllItems);
-                var seriesEpisodeCache = matchCaches.SeriesEpisodeCache;
-                var personCache = matchCaches.PersonCache;
-                var collectionMembershipCache = matchCaches.CollectionMembershipCache;
-                var mediaInfoCache = matchCaches.MediaInfoCache;
-                var userDataCache = matchCaches.UserDataCache;
-                var seriesLastPlayedCache = matchCaches.SeriesLastPlayedCache;
-                var preloadedUsers = matchCaches.PreloadedUsers;
-                var seriesEpisodeNamesCache = matchCaches.SeriesEpisodeNamesCache;
-
-                var activeTagOverrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var activeCollectionOverrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var tc in ctx.Config.Tags)
-                {
-                    if (!tc.Active || !tc.OverrideWhenActive || string.IsNullOrWhiteSpace(tc.Tag)) continue;
-                    if (!IsScheduleActive(tc.ActiveIntervals)) continue;
-                    activeTagOverrides.Add(tc.Tag.Trim());
-                    if (tc.EnableCollection)
-                    {
-                        var overrideCName = string.IsNullOrWhiteSpace(tc.CollectionName) ? tc.Tag.Trim() : tc.CollectionName.Trim();
-                        activeCollectionOverrides.Add(overrideCName);
-                    }
-                }
-
-                _log.Debug($"Caches ready after {RunLog.Elapsed(ctx.RunTimer.Elapsed)}  ·  media-info {mediaInfoCache.Count:N0} items  ·  user-data {userDataCache.Count:N0} entries for {preloadedUsers?.Length ?? 0} users  ·  person lookups {personCache.Count}  ·  collection/playlist lookups {collectionMembershipCache.Count}");
-                _log.Blank();
-                _log.Info("» Fetching sources");
-                var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
-
-                int activeGroupIdx = 0;
-                bool aiConfigChanged = false;
-                _runTagAddedByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                _runTagRemovedByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                _runCollCreatedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                _runCollItemsAdded = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                _runCollItemsRemoved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-                // Process OverrideWhenActive entries first so they can remove themselves from
-                // activeTagOverrides before non-override entries for the same tag are evaluated.
-                var orderedTags = ctx.Config.Tags
-                    .Where(t => t.OverrideWhenActive)
-                    .Concat(ctx.Config.Tags.Where(t => !t.OverrideWhenActive))
-                    .ToList();
-
-                foreach (var tagConfig in orderedTags)
-                {
-                    if (string.IsNullOrWhiteSpace(tagConfig.Tag)) continue;
-                    string tagName = tagConfig.Tag.Trim();
-                    _runManagedTags!.Add(tagName); // track all groups (active or inactive) so cleanup always runs
-
-                    if (!tagConfig.Active) continue;
-
-                    string displayName = !string.IsNullOrWhiteSpace(tagConfig.Name) ? $"{tagConfig.Name} [{tagName}]" : tagName;
-                    string srcLabel = string.IsNullOrEmpty(tagConfig.SourceType) ? "External" : tagConfig.SourceType;
-                    var ruleFeatures = new List<string>();
-                    if (tagConfig.EnableTag && !tagConfig.OnlyCollection) ruleFeatures.Add("Tag");
-                    if (tagConfig.EnableCollection) ruleFeatures.Add("Collection");
-                    if (tagConfig.EnableHomeSection) ruleFeatures.Add("HS");
-                    string featureStr = ruleFeatures.Count > 0 ? $"  ({string.Join(", ", ruleFeatures)})" : "";
-
-                    activeGroupIdx++;
-                    var gs = new GroupRunStats
-                    {
-                        DisplayName = displayName,
-                        SourceType = srcLabel,
-                        EnableTag = tagConfig.EnableTag && !tagConfig.OnlyCollection,
-                        EnableCollection = tagConfig.EnableCollection,
-                        EnableHomeSection = tagConfig.EnableHomeSection,
-                        BoxSetHse = IsBoxSetHomeSectionEntry(tagConfig),
-                        TagName = tagName,
-                        GroupIndex = activeGroupIdx,
-                        GroupTotal = activeGroupTotal,
-                        SourceLabel = DescribeSource(tagConfig),
-                        EnablePlaylist = tagConfig.EnablePlaylist,
-                        PlaylistName = string.IsNullOrWhiteSpace(tagConfig.PlaylistName) ? tagConfig.Name : tagConfig.PlaylistName,
-                        PlaylistUsersTotal = tagConfig.PlaylistUserIds?.Count ?? 0
-                    };
-                    // A multi-source group is stored as several flat entries; the playlist is synced once
-                    // per group, so only the first entry's stats carry (and display) the playlist result.
-                    if (!ctx.StatsByGroupKey.ContainsKey(GroupKey(tagConfig))) ctx.StatsByGroupKey[GroupKey(tagConfig)] = gs;
-                    else gs.EnablePlaylist = false;
-
-                    if (!IsScheduleActive(tagConfig.ActiveIntervals))
-                    {
-                        gs.Skipped = true;
-                        gs.SkipReason = "not in schedule";
-                        ctx.StatsList.Add(gs);
-                        WriteFetchLine(gs);
-                        continue;
-                    }
-
-                    if (tagConfig.SourceType == "AI" && tagConfig.AiRefreshIntervalDays > 0 &&
-                        tagConfig.AiLastRunDate > DateTime.MinValue &&
-                        (DateTime.UtcNow - tagConfig.AiLastRunDate).TotalDays < tagConfig.AiRefreshIntervalDays)
-                    {
-                        var _nextAiRun = tagConfig.AiLastRunDate.AddDays(tagConfig.AiRefreshIntervalDays);
-                        gs.Skipped = true;
-                        gs.SkipReason = $"AI refresh not due until {_nextAiRun:yyyy-MM-dd}";
-                        ctx.StatsList.Add(gs);
-                        WriteFetchLine(gs);
-                        continue;
-                    }
-
-                    string cName = string.IsNullOrWhiteSpace(tagConfig.CollectionName) ? tagName : tagConfig.CollectionName.Trim();
-                    gs.CollectionName = cName;
-
-                    if (!tagConfig.OverrideWhenActive &&
-                        (activeTagOverrides.Contains(tagName) ||
-                         (tagConfig.EnableCollection && activeCollectionOverrides.Contains(cName))))
-                    {
-                        gs.Skipped = true;
-                        gs.SkipReason = "overridden by a priority group with the same tag";
-                        ctx.StatsList.Add(gs);
-                        WriteFetchLine(gs);
-                        continue;
-                    }
-                    if (tagConfig.EnableCollection)
-                    {
-                        _runActiveCollections!.Add(cName);
-                        if (!string.IsNullOrWhiteSpace(tagConfig.CollectionDescription))
-                            _runCollectionDescriptions![cName] = tagConfig.CollectionDescription;
-                        if (!string.IsNullOrWhiteSpace(tagConfig.CollectionPosterPath) && File.Exists(tagConfig.CollectionPosterPath))
-                            _runCollectionPosters![cName] = tagConfig.CollectionPosterPath;
-                    }
-
-                    var groupTimer = System.Diagnostics.Stopwatch.StartNew();
-                    try
-                    {
-                        int effectiveLimit = tagConfig.Limit <= 0 ? 10000 : tagConfig.Limit;
-                        _log.Section($"[{gs.GroupIndex}/{gs.GroupTotal}] {displayName}");
-                        _log.Debug("  " + DescribeSourceDetail(tagConfig, effectiveLimit));
-                        var blacklist = new HashSet<string>(tagConfig.Blacklist ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-                        var matchedLocalItems = new List<BaseItem>();
-                        List<BaseItem> tagOutputItems = matchedLocalItems;
-                        List<BaseItem> collectionOutputItems = matchedLocalItems;
-                        int matchCount = 0;
-                        // seriesEpisodeNamesCache was pre-built by BuildMatchCaches (above) if any
-                        // active tag has an EpisodeTitle criterion — reuse it here instead of
-                        // rebuilding per-group.
-
-                        if (string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External")
-                        {
-                            var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
-                            var items = await fetcher.FetchItems(tagConfig.Url, effectiveLimit, ctx.Config.TraktClientId, ctx.Config.MdblistApiKey, ctx.Config.TmdbApiKey, cancellationToken);
-                            fetchTimer.Stop();
-                            gs.ListCount = items.Count;
-                            int _extBlacklisted = 0, _extNoImdb = 0;
-
-                            if (items.Count > 0)
-                            {
-                                if (items.Count > effectiveLimit) items = items.Take(effectiveLimit).ToList();
-
-                                foreach (var extItem in items)
-                                {
-                                    if (string.IsNullOrEmpty(extItem.Imdb)) { _extNoImdb++; continue; }
-
-                                    if (blacklist.Contains(extItem.Imdb))
-                                    {
-                                        _extBlacklisted++;
-                                        _log.Debug($"    Blacklisted: {extItem.Name} ({extItem.Imdb})");
-                                        continue;
-                                    }
-
-                                    if (tagConfig.EnableTag && !tagConfig.OnlyCollection)
-                                        TagCacheManager.Instance.AddToCache($"imdb_{extItem.Imdb}", tagName);
-
-                                    if (ctx.ImdbLookup.TryGetValue(extItem.Imdb, out var localItems))
-                                    {
-                                        foreach (var localItem in localItems)
-                                        {
-                                            if (!matchedLocalItems.Contains(localItem)) matchedLocalItems.Add(localItem);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        gs.MissingItems.Add($"{extItem.Name}  {extItem.Imdb}");
-                                    }
-                                }
-                            }
-                            _log.Debug($"  Fetched {gs.ListCount} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched by IMDb id  ·  {gs.MissingItems.Count} not in library  ·  {_extBlacklisted} blacklisted  ·  {_extNoImdb} without IMDb id");
-                        }
-                        else if (tagConfig.SourceType == "LocalCollection" || tagConfig.SourceType == "LocalPlaylist")
-                        {
-                            if (!string.IsNullOrEmpty(tagConfig.LocalSourceId))
-                            {
-                                string[] folderTypes = tagConfig.SourceType == "LocalPlaylist"
-                                    ? new[] { "Playlist" }
-                                    : new[] { "BoxSet" };
-                                var allFolders = _libraryManager.GetItemList(new InternalItemsQuery
-                                {
-                                    IncludeItemTypes = folderTypes,
-                                    Recursive = true
-                                });
-                                var localSourceFolder = allFolders.FirstOrDefault(i =>
-                                    string.Equals(i.Name, tagConfig.LocalSourceId, StringComparison.OrdinalIgnoreCase)
-                                );
-
-                                if (localSourceFolder != null)
-                                {
-                                    var children = new List<BaseItem>();
-                                    _log.Debug($"  Found source '{localSourceFolder.Name}'  ({localSourceFolder.GetType().Name})");
-
-                                    if (tagConfig.SourceType == "LocalCollection")
-                                    {
-                                        children = _libraryManager.GetItemList(new InternalItemsQuery
-                                        {
-                                            CollectionIds = new[] { localSourceFolder.InternalId },
-                                            IsVirtualItem = false
-                                        }).ToList();
-                                    }
-                                    else
-                                    {
-                                        children = _libraryManager.GetItemList(new InternalItemsQuery
-                                        {
-                                            ListIds = new[] { localSourceFolder.InternalId }
-                                        }).ToList();
-                                    }
-
-                                    gs.ListCount = children.Count;
-                                    if (children.Count == 0)
-                                        gs.Warnings.Add($"'{tagConfig.LocalSourceId}' is empty (or only contains virtual items)");
-                                    else
-                                        _log.Debug($"  Items in source: {children.Count}");
-
-                                    foreach (var child in children)
-                                    {
-                                        if (child == null) continue;
-
-                                        BaseItem itemToTag = child;
-
-                                        if (itemToTag.GetType().Name.Contains("Episode"))
-                                        {
-                                            try
-                                            {
-                                                var series = (itemToTag as Episode)?.Series ?? (itemToTag as Season)?.Series;
-                                                if (series != null) itemToTag = series;
-                                            }
-                                            catch { }
-                                        }
-
-                                        if (!IsTaggableTopLevelItem(itemToTag))
-                                            continue;
-
-                                        var imdb = itemToTag.GetProviderId("Imdb");
-                                        if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb))
-                                        {
-                                            _log.Debug($"    Blacklisted: {itemToTag.Name} ({imdb})");
-                                            continue;
-                                        }
-
-                                        if (!matchedLocalItems.Contains(itemToTag))
-                                        {
-                                            matchedLocalItems.Add(itemToTag);
-                                        }
-                                    }
-                                    _log.Debug($"  {matchedLocalItems.Count} usable movies/series in source");
-                                }
-                                else
-                                {
-                                    gs.Warnings.Add($"{DescribeSource(tagConfig)} '{tagConfig.LocalSourceId}' was not found in the library");
-                                }
-
-                                if (effectiveLimit < 10000 && matchedLocalItems.Count > effectiveLimit)
-                                    matchedLocalItems = matchedLocalItems.Take(effectiveLimit).ToList();
-                            }
-                        }
-                        // Apply MediaInfo post-filter for non-MediaInfo source types
-                        if (tagConfig.SourceType != "MediaInfo" && matchedLocalItems.Count > 0
-                            && (tagConfig.MediaInfoFilters?.Count > 0 || tagConfig.MediaInfoConditions?.Count > 0))
-                        {
-                            var beforeCount = matchedLocalItems.Count;
-                            matchedLocalItems = matchedLocalItems.Where(item =>
-                            {
-                                CachedMediaInfo? ci = mediaInfoCache.TryGetValue(item.InternalId, out var ciVal) ? ciVal : (CachedMediaInfo?)null;
-                                return ItemMatchesMediaInfo(item, tagConfig, ctx.Debug, seriesEpisodeCache, personCache, userDataCache, ci, preloadedUsers, seriesLastPlayedCache, collectionMembershipCache, seriesEpisodeNamesCache);
-                            }).ToList();
-                            _log.Debug($"  Filter conditions: {beforeCount} → {matchedLocalItems.Count} items");
-                        }
-
-                        bool _viewerOnlyGroup = IsViewerOnlyMediaInfoFilter(tagConfig);
-                        if (tagConfig.SourceType == "MediaInfo" && _viewerOnlyGroup)
-                        {
-                            // Nothing to tag/collect — the home section query (IsPlayed / IsResumable)
-                            // resolves the filter for each viewing user. Skip the expensive library scan.
-                            gs.ListCount = 0;
-                            _log.Debug("  Current-user filter — library scan skipped (the home section resolves it per user)");
-                        }
-                        else if (tagConfig.SourceType == "MediaInfo")
-                        {
-                            IList<BaseItem> itemsToScan;
-                            if (TagConfigTargetsEpisodes(tagConfig))
-                            {
-                                var episodeQuery = new InternalItemsQuery
-                                {
-                                    IncludeItemTypes = new[] { "Episode" },
-                                    Recursive = true,
-                                    IsVirtualItem = false
-                                };
-                                var titleContains = ExtractTitleContains(tagConfig);
-                                if (!string.IsNullOrEmpty(titleContains))
-                                    episodeQuery.NameContains = titleContains;
-                                itemsToScan = _libraryManager.GetItemList(episodeQuery).ToList();
-                            }
-                            else
-                            {
-                                itemsToScan = ctx.AllItems;
-                            }
-
-                            foreach (var item in itemsToScan)
-                            {
-                                if (item.LocationType != LocationType.FileSystem) continue;
-
-                                var imdb = item.GetProviderId("Imdb");
-                                if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb)) continue;
-
-                                CachedMediaInfo? ci = mediaInfoCache.TryGetValue(item.InternalId, out var ciVal) ? ciVal : (CachedMediaInfo?)null;
-                                if (ItemMatchesMediaInfo(item, tagConfig, ctx.Debug, seriesEpisodeCache, personCache, userDataCache, ci, preloadedUsers, seriesLastPlayedCache, collectionMembershipCache, seriesEpisodeNamesCache))
-                                {
-                                    matchedLocalItems.Add(item);
-                                    if (effectiveLimit < 10000 && matchedLocalItems.Count >= effectiveLimit) break;
-                                }
-                            }
-                            gs.ListCount = itemsToScan.Count;
-                            if (TagConfigTargetsEpisodes(tagConfig))
-                            {
-                                foreach (var ep in itemsToScan)
-                                    _runAllScannedEpisodeItems!.TryAdd(ep.Id, ep);
-                            }
-                            // Redirect matched items to the selected output level (tag and collection independently)
-                            tagOutputItems = matchedLocalItems;
-                            collectionOutputItems = matchedLocalItems;
-                            {
-                                bool scannedEpisodes = TagConfigTargetsEpisodes(tagConfig);
-                                var (tEp, tSea, tSer) = EffectiveTagTargets(tagConfig);
-                                var (cEp, cSea, cSer) = EffectiveCollectionTargets(tagConfig);
-
-                                List<BaseItem> BuildOutputList(bool ep, bool sea, bool ser, bool anyNew)
-                                {
-                                    if (!anyNew) return scannedEpisodes ? ResolveParentSeries(matchedLocalItems) : matchedLocalItems.ToList();
-                                    var list = new List<BaseItem>();
-                                    var seriesOnly = matchedLocalItems.Where(i => i.GetType().Name.Contains("Series")).ToList();
-                                    if (scannedEpisodes)
-                                    {
-                                        // Collapse up: episodes → season/series
-                                        if (ep) list.AddRange(matchedLocalItems);
-                                        if (sea) { var s = ResolveParentSeasons(matchedLocalItems); _log.Debug($"  Output level: {matchedLocalItems.Count} episodes → {s.Count} seasons"); list.AddRange(s); foreach (var x in s) _runAllScannedSeasonItems!.TryAdd(x.Id, x); }
-                                        if (ser) { var s = ResolveParentSeries(matchedLocalItems); _log.Debug($"  Output level: {matchedLocalItems.Count} episodes → {s.Count} series"); list.AddRange(s); }
-                                    }
-                                    else
-                                    {
-                                        // Expand down: series → seasons/episodes; movies stay as-is for any target
-                                        var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
-                                        if (ser) list.AddRange(matchedLocalItems);
-                                        if (sea) { var s = ResolveChildSeasons(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {s.Count} seasons"); list.AddRange(s); foreach (var x in s) _runAllScannedSeasonItems!.TryAdd(x.Id, x); list.AddRange(movies); }
-                                        if (ep) { var e = ResolveChildEpisodes(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {e.Count} episodes"); list.AddRange(e); foreach (var x in e) _runAllScannedEpisodeItems!.TryAdd(x.Id, x); list.AddRange(movies); }
-                                    }
-                                    return list;
-                                }
-
-                                tagOutputItems = BuildOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
-                                collectionOutputItems = BuildOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
-                            }
-                            if (ctx.Debug)
-                            {
-                                _log.Debug($"  Scanned {itemsToScan.Count:N0} items in {groupTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched  (tag output {tagOutputItems.Count}, collection output {collectionOutputItems.Count})");
-                                WriteMatchedItemsDebug(matchedLocalItems);
-                            }
-                        }
-                        else if (tagConfig.SourceType == "AI")
-                        {
-                            var recentlyWatchedContext = BuildRecentlyWatchedContext(tagConfig);
-                            var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
-                            var aiItems = await fetcher.FetchAiList(
-                                tagConfig.AiProvider,
-                                tagConfig.AiPrompt,
-                                ctx.Config.OpenAiApiKey,
-                                ctx.Config.OpenAiModel,
-                                ctx.Config.GeminiApiKey,
-                                ctx.Config.GeminiModel,
-                                ctx.Config.ClaudeApiKey,
-                                ctx.Config.ClaudeModel,
-                                ctx.Config.OllamaBaseUrl,
-                                ctx.Config.OllamaModel,
-                                ctx.Config.AiSystemPrompt,
-                                recentlyWatchedContext,
-                                effectiveLimit,
-                                cancellationToken);
-                            fetchTimer.Stop();
-
-                            gs.ListCount = aiItems.Count;
-                            int _aiTitleMatched = 0, _aiBlacklisted = 0;
-
-                            foreach (var aiItem in aiItems)
-                            {
-                                if (string.IsNullOrWhiteSpace(aiItem.title)) continue;
-                                string _aiLabel = aiItem.year.HasValue ? $"{aiItem.title} ({aiItem.year})" : aiItem.title;
-
-                                if (!string.IsNullOrEmpty(aiItem.imdb_id))
-                                {
-                                    var imdbId = aiItem.imdb_id.Trim();
-                                    if (blacklist.Contains(imdbId))
-                                    {
-                                        _aiBlacklisted++;
-                                        _log.Debug($"    Blacklisted: {_aiLabel} ({imdbId})");
-                                        continue;
-                                    }
-
-                                    if (tagConfig.EnableTag && !tagConfig.OnlyCollection)
-                                        TagCacheManager.Instance.AddToCache($"imdb_{imdbId}", tagName);
-
-                                    if (ctx.ImdbLookup.TryGetValue(imdbId, out var localItems))
-                                    {
-                                        foreach (var localItem in localItems)
-                                        {
-                                            if (!matchedLocalItems.Contains(localItem))
-                                                matchedLocalItems.Add(localItem);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // IMDB ID not found in library — fall back to title+year match
-                                        var titleMatches = FindByTitleAndYear(ctx.AllItems, aiItem.title, aiItem.year);
-                                        if (titleMatches.Count > 0) { _aiTitleMatched++; _log.Debug($"    {imdbId} not in library — matched '{_aiLabel}' by title"); }
-                                        else gs.MissingItems.Add($"{_aiLabel}  {imdbId}");
-                                        foreach (var localItem in titleMatches)
-                                        {
-                                            var imdb = localItem.GetProviderId("Imdb");
-                                            if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb)) continue;
-                                            if (!matchedLocalItems.Contains(localItem))
-                                                matchedLocalItems.Add(localItem);
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    // Fallback: title+year match when AI didn't return an IMDB ID
-                                    var titleMatches = FindByTitleAndYear(ctx.AllItems, aiItem.title, aiItem.year);
-                                    if (titleMatches.Count > 0) _aiTitleMatched++;
-                                    else gs.MissingItems.Add($"{_aiLabel}  (no IMDb id from AI)");
-                                    foreach (var localItem in titleMatches)
-                                    {
-                                        var imdb = localItem.GetProviderId("Imdb");
-                                        if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb))
-                                        {
-                                            _aiBlacklisted++;
-                                            _log.Debug($"    Blacklisted: {localItem.Name} ({imdb})");
-                                            continue;
-                                        }
-                                        if (!matchedLocalItems.Contains(localItem))
-                                            matchedLocalItems.Add(localItem);
-                                    }
-                                }
-                            }
-
-                            _log.Debug($"  AI ({tagConfig.AiProvider}) returned {gs.ListCount} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched ({_aiTitleMatched} by title only)  ·  {gs.MissingItems.Count} not in library  ·  {_aiBlacklisted} blacklisted");
-                            if (tagConfig.AiRefreshIntervalDays > 0)
-                            {
-                                tagConfig.AiLastRunDate = DateTime.UtcNow;
-                                aiConfigChanged = true;
-                            }
-                        }
-                        // For non-MediaInfo sources, apply output level selection (expand down from Series/Movie)
-                        if (tagConfig.SourceType != "MediaInfo")
-                        {
-                            var (tEp, tSea, tSer) = EffectiveTagTargets(tagConfig);
-                            var (cEp, cSea, cSer) = EffectiveCollectionTargets(tagConfig);
-
-                            List<BaseItem> BuildNonMiOutputList(bool ep, bool sea, bool ser, bool any)
-                            {
-                                if (!any) return matchedLocalItems.ToList();
-                                var list = new List<BaseItem>();
-                                var seriesOnly = matchedLocalItems.Where(i => i.GetType().Name.Contains("Series")).ToList();
-                                var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
-                                if (ser) list.AddRange(matchedLocalItems);
-                                if (sea) { var s = ResolveChildSeasons(seriesOnly); list.AddRange(s); foreach (var x in s) _runAllScannedSeasonItems!.TryAdd(x.Id, x); list.AddRange(movies); }
-                                if (ep) { var e = ResolveChildEpisodes(seriesOnly); list.AddRange(e); foreach (var x in e) _runAllScannedEpisodeItems!.TryAdd(x.Id, x); list.AddRange(movies); }
-                                return list;
-                            }
-
-                            tagOutputItems = BuildNonMiOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
-                            collectionOutputItems = BuildNonMiOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
-                        }
-
-                        // A current-user-only Smart-playlist group cannot produce tags/collections/playlists
-                        // (those are server-wide). Only the per-viewer home section applies.
-                        if (_viewerOnlyGroup)
-                        {
-                            tagOutputItems = new List<BaseItem>();
-                            collectionOutputItems = new List<BaseItem>();
-                            _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
-                            gs.ViewerOnly = true;
-                            if (tagConfig.EnableTag || tagConfig.EnableCollection || tagConfig.EnablePlaylist)
-                            {
-                                gs.Warnings.Add("Current-user filter — tags, collections and playlists cannot be per-user, so only the home section is created. Disable those outputs or add a non-user condition (e.g. Media Type).");
-                                _log.Warn($"  {displayName}: current-user filter — no tag/collection/playlist will be created");
-                            }
-                            else
-                            {
-                                _log.Debug($"  {displayName}: current-user filter — home section only");
-                            }
-                        }
-
-                        var allOutputIds = new HashSet<Guid>(tagOutputItems.Select(i => i.Id));
-                        foreach (var id in collectionOutputItems.Select(i => i.Id)) allOutputIds.Add(id);
-                        gs.MatchCount = allOutputIds.Count;
-                        matchCount += allOutputIds.Count;
-
-                        // Collect rank order so top-list .strm files can be numbered in list order.
-                        // Accumulated across all flat entries of the tag; written once after the loop.
-                        if (!rankIdsByTag.TryGetValue(tagName, out var rankIds))
-                        {
-                            rankIds = new List<string>();
-                            rankIdsByTag[tagName] = rankIds;
-                        }
-                        var rankSeen = new HashSet<string>(rankIds, StringComparer.OrdinalIgnoreCase);
-                        foreach (var rankId in matchedLocalItems.Select(i => i.GetProviderId("Imdb") ?? "").Where(id => !string.IsNullOrEmpty(id)))
-                            if (rankSeen.Add(rankId)) rankIds.Add(rankId);
-
-                        // If this is a priority-override entry but produced zero results,
-                        // remove it from the override sets so other entries for the same tag are not suppressed.
-                        if (tagConfig.OverrideWhenActive && allOutputIds.Count == 0)
-                        {
-                            activeTagOverrides.Remove(tagName);
-                            if (tagConfig.EnableCollection) activeCollectionOverrides.Remove(cName);
-                        }
-
-                        // For External and AI sources: if the remote returned zero items and the user has
-                        // opted to preserve tags on empty results, treat it as a failed fetch.
-                        bool isRemoteSource = string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External" || tagConfig.SourceType == "AI";
-                        if (isRemoteSource && gs.ListCount == 0 && ctx.Config.PreserveTagsOnEmptyResult)
-                        {
-                            gs.Warnings.Add(tagConfig.SourceType == "AI"
-                                ? "The AI returned 0 items — existing tags, collection and playlist were kept. Check the prompt and the API key in Settings."
-                                : "The list returned 0 items — existing tags, collection and playlist were kept. Check the list URL and the API key in Settings.");
-                            _runFailedFetches!.Add(tagName);
-                            if (tagConfig.EnableCollection) _runFailedFetches!.Add(cName);
-                            _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
-                            gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
-                            ctx.StatsList.Add(gs);
-                            WriteFetchLine(gs);
-                            currentProgress += step;
-                            progress.Report(currentProgress);
-                            continue;
-                        }
-                        if (isRemoteSource && gs.ListCount == 0)
-                            gs.Warnings.Add(tagConfig.SourceType == "AI"
-                                ? "The AI returned 0 items — its tags, collection and playlist are being cleared (\"Preserve tags and collections on empty result\" is off in Settings)"
-                                : "The list returned 0 items — its tags, collection and playlist are being cleared (\"Preserve tags and collections on empty result\" is off in Settings). Check the list URL and the API key.");
-
-                        if (tagConfig.EnableTag && !tagConfig.OnlyCollection && !IsBoxSetHomeSectionEntry(tagConfig))
-                        {
-                            foreach (var localItem in tagOutputItems)
-                            {
-                                if (!_runDesiredTagsMap!.ContainsKey(localItem.Id))
-                                    _runDesiredTagsMap[localItem.Id] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                                _runDesiredTagsMap[localItem.Id].Add(tagName);
-
-                                var imdb = localItem.GetProviderId("Imdb");
-                                if (!string.IsNullOrEmpty(imdb) && tagConfig.SourceType != "External")
-                                    TagCacheManager.Instance.AddToCache($"imdb_{imdb}", tagName);
-                            }
-                        }
-
-                        if (tagConfig.EnableCollection)
-                        {
-                            if (!_runDesiredCollectionsMap!.ContainsKey(cName))
-                                _runDesiredCollectionsMap[cName] = new HashSet<long>();
-                            foreach (var localItem in collectionOutputItems)
-                                _runDesiredCollectionsMap[cName].Add(localItem.InternalId);
-                        }
-
-                        // Collect this entry's items for the group's playlist sync (done once per group after
-                        // the loop so all sources of a multi-source group end up in the same playlist).
-                        // Placed here so it inherits the loop's skip/preserve/override guards above.
-                        if (tagConfig.EnablePlaylist)
-                        {
-                            var groupKey = GroupKey(tagConfig);
-                            if (!_runGroupPlaylistItems!.TryGetValue(groupKey, out var plGroup))
-                            {
-                                plGroup = (tagConfig, new List<BaseItem>(), new HashSet<Guid>());
-                                _runGroupPlaylistItems[groupKey] = plGroup;
-                            }
-                            foreach (var localItem in collectionOutputItems)
-                                if (plGroup.Seen.Add(localItem.Id)) plGroup.Items.Add(localItem);
-                        }
-
-                        gs.BoxSetFound = ApplyTagToSourceBoxSet(tagConfig, tagName, ctx.DryRun, cancellationToken);
-                        gs.BoxSetTaggedCount = gs.BoxSetFound ? 1 : 0;
-                        if (gs.BoxSetHse && !gs.BoxSetFound)
-                            gs.Warnings.Add($"Collection '{tagConfig.LocalSourceId}' was not found in the library");
-                        if (gs.MissingItems.Count > 0 && ctx.Debug)
-                        {
-                            _log.Debug($"  Not in library ({gs.MissingItems.Count}):");
-                            foreach (var _missing in gs.MissingItems) _log.Debug("    " + _missing);
-                        }
-                        _log.Debug($"  Group done in {groupTimer.ElapsedMilliseconds} ms");
-                    }
-                    catch (Exception ex)
-                    {
-                        gs.ErrorMessage = ex.Message;
-                        WriteExceptionDebug(ex);
-                        _runFailedFetches!.Add(tagName);
-                        if (tagConfig.EnableCollection) _runFailedFetches!.Add(cName);
-                        _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
-                    }
-
-                    gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
-                    ctx.StatsList.Add(gs);
-                    WriteFetchLine(gs);
-                    currentProgress += step;
-                    progress.Report(currentProgress);
-                }
-                _log.Debug($"Fetch phase done in {RunLog.Elapsed(phaseTimer.Elapsed)}");
-
-                // Playlist sync — once per group, with the union of all its sources.
-                // Skipped for groups where any source failed, so a bad fetch never empties the playlist.
-                await PlaylistsPhase(ctx);
-
-                if (!ctx.DryRun)
-                {
-                    foreach (var kvp in rankIdsByTag)
-                        WriteRankFile(kvp.Key, kvp.Value);
-                    TagCacheManager.Instance.Save();
-                    SaveFileHistory("homescreencompanion_history.txt", _runManagedTags!.ToList());
-                }
-
-                // Collect episodes that currently carry managed tags so they can be cleaned up
-                // even when the corresponding group is inactive or removed
-                foreach (var managedTag in _runManagedTags!)
-                {
-                    var taggedEpisodes = _libraryManager.GetItemList(new InternalItemsQuery
-                    {
-                        IncludeItemTypes = new[] { "Episode" },
-                        Tags = new[] { managedTag },
-                        Recursive = true,
-                        IsVirtualItem = false
-                    });
-                    foreach (var ep in taggedEpisodes)
-                        _runAllScannedEpisodeItems!.TryAdd(ep.Id, ep);
-
-                    // Collect seasons that currently carry managed tags for cleanup
-                    var taggedSeasons = _libraryManager.GetItemList(new InternalItemsQuery
-                    {
-                        IncludeItemTypes = new[] { "Season" },
-                        Tags = new[] { managedTag },
-                        Recursive = true,
-                        IsVirtualItem = false
-                    });
-                    foreach (var s in taggedSeasons)
-                        _runAllScannedSeasonItems!.TryAdd(s.Id, s);
-                }
-
-                _log.Blank();
-                _log.Info("» Applying tags");
-                var (tagsAdded, tagsRemoved, itemsChanged) = await ApplyTagsPhase(ctx);
-
-                _log.Blank();
-                _log.Info("» Collections");
-                var (collCreated, collUpdated, collWouldCreate, collWouldUpdate, collDeleted) = await CollectionsPhase(ctx, cancellationToken);
-
-                tagsRemoved += CleanupBoxSetTags(ctx.Config, ctx.DryRun, cancellationToken);
-
-                HomeSectionsPhase(ctx, cancellationToken);
-
-                TopListsPhase(ctx, cancellationToken);
-
-                progress.Report(100);
-                string elapsedStr = RunLog.Elapsed(DateTime.Now - ctx.StartTime);
-
-                // Merge BoxSet HSE entries with the same DisplayName + TagName into one display block
-                var displayStatsList = new List<GroupRunStats>();
-                var boxSetMergeMap = new Dictionary<string, GroupRunStats>(StringComparer.OrdinalIgnoreCase);
-                foreach (var gs in ctx.StatsList)
-                {
-                    if (gs.BoxSetHse)
-                    {
-                        var key = $"{gs.DisplayName}\x00{gs.TagName}";
-                        if (boxSetMergeMap.TryGetValue(key, out var existing))
-                        {
-                            existing.BoxSetTaggedCount += gs.BoxSetTaggedCount;
-                            existing.Warnings.AddRange(gs.Warnings);
-                            existing.ElapsedMs += gs.ElapsedMs;
-                            if (gs.HomeSectionSynced)
-                            {
-                                existing.HomeSectionSynced = true;
-                                existing.HomeSectionUserCount = Math.Max(existing.HomeSectionUserCount, gs.HomeSectionUserCount);
-                            }
-                            if (gs.HomeSectionRemoved) existing.HomeSectionRemoved = true;
-                        }
-                        else
-                        {
-                            var merged = new GroupRunStats
-                            {
-                                DisplayName = gs.DisplayName,
-                                SourceType = gs.SourceType,
-                                Skipped = gs.Skipped,
-                                SkipReason = gs.SkipReason,
-                                ErrorMessage = gs.ErrorMessage,
-                                EnableTag = gs.EnableTag,
-                                EnableCollection = gs.EnableCollection,
-                                EnableHomeSection = gs.EnableHomeSection,
-                                HomeSectionSynced = gs.HomeSectionSynced,
-                                HomeSectionUserCount = gs.HomeSectionUserCount,
-                                HomeSectionRemoved = gs.HomeSectionRemoved,
-                                BoxSetHse = true,
-                                BoxSetFound = gs.BoxSetFound,
-                                BoxSetTaggedCount = gs.BoxSetTaggedCount,
-                                TagName = gs.TagName,
-                                CollectionName = gs.CollectionName,
-                                SourceLabel = gs.SourceLabel,
-                                EnablePlaylist = gs.EnablePlaylist,
-                                PlaylistName = gs.PlaylistName,
-                                PlaylistUsersTotal = gs.PlaylistUsersTotal,
-                                PlaylistUsersCreated = gs.PlaylistUsersCreated,
-                                PlaylistUsersUpdated = gs.PlaylistUsersUpdated,
-                                PlaylistUsersFailed = gs.PlaylistUsersFailed,
-                                Warnings = new List<string>(gs.Warnings),
-                                MissingItems = new List<string>(gs.MissingItems),
-                                ElapsedMs = gs.ElapsedMs,
-                            };
-                            boxSetMergeMap[key] = merged;
-                            displayStatsList.Add(merged);
-                        }
-                    }
-                    else
-                    {
-                        displayStatsList.Add(gs);
-                    }
-                }
-                int displayTotal = displayStatsList.Count;
-                for (int i = 0; i < displayStatsList.Count; i++)
-                {
-                    displayStatsList[i].GroupIndex = i + 1;
-                    displayStatsList[i].GroupTotal = displayTotal;
-                }
-
-                // Emit per-group blocks
-                WriteResultsBlock(displayStatsList, ctx.DryRun, ctx.LogMissing);
-
-                // Log cleanup of tags from deleted/disabled groups (tags that had removals but
-                // no matching entry in displayStatsList to attribute them to).
-                var displayedTagNames = new HashSet<string>(
-                    displayStatsList.Where(g => g.TagName != null).Select(g => g.TagName!),
-                    StringComparer.OrdinalIgnoreCase);
-                foreach (var kvp in _runTagRemovedByTag!.Where(kvp => kvp.Value > 0 && !displayedTagNames.Contains(kvp.Key)))
-                {
-                    _log.Info("[Cleanup]");
-                    _log.Skip($"Tag \"{kvp.Key}\" {(ctx.DryRun ? "would be removed" : "removed")} from {RunLog.Plural(kvp.Value, "item")} (its group is deleted or disabled)");
-                    _log.Blank();
-                }
-
-                // Final summary
-                int totalCollCreated = ctx.StatsList.Count(g => g.CollectionCreated);
-                int totalCollUpdated = ctx.StatsList.Count(g => !g.CollectionCreated && !g.Skipped && g.EnableCollection && (g.CollectionItemsAdded > 0 || g.CollectionItemsRemoved > 0));
-                int totalHsSynced = ctx.StatsList.Count(g => g.HomeSectionSynced);
-                int totalHsRemoved = ctx.StatsList.Count(g => g.HomeSectionRemoved);
-
-                int totalBoxSetsTagged = displayStatsList
-                    .Where(g => g.BoxSetHse && !g.Skipped && g.ErrorMessage == null)
-                    .Sum(g => g.BoxSetTaggedCount);
-                int summaryTagsAdded = tagsAdded + totalBoxSetsTagged;
-
-                if (aiConfigChanged)
-                    Plugin.Instance.SaveConfiguration();
-
-                int groupsFailed = displayStatsList.Count(g => g.ErrorMessage != null);
-                int groupsSkipped = displayStatsList.Count(g => g.Skipped);
-                int groupsWarned = displayStatsList.Count(g => !g.Skipped && g.ErrorMessage == null && g.Warnings.Count > 0);
-                int groupsOk = displayStatsList.Count - groupsFailed - groupsSkipped - groupsWarned;
-                string finalStatus = BuildFinalStatus(ctx.DryRun, groupsFailed, groupsWarned);
-                LastRunStatus = $"{finalStatus} ({DateTime.Now:HH:mm})";
-
-                _log.Rule();
-                _log.Info("Summary");
-                var _groupParts = new List<string> { $"{groupsOk} OK" };
-                if (groupsWarned > 0) _groupParts.Add($"{groupsWarned} with warnings");
-                if (groupsSkipped > 0) _groupParts.Add($"{groupsSkipped} skipped");
-                if (groupsFailed > 0) _groupParts.Add($"{groupsFailed} failed");
-                _log.Info($"  Groups:        {string.Join(", ", _groupParts)}");
-                _log.Info($"  Tags:          +{summaryTagsAdded} added, -{tagsRemoved} removed");
-                _log.Info(ctx.DryRun
-                    ? $"  Collections:   {collWouldCreate} would be created, {collWouldUpdate} updated"
-                    : $"  Collections:   {totalCollCreated} created, {totalCollUpdated} updated, {collDeleted} removed");
-                if (ctx.StatsList.Any(g => g.EnablePlaylist))
-                    _log.Info($"  Playlists:     {ctx.StatsList.Sum(g => g.PlaylistUsersCreated)} created, {ctx.StatsList.Sum(g => g.PlaylistUsersUpdated)} updated{(ctx.StatsList.Sum(g => g.PlaylistUsersFailed) > 0 ? $", {ctx.StatsList.Sum(g => g.PlaylistUsersFailed)} failed" : "")}");
-                _log.Info($"  Home sections: {totalHsSynced} synced, {totalHsRemoved} removed");
-                _log.Info($"  Done in {elapsedStr}  ·  {StatusSymbol(groupsFailed, groupsWarned)} {finalStatus}");
-                _log.Rule();
+                var overrides = CollectActiveOverrides(ctx);
+
+                var fetchOutcome = await FetchAllSourcesAsync(ctx, overrides.TagOverrides, overrides.CollectionOverrides, cancellationToken, progress);
+                var matchOutcome = await MatchAndTagAllAsync(ctx, cancellationToken);
+                var collOutcome = await ApplyCollectionsAsync(ctx, cancellationToken);
+                await ApplyHomeSectionsAsync(ctx, cancellationToken);
+                await BuildAndWriteTopListsAsync(ctx, cancellationToken);
+
+                await PersistAndSummarizeAsync(ctx, fetchOutcome, matchOutcome, collOutcome, cancellationToken, progress);
             }
             catch (Exception ex)
             {
@@ -1092,6 +284,923 @@ namespace HomeScreenCompanion
                 WriteExceptionDebug(ex);
             }
             finally { _runGate.Exit(); }
+        }
+
+        // Acquires the run gate, clears the in-memory execution log, resets last-run state,
+        // and initialises every per-run accumulator shim. Returns (false, null) when the gate
+        // is already held (a second caller is rejected) or BuildRunContext fails (configuration
+        // missing / library scan error). Releases the gate on failure so it doesn't leak.
+        private async Task<(bool Entered, RunContext? Ctx)> TryEnterAndInitializeRun(CancellationToken cancellationToken)
+        {
+            if (!await _runGate.TryEnterAsync(cancellationToken))
+                return (false, null);
+
+            lock (ExecutionLog) ExecutionLog.Clear();
+            LastStartedUtc = DateTime.UtcNow;
+            LastRunStatus = "Running...";
+
+            if (!BuildRunContext(out var builtCtx))
+            {
+                _runGate.Exit();
+                return (false, null);
+            }
+            var ctx = builtCtx;
+
+            _runDesiredTagsMap = new Dictionary<Guid, HashSet<string>>();
+            _runAllScannedEpisodeItems = new Dictionary<Guid, BaseItem>();
+            _runAllScannedSeasonItems = new Dictionary<Guid, BaseItem>();
+            _runDesiredCollectionsMap = new Dictionary<string, HashSet<long>>(StringComparer.OrdinalIgnoreCase);
+            _runCollectionDescriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _runCollectionPosters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _runManagedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _runActiveCollections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _runFailedFetches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // A group with several sources (URLs / local sources) is stored as one flat TagConfig per
+            // source. Playlists and rank files must be built from the union of all sources in the group,
+            // so they are accumulated here and written once after the loop.
+            _runGroupPlaylistItems = new Dictionary<string, (TagConfig Owner, List<BaseItem> Items, HashSet<Guid> Seen)>(StringComparer.OrdinalIgnoreCase);
+            // Groups where a source failed / returned nothing — their playlists are left untouched
+            _runPlaylistGroupsToSkip = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var previouslyManagedTags = LoadFileHistory("homescreencompanion_history.txt");
+            foreach (var t in previouslyManagedTags) _runManagedTags!.Add(t);
+
+            _runPreviouslyManagedCollections = LoadFileHistory("homescreencompanion_collections.txt");
+            // Also track collection names from inactive groups so they get cleaned up
+            // even if the group was only ever run via single-entry sync (which doesn't update history)
+            foreach (var tc in ctx.Config.Tags)
+            {
+                if (tc.EnableCollection && !string.IsNullOrWhiteSpace(tc.Tag))
+                {
+                    string cn = string.IsNullOrWhiteSpace(tc.CollectionName) ? tc.Tag.Trim() : tc.CollectionName.Trim();
+                    if (!_runPreviouslyManagedCollections!.Contains(cn))
+                        _runPreviouslyManagedCollections!.Add(cn);
+                }
+            }
+
+            TagCacheManager.Instance.Initialize(Plugin.Instance.DataFolderPath, _jsonSerializer);
+            TagCacheManager.Instance.ClearCache();
+
+            return (true, ctx);
+        }
+
+        // Walks ctx.Config.Tags once and returns the priority-override sets that the fetch
+        // loop uses to skip non-override groups shadowed by an active OverrideWhenActive
+        // group with the same tag (or the same collection name).
+        private (HashSet<string> TagOverrides, HashSet<string> CollectionOverrides) CollectActiveOverrides(RunContext ctx)
+        {
+            var tagOverrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var collectionOverrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tc in ctx.Config.Tags)
+            {
+                if (!tc.Active || !tc.OverrideWhenActive || string.IsNullOrWhiteSpace(tc.Tag)) continue;
+                if (!IsScheduleActive(tc.ActiveIntervals)) continue;
+                tagOverrides.Add(tc.Tag.Trim());
+                if (tc.EnableCollection)
+                {
+                    var overrideCName = string.IsNullOrWhiteSpace(tc.CollectionName) ? tc.Tag.Trim() : tc.CollectionName.Trim();
+                    collectionOverrides.Add(overrideCName);
+                }
+            }
+            return (tagOverrides, collectionOverrides);
+        }
+
+        // Fetches every active group's items from its source (External URL / LocalCollection /
+        // LocalPlaylist / MediaInfo / AI), fills the desired-tags / desired-collections / group
+        // playlist maps, and writes the tag_ranks JSON side-files. Then runs PlaylistsPhase
+        // (once per group, with the union of all sources) and finally collects any episodes /
+        // seasons that already carry managed tags so the apply-tags phase can clean them up.
+        private async Task<FetchOutcome> FetchAllSourcesAsync(
+            RunContext ctx,
+            HashSet<string> activeTagOverrides,
+            HashSet<string> activeCollectionOverrides,
+            CancellationToken cancellationToken,
+            IProgress<double> progress)
+        {
+            // Per-run match caches — unified helper shared with RunSingleEntryInternalAsync.
+            // Active-tag pre-filter in the caller matches the previous inline block's
+            // `Where(t.Active && …)` guards so the unioned iteration inside BuildMatchCaches
+            // gates identically on "has MediaInfoFilters/MediaInfoConditions".
+            var matchCaches = BuildMatchCaches(
+                ctx.Config.Tags.Where(t => t.Active).ToList(),
+                ctx.AllItems);
+            var seriesEpisodeCache = matchCaches.SeriesEpisodeCache;
+            var personCache = matchCaches.PersonCache;
+            var collectionMembershipCache = matchCaches.CollectionMembershipCache;
+            var mediaInfoCache = matchCaches.MediaInfoCache;
+            var userDataCache = matchCaches.UserDataCache;
+            var seriesLastPlayedCache = matchCaches.SeriesLastPlayedCache;
+            var preloadedUsers = matchCaches.PreloadedUsers;
+            var seriesEpisodeNamesCache = matchCaches.SeriesEpisodeNamesCache;
+
+            _log.Debug($"Caches ready after {RunLog.Elapsed(ctx.RunTimer.Elapsed)}  ·  media-info {mediaInfoCache.Count:N0} items  ·  user-data {userDataCache.Count:N0} entries for {preloadedUsers?.Length ?? 0} users  ·  person lookups {personCache.Count}  ·  collection/playlist lookups {collectionMembershipCache.Count}");
+            _log.Blank();
+            _log.Info("» Fetching sources");
+            var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
+
+            int activeGroupTotal = ctx.Config.Tags.Count(t => t.Active && !string.IsNullOrWhiteSpace(t.Tag));
+            int activeGroupIdx = 0;
+            bool aiConfigChanged = false;
+            _runTagAddedByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            _runTagRemovedByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            _runCollCreatedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _runCollItemsAdded = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            _runCollItemsRemoved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            var fetcher = new ListFetcher(_httpClient, _jsonSerializer);
+            var rankIdsByTag = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+            double step = 30.0 / (ctx.Config.Tags.Count > 0 ? ctx.Config.Tags.Count : 1);
+            double currentProgress = 0;
+
+            // Process OverrideWhenActive entries first so they can remove themselves from
+            // activeTagOverrides before non-override entries for the same tag are evaluated.
+            var orderedTags = ctx.Config.Tags
+                .Where(t => t.OverrideWhenActive)
+                .Concat(ctx.Config.Tags.Where(t => !t.OverrideWhenActive))
+                .ToList();
+
+            foreach (var tagConfig in orderedTags)
+            {
+                if (string.IsNullOrWhiteSpace(tagConfig.Tag)) continue;
+                string tagName = tagConfig.Tag.Trim();
+                _runManagedTags!.Add(tagName); // track all groups (active or inactive) so cleanup always runs
+
+                if (!tagConfig.Active) continue;
+
+                string displayName = !string.IsNullOrWhiteSpace(tagConfig.Name) ? $"{tagConfig.Name} [{tagName}]" : tagName;
+                string srcLabel = string.IsNullOrEmpty(tagConfig.SourceType) ? "External" : tagConfig.SourceType;
+                var ruleFeatures = new List<string>();
+                if (tagConfig.EnableTag && !tagConfig.OnlyCollection) ruleFeatures.Add("Tag");
+                if (tagConfig.EnableCollection) ruleFeatures.Add("Collection");
+                if (tagConfig.EnableHomeSection) ruleFeatures.Add("HS");
+                string featureStr = ruleFeatures.Count > 0 ? $"  ({string.Join(", ", ruleFeatures)})" : "";
+
+                activeGroupIdx++;
+                var gs = new GroupRunStats
+                {
+                    DisplayName = displayName,
+                    SourceType = srcLabel,
+                    EnableTag = tagConfig.EnableTag && !tagConfig.OnlyCollection,
+                    EnableCollection = tagConfig.EnableCollection,
+                    EnableHomeSection = tagConfig.EnableHomeSection,
+                    BoxSetHse = IsBoxSetHomeSectionEntry(tagConfig),
+                    TagName = tagName,
+                    GroupIndex = activeGroupIdx,
+                    GroupTotal = activeGroupTotal,
+                    SourceLabel = DescribeSource(tagConfig),
+                    EnablePlaylist = tagConfig.EnablePlaylist,
+                    PlaylistName = string.IsNullOrWhiteSpace(tagConfig.PlaylistName) ? tagConfig.Name : tagConfig.PlaylistName,
+                    PlaylistUsersTotal = tagConfig.PlaylistUserIds?.Count ?? 0
+                };
+                // A multi-source group is stored as several flat entries; the playlist is synced once
+                // per group, so only the first entry's stats carry (and display) the playlist result.
+                if (!ctx.StatsByGroupKey.ContainsKey(GroupKey(tagConfig))) ctx.StatsByGroupKey[GroupKey(tagConfig)] = gs;
+                else gs.EnablePlaylist = false;
+
+                if (!IsScheduleActive(tagConfig.ActiveIntervals))
+                {
+                    gs.Skipped = true;
+                    gs.SkipReason = "not in schedule";
+                    ctx.StatsList.Add(gs);
+                    WriteFetchLine(gs);
+                    continue;
+                }
+
+                if (tagConfig.SourceType == "AI" && tagConfig.AiRefreshIntervalDays > 0 &&
+                    tagConfig.AiLastRunDate > DateTime.MinValue &&
+                    (DateTime.UtcNow - tagConfig.AiLastRunDate).TotalDays < tagConfig.AiRefreshIntervalDays)
+                {
+                    var _nextAiRun = tagConfig.AiLastRunDate.AddDays(tagConfig.AiRefreshIntervalDays);
+                    gs.Skipped = true;
+                    gs.SkipReason = $"AI refresh not due until {_nextAiRun:yyyy-MM-dd}";
+                    ctx.StatsList.Add(gs);
+                    WriteFetchLine(gs);
+                    continue;
+                }
+
+                string cName = string.IsNullOrWhiteSpace(tagConfig.CollectionName) ? tagName : tagConfig.CollectionName.Trim();
+                gs.CollectionName = cName;
+
+                if (!tagConfig.OverrideWhenActive &&
+                    (activeTagOverrides.Contains(tagName) ||
+                     (tagConfig.EnableCollection && activeCollectionOverrides.Contains(cName))))
+                {
+                    gs.Skipped = true;
+                    gs.SkipReason = "overridden by a priority group with the same tag";
+                    ctx.StatsList.Add(gs);
+                    WriteFetchLine(gs);
+                    continue;
+                }
+                if (tagConfig.EnableCollection)
+                {
+                    _runActiveCollections!.Add(cName);
+                    if (!string.IsNullOrWhiteSpace(tagConfig.CollectionDescription))
+                        _runCollectionDescriptions![cName] = tagConfig.CollectionDescription;
+                    if (!string.IsNullOrWhiteSpace(tagConfig.CollectionPosterPath) && File.Exists(tagConfig.CollectionPosterPath))
+                        _runCollectionPosters![cName] = tagConfig.CollectionPosterPath;
+                }
+
+                var groupTimer = System.Diagnostics.Stopwatch.StartNew();
+                try
+                {
+                    int effectiveLimit = tagConfig.Limit <= 0 ? 10000 : tagConfig.Limit;
+                    _log.Section($"[{gs.GroupIndex}/{gs.GroupTotal}] {displayName}");
+                    _log.Debug("  " + DescribeSourceDetail(tagConfig, effectiveLimit));
+                    var blacklist = new HashSet<string>(tagConfig.Blacklist ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                    var matchedLocalItems = new List<BaseItem>();
+                    List<BaseItem> tagOutputItems = matchedLocalItems;
+                    List<BaseItem> collectionOutputItems = matchedLocalItems;
+                    int matchCount = 0;
+                    // seriesEpisodeNamesCache was pre-built by BuildMatchCaches (above) if any
+                    // active tag has an EpisodeTitle criterion — reuse it here instead of
+                    // rebuilding per-group.
+
+                    if (string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External")
+                    {
+                        var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
+                        var items = await fetcher.FetchItems(tagConfig.Url, effectiveLimit, ctx.Config.TraktClientId, ctx.Config.MdblistApiKey, ctx.Config.TmdbApiKey, cancellationToken);
+                        fetchTimer.Stop();
+                        gs.ListCount = items.Count;
+                        int _extBlacklisted = 0, _extNoImdb = 0;
+
+                        if (items.Count > 0)
+                        {
+                            if (items.Count > effectiveLimit) items = items.Take(effectiveLimit).ToList();
+
+                            foreach (var extItem in items)
+                            {
+                                if (string.IsNullOrEmpty(extItem.Imdb)) { _extNoImdb++; continue; }
+
+                                if (blacklist.Contains(extItem.Imdb))
+                                {
+                                    _extBlacklisted++;
+                                    _log.Debug($"    Blacklisted: {extItem.Name} ({extItem.Imdb})");
+                                    continue;
+                                }
+
+                                if (tagConfig.EnableTag && !tagConfig.OnlyCollection)
+                                    TagCacheManager.Instance.AddToCache($"imdb_{extItem.Imdb}", tagName);
+
+                                if (ctx.ImdbLookup.TryGetValue(extItem.Imdb, out var localItems))
+                                {
+                                    foreach (var localItem in localItems)
+                                    {
+                                        if (!matchedLocalItems.Contains(localItem)) matchedLocalItems.Add(localItem);
+                                    }
+                                }
+                                else
+                                {
+                                    gs.MissingItems.Add($"{extItem.Name}  {extItem.Imdb}");
+                                }
+                            }
+                        }
+                        _log.Debug($"  Fetched {gs.ListCount} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched by IMDb id  ·  {gs.MissingItems.Count} not in library  ·  {_extBlacklisted} blacklisted  ·  {_extNoImdb} without IMDb id");
+                    }
+                    else if (tagConfig.SourceType == "LocalCollection" || tagConfig.SourceType == "LocalPlaylist")
+                    {
+                        if (!string.IsNullOrEmpty(tagConfig.LocalSourceId))
+                        {
+                            string[] folderTypes = tagConfig.SourceType == "LocalPlaylist"
+                                ? new[] { "Playlist" }
+                                : new[] { "BoxSet" };
+                            var allFolders = _libraryManager.GetItemList(new InternalItemsQuery
+                            {
+                                IncludeItemTypes = folderTypes,
+                                Recursive = true
+                            });
+                            var localSourceFolder = allFolders.FirstOrDefault(i =>
+                                string.Equals(i.Name, tagConfig.LocalSourceId, StringComparison.OrdinalIgnoreCase)
+                            );
+
+                            if (localSourceFolder != null)
+                            {
+                                var children = new List<BaseItem>();
+                                _log.Debug($"  Found source '{localSourceFolder.Name}'  ({localSourceFolder.GetType().Name})");
+
+                                if (tagConfig.SourceType == "LocalCollection")
+                                {
+                                    children = _libraryManager.GetItemList(new InternalItemsQuery
+                                    {
+                                        CollectionIds = new[] { localSourceFolder.InternalId },
+                                        IsVirtualItem = false
+                                    }).ToList();
+                                }
+                                else
+                                {
+                                    children = _libraryManager.GetItemList(new InternalItemsQuery
+                                    {
+                                        ListIds = new[] { localSourceFolder.InternalId }
+                                    }).ToList();
+                                }
+
+                                gs.ListCount = children.Count;
+                                if (children.Count == 0)
+                                    gs.Warnings.Add($"'{tagConfig.LocalSourceId}' is empty (or only contains virtual items)");
+                                else
+                                    _log.Debug($"  Items in source: {children.Count}");
+
+                                foreach (var child in children)
+                                {
+                                    if (child == null) continue;
+
+                                    BaseItem itemToTag = child;
+
+                                    if (itemToTag.GetType().Name.Contains("Episode"))
+                                    {
+                                        try
+                                        {
+                                            var series = (itemToTag as Episode)?.Series ?? (itemToTag as Season)?.Series;
+                                            if (series != null) itemToTag = series;
+                                        }
+                                        catch { }
+                                    }
+
+                                    if (!IsTaggableTopLevelItem(itemToTag))
+                                        continue;
+
+                                    var imdb = itemToTag.GetProviderId("Imdb");
+                                    if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb))
+                                    {
+                                        _log.Debug($"    Blacklisted: {itemToTag.Name} ({imdb})");
+                                        continue;
+                                    }
+
+                                    if (!matchedLocalItems.Contains(itemToTag))
+                                    {
+                                        matchedLocalItems.Add(itemToTag);
+                                    }
+                                }
+                                _log.Debug($"  {matchedLocalItems.Count} usable movies/series in source");
+                            }
+                            else
+                            {
+                                gs.Warnings.Add($"{DescribeSource(tagConfig)} '{tagConfig.LocalSourceId}' was not found in the library");
+                            }
+
+                            if (effectiveLimit < 10000 && matchedLocalItems.Count > effectiveLimit)
+                                matchedLocalItems = matchedLocalItems.Take(effectiveLimit).ToList();
+                        }
+                    }
+                    // Apply MediaInfo post-filter for non-MediaInfo source types
+                    if (tagConfig.SourceType != "MediaInfo" && matchedLocalItems.Count > 0
+                        && (tagConfig.MediaInfoFilters?.Count > 0 || tagConfig.MediaInfoConditions?.Count > 0))
+                    {
+                        var beforeCount = matchedLocalItems.Count;
+                        matchedLocalItems = matchedLocalItems.Where(item =>
+                        {
+                            CachedMediaInfo? ci = mediaInfoCache.TryGetValue(item.InternalId, out var ciVal) ? ciVal : (CachedMediaInfo?)null;
+                            return ItemMatchesMediaInfo(item, tagConfig, ctx.Debug, seriesEpisodeCache, personCache, userDataCache, ci, preloadedUsers, seriesLastPlayedCache, collectionMembershipCache, seriesEpisodeNamesCache);
+                        }).ToList();
+                        _log.Debug($"  Filter conditions: {beforeCount} → {matchedLocalItems.Count} items");
+                    }
+
+                    bool _viewerOnlyGroup = IsViewerOnlyMediaInfoFilter(tagConfig);
+                    if (tagConfig.SourceType == "MediaInfo" && _viewerOnlyGroup)
+                    {
+                        // Nothing to tag/collect — the home section query (IsPlayed / IsResumable)
+                        // resolves the filter for each viewing user. Skip the expensive library scan.
+                        gs.ListCount = 0;
+                        _log.Debug("  Current-user filter — library scan skipped (the home section resolves it per user)");
+                    }
+                    else if (tagConfig.SourceType == "MediaInfo")
+                    {
+                        IList<BaseItem> itemsToScan;
+                        if (TagConfigTargetsEpisodes(tagConfig))
+                        {
+                            var episodeQuery = new InternalItemsQuery
+                            {
+                                IncludeItemTypes = new[] { "Episode" },
+                                Recursive = true,
+                                IsVirtualItem = false
+                            };
+                            var titleContains = ExtractTitleContains(tagConfig);
+                            if (!string.IsNullOrEmpty(titleContains))
+                                episodeQuery.NameContains = titleContains;
+                            itemsToScan = _libraryManager.GetItemList(episodeQuery).ToList();
+                        }
+                        else
+                        {
+                            itemsToScan = ctx.AllItems;
+                        }
+
+                        foreach (var item in itemsToScan)
+                        {
+                            if (item.LocationType != LocationType.FileSystem) continue;
+
+                            var imdb = item.GetProviderId("Imdb");
+                            if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb)) continue;
+
+                            CachedMediaInfo? ci = mediaInfoCache.TryGetValue(item.InternalId, out var ciVal) ? ciVal : (CachedMediaInfo?)null;
+                            if (ItemMatchesMediaInfo(item, tagConfig, ctx.Debug, seriesEpisodeCache, personCache, userDataCache, ci, preloadedUsers, seriesLastPlayedCache, collectionMembershipCache, seriesEpisodeNamesCache))
+                            {
+                                matchedLocalItems.Add(item);
+                                if (effectiveLimit < 10000 && matchedLocalItems.Count >= effectiveLimit) break;
+                            }
+                        }
+                        gs.ListCount = itemsToScan.Count;
+                        if (TagConfigTargetsEpisodes(tagConfig))
+                        {
+                            foreach (var ep in itemsToScan)
+                                _runAllScannedEpisodeItems!.TryAdd(ep.Id, ep);
+                        }
+                        // Redirect matched items to the selected output level (tag and collection independently)
+                        tagOutputItems = matchedLocalItems;
+                        collectionOutputItems = matchedLocalItems;
+                        {
+                            bool scannedEpisodes = TagConfigTargetsEpisodes(tagConfig);
+                            var (tEp, tSea, tSer) = EffectiveTagTargets(tagConfig);
+                            var (cEp, cSea, cSer) = EffectiveCollectionTargets(tagConfig);
+
+                            List<BaseItem> BuildOutputList(bool ep, bool sea, bool ser, bool anyNew)
+                            {
+                                if (!anyNew) return scannedEpisodes ? ResolveParentSeries(matchedLocalItems) : matchedLocalItems.ToList();
+                                var list = new List<BaseItem>();
+                                var seriesOnly = matchedLocalItems.Where(i => i.GetType().Name.Contains("Series")).ToList();
+                                if (scannedEpisodes)
+                                {
+                                    // Collapse up: episodes → season/series
+                                    if (ep) list.AddRange(matchedLocalItems);
+                                    if (sea) { var s = ResolveParentSeasons(matchedLocalItems); _log.Debug($"  Output level: {matchedLocalItems.Count} episodes → {s.Count} seasons"); list.AddRange(s); foreach (var x in s) _runAllScannedSeasonItems!.TryAdd(x.Id, x); }
+                                    if (ser) { var s = ResolveParentSeries(matchedLocalItems); _log.Debug($"  Output level: {matchedLocalItems.Count} episodes → {s.Count} series"); list.AddRange(s); }
+                                }
+                                else
+                                {
+                                    // Expand down: series → seasons/episodes; movies stay as-is for any target
+                                    var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
+                                    if (ser) list.AddRange(matchedLocalItems);
+                                    if (sea) { var s = ResolveChildSeasons(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {s.Count} seasons"); list.AddRange(s); foreach (var x in s) _runAllScannedSeasonItems!.TryAdd(x.Id, x); list.AddRange(movies); }
+                                    if (ep) { var e = ResolveChildEpisodes(seriesOnly); _log.Debug($"  Output level: {seriesOnly.Count} series → {e.Count} episodes"); list.AddRange(e); foreach (var x in e) _runAllScannedEpisodeItems!.TryAdd(x.Id, x); list.AddRange(movies); }
+                                }
+                                return list;
+                            }
+
+                            tagOutputItems = BuildOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
+                            collectionOutputItems = BuildOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
+                        }
+                        if (ctx.Debug)
+                        {
+                            _log.Debug($"  Scanned {itemsToScan.Count:N0} items in {groupTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched  (tag output {tagOutputItems.Count}, collection output {collectionOutputItems.Count})");
+                            WriteMatchedItemsDebug(matchedLocalItems);
+                        }
+                    }
+                    else if (tagConfig.SourceType == "AI")
+                    {
+                        var recentlyWatchedContext = BuildRecentlyWatchedContext(tagConfig);
+                        var fetchTimer = System.Diagnostics.Stopwatch.StartNew();
+                        var aiItems = await fetcher.FetchAiList(
+                            tagConfig.AiProvider,
+                            tagConfig.AiPrompt,
+                            ctx.Config.OpenAiApiKey,
+                            ctx.Config.OpenAiModel,
+                            ctx.Config.GeminiApiKey,
+                            ctx.Config.GeminiModel,
+                            ctx.Config.ClaudeApiKey,
+                            ctx.Config.ClaudeModel,
+                            ctx.Config.OllamaBaseUrl,
+                            ctx.Config.OllamaModel,
+                            ctx.Config.AiSystemPrompt,
+                            recentlyWatchedContext,
+                            effectiveLimit,
+                            cancellationToken);
+                        fetchTimer.Stop();
+
+                        gs.ListCount = aiItems.Count;
+                        int _aiTitleMatched = 0, _aiBlacklisted = 0;
+
+                        foreach (var aiItem in aiItems)
+                        {
+                            if (string.IsNullOrWhiteSpace(aiItem.title)) continue;
+                            string _aiLabel = aiItem.year.HasValue ? $"{aiItem.title} ({aiItem.year})" : aiItem.title;
+
+                            if (!string.IsNullOrEmpty(aiItem.imdb_id))
+                            {
+                                var imdbId = aiItem.imdb_id.Trim();
+                                if (blacklist.Contains(imdbId))
+                                {
+                                    _aiBlacklisted++;
+                                    _log.Debug($"    Blacklisted: {_aiLabel} ({imdbId})");
+                                    continue;
+                                }
+
+                                if (tagConfig.EnableTag && !tagConfig.OnlyCollection)
+                                    TagCacheManager.Instance.AddToCache($"imdb_{imdbId}", tagName);
+
+                                if (ctx.ImdbLookup.TryGetValue(imdbId, out var localItems))
+                                {
+                                    foreach (var localItem in localItems)
+                                    {
+                                        if (!matchedLocalItems.Contains(localItem))
+                                            matchedLocalItems.Add(localItem);
+                                    }
+                                }
+                                else
+                                {
+                                    // IMDB ID not found in library — fall back to title+year match
+                                    var titleMatches = FindByTitleAndYear(ctx.AllItems, aiItem.title, aiItem.year);
+                                    if (titleMatches.Count > 0) { _aiTitleMatched++; _log.Debug($"    {imdbId} not in library — matched '{_aiLabel}' by title"); }
+                                    else gs.MissingItems.Add($"{_aiLabel}  {imdbId}");
+                                    foreach (var localItem in titleMatches)
+                                    {
+                                        var imdb = localItem.GetProviderId("Imdb");
+                                        if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb)) continue;
+                                        if (!matchedLocalItems.Contains(localItem))
+                                            matchedLocalItems.Add(localItem);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // Fallback: title+year match when AI didn't return an IMDB ID
+                                var titleMatches = FindByTitleAndYear(ctx.AllItems, aiItem.title, aiItem.year);
+                                if (titleMatches.Count > 0) _aiTitleMatched++;
+                                else gs.MissingItems.Add($"{_aiLabel}  (no IMDb id from AI)");
+                                foreach (var localItem in titleMatches)
+                                {
+                                    var imdb = localItem.GetProviderId("Imdb");
+                                    if (!string.IsNullOrEmpty(imdb) && blacklist.Contains(imdb))
+                                    {
+                                        _aiBlacklisted++;
+                                        _log.Debug($"    Blacklisted: {localItem.Name} ({imdb})");
+                                        continue;
+                                    }
+                                    if (!matchedLocalItems.Contains(localItem))
+                                        matchedLocalItems.Add(localItem);
+                                }
+                            }
+                        }
+
+                        _log.Debug($"  AI ({tagConfig.AiProvider}) returned {gs.ListCount} items in {fetchTimer.ElapsedMilliseconds} ms  ·  {matchedLocalItems.Count} matched ({_aiTitleMatched} by title only)  ·  {gs.MissingItems.Count} not in library  ·  {_aiBlacklisted} blacklisted");
+                        if (tagConfig.AiRefreshIntervalDays > 0)
+                        {
+                            tagConfig.AiLastRunDate = DateTime.UtcNow;
+                            aiConfigChanged = true;
+                        }
+                    }
+                    // For non-MediaInfo sources, apply output level selection (expand down from Series/Movie)
+                    if (tagConfig.SourceType != "MediaInfo")
+                    {
+                        var (tEp, tSea, tSer) = EffectiveTagTargets(tagConfig);
+                        var (cEp, cSea, cSer) = EffectiveCollectionTargets(tagConfig);
+
+                        List<BaseItem> BuildNonMiOutputList(bool ep, bool sea, bool ser, bool any)
+                        {
+                            if (!any) return matchedLocalItems.ToList();
+                            var list = new List<BaseItem>();
+                            var seriesOnly = matchedLocalItems.Where(i => i.GetType().Name.Contains("Series")).ToList();
+                            var movies = matchedLocalItems.Where(i => !i.GetType().Name.Contains("Series")).ToList();
+                            if (ser) list.AddRange(matchedLocalItems);
+                            if (sea) { var s = ResolveChildSeasons(seriesOnly); list.AddRange(s); foreach (var x in s) _runAllScannedSeasonItems!.TryAdd(x.Id, x); list.AddRange(movies); }
+                            if (ep) { var e = ResolveChildEpisodes(seriesOnly); list.AddRange(e); foreach (var x in e) _runAllScannedEpisodeItems!.TryAdd(x.Id, x); list.AddRange(movies); }
+                            return list;
+                        }
+
+                        tagOutputItems = BuildNonMiOutputList(tEp, tSea, tSer, tEp || tSea || tSer);
+                        collectionOutputItems = BuildNonMiOutputList(cEp, cSea, cSer, cEp || cSea || cSer);
+                    }
+
+                    // A current-user-only Smart-playlist group cannot produce tags/collections/playlists
+                    // (those are server-wide). Only the per-viewer home section applies.
+                    if (_viewerOnlyGroup)
+                    {
+                        tagOutputItems = new List<BaseItem>();
+                        collectionOutputItems = new List<BaseItem>();
+                        _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
+                        gs.ViewerOnly = true;
+                        if (tagConfig.EnableTag || tagConfig.EnableCollection || tagConfig.EnablePlaylist)
+                        {
+                            gs.Warnings.Add("Current-user filter — tags, collections and playlists cannot be per-user, so only the home section is created. Disable those outputs or add a non-user condition (e.g. Media Type).");
+                            _log.Warn($"  {displayName}: current-user filter — no tag/collection/playlist will be created");
+                        }
+                        else
+                        {
+                            _log.Debug($"  {displayName}: current-user filter — home section only");
+                        }
+                    }
+
+                    var allOutputIds = new HashSet<Guid>(tagOutputItems.Select(i => i.Id));
+                    foreach (var id in collectionOutputItems.Select(i => i.Id)) allOutputIds.Add(id);
+                    gs.MatchCount = allOutputIds.Count;
+                    matchCount += allOutputIds.Count;
+
+                    // Collect rank order so top-list .strm files can be numbered in list order.
+                    // Accumulated across all flat entries of the tag; written once after the loop.
+                    if (!rankIdsByTag.TryGetValue(tagName, out var rankIds))
+                    {
+                        rankIds = new List<string>();
+                        rankIdsByTag[tagName] = rankIds;
+                    }
+                    var rankSeen = new HashSet<string>(rankIds, StringComparer.OrdinalIgnoreCase);
+                    foreach (var rankId in matchedLocalItems.Select(i => i.GetProviderId("Imdb") ?? "").Where(id => !string.IsNullOrEmpty(id)))
+                        if (rankSeen.Add(rankId)) rankIds.Add(rankId);
+
+                    // If this is a priority-override entry but produced zero results,
+                    // remove it from the override sets so other entries for the same tag are not suppressed.
+                    if (tagConfig.OverrideWhenActive && allOutputIds.Count == 0)
+                    {
+                        activeTagOverrides.Remove(tagName);
+                        if (tagConfig.EnableCollection) activeCollectionOverrides.Remove(cName);
+                    }
+
+                    // For External and AI sources: if the remote returned zero items and the user has
+                    // opted to preserve tags on empty results, treat it as a failed fetch.
+                    bool isRemoteSource = string.IsNullOrEmpty(tagConfig.SourceType) || tagConfig.SourceType == "External" || tagConfig.SourceType == "AI";
+                    if (isRemoteSource && gs.ListCount == 0 && ctx.Config.PreserveTagsOnEmptyResult)
+                    {
+                        gs.Warnings.Add(tagConfig.SourceType == "AI"
+                            ? "The AI returned 0 items — existing tags, collection and playlist were kept. Check the prompt and the API key in Settings."
+                            : "The list returned 0 items — existing tags, collection and playlist were kept. Check the list URL and the API key in Settings.");
+                        _runFailedFetches!.Add(tagName);
+                        if (tagConfig.EnableCollection) _runFailedFetches!.Add(cName);
+                        _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
+                        gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
+                        ctx.StatsList.Add(gs);
+                        WriteFetchLine(gs);
+                        currentProgress += step;
+                        progress.Report(currentProgress);
+                        continue;
+                    }
+                    if (isRemoteSource && gs.ListCount == 0)
+                        gs.Warnings.Add(tagConfig.SourceType == "AI"
+                            ? "The AI returned 0 items — its tags, collection and playlist are being cleared (\"Preserve tags and collections on empty result\" is off in Settings)"
+                            : "The list returned 0 items — its tags, collection and playlist are being cleared (\"Preserve tags and collections on empty result\" is off in Settings). Check the list URL and the API key.");
+
+                    if (tagConfig.EnableTag && !tagConfig.OnlyCollection && !IsBoxSetHomeSectionEntry(tagConfig))
+                    {
+                        foreach (var localItem in tagOutputItems)
+                        {
+                            if (!_runDesiredTagsMap!.ContainsKey(localItem.Id))
+                                _runDesiredTagsMap[localItem.Id] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            _runDesiredTagsMap[localItem.Id].Add(tagName);
+
+                            var imdb = localItem.GetProviderId("Imdb");
+                            if (!string.IsNullOrEmpty(imdb) && tagConfig.SourceType != "External")
+                                TagCacheManager.Instance.AddToCache($"imdb_{imdb}", tagName);
+                        }
+                    }
+
+                    if (tagConfig.EnableCollection)
+                    {
+                        if (!_runDesiredCollectionsMap!.ContainsKey(cName))
+                            _runDesiredCollectionsMap[cName] = new HashSet<long>();
+                        foreach (var localItem in collectionOutputItems)
+                            _runDesiredCollectionsMap[cName].Add(localItem.InternalId);
+                    }
+
+                    // Collect this entry's items for the group's playlist sync (done once per group after
+                    // the loop so all sources of a multi-source group end up in the same playlist).
+                    // Placed here so it inherits the loop's skip/preserve/override guards above.
+                    if (tagConfig.EnablePlaylist)
+                    {
+                        var groupKey = GroupKey(tagConfig);
+                        if (!_runGroupPlaylistItems!.TryGetValue(groupKey, out var plGroup))
+                        {
+                            plGroup = (tagConfig, new List<BaseItem>(), new HashSet<Guid>());
+                            _runGroupPlaylistItems[groupKey] = plGroup;
+                        }
+                        foreach (var localItem in collectionOutputItems)
+                            if (plGroup.Seen.Add(localItem.Id)) plGroup.Items.Add(localItem);
+                    }
+
+                    gs.BoxSetFound = ApplyTagToSourceBoxSet(tagConfig, tagName, ctx.DryRun, cancellationToken);
+                    gs.BoxSetTaggedCount = gs.BoxSetFound ? 1 : 0;
+                    if (gs.BoxSetHse && !gs.BoxSetFound)
+                        gs.Warnings.Add($"Collection '{tagConfig.LocalSourceId}' was not found in the library");
+                    if (gs.MissingItems.Count > 0 && ctx.Debug)
+                    {
+                        _log.Debug($"  Not in library ({gs.MissingItems.Count}):");
+                        foreach (var _missing in gs.MissingItems) _log.Debug("    " + _missing);
+                    }
+                    _log.Debug($"  Group done in {groupTimer.ElapsedMilliseconds} ms");
+                }
+                catch (Exception ex)
+                {
+                    gs.ErrorMessage = ex.Message;
+                    WriteExceptionDebug(ex);
+                    _runFailedFetches!.Add(tagName);
+                    if (tagConfig.EnableCollection) _runFailedFetches!.Add(cName);
+                    _runPlaylistGroupsToSkip!.Add(GroupKey(tagConfig));
+                }
+
+                gs.ElapsedMs = groupTimer.ElapsedMilliseconds;
+                ctx.StatsList.Add(gs);
+                WriteFetchLine(gs);
+                currentProgress += step;
+                progress.Report(currentProgress);
+            }
+            _log.Debug($"Fetch phase done in {RunLog.Elapsed(phaseTimer.Elapsed)}");
+
+            // Playlist sync — once per group, with the union of all its sources.
+            // Skipped for groups where any source failed, so a bad fetch never empties the playlist.
+            await PlaylistsPhase(ctx);
+
+            if (!ctx.DryRun)
+            {
+                foreach (var kvp in rankIdsByTag)
+                    WriteRankFile(kvp.Key, kvp.Value);
+                TagCacheManager.Instance.Save();
+                SaveFileHistory("homescreencompanion_history.txt", _runManagedTags!.ToList());
+            }
+
+            // Collect episodes that currently carry managed tags so they can be cleaned up
+            // even when the corresponding group is inactive or removed
+            foreach (var managedTag in _runManagedTags!)
+            {
+                var taggedEpisodes = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IncludeItemTypes = new[] { "Episode" },
+                    Tags = new[] { managedTag },
+                    Recursive = true,
+                    IsVirtualItem = false
+                });
+                foreach (var ep in taggedEpisodes)
+                    _runAllScannedEpisodeItems!.TryAdd(ep.Id, ep);
+
+                // Collect seasons that currently carry managed tags for cleanup
+                var taggedSeasons = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    IncludeItemTypes = new[] { "Season" },
+                    Tags = new[] { managedTag },
+                    Recursive = true,
+                    IsVirtualItem = false
+                });
+                foreach (var s in taggedSeasons)
+                    _runAllScannedSeasonItems!.TryAdd(s.Id, s);
+            }
+
+            return new FetchOutcome { AiConfigChanged = aiConfigChanged };
+        }
+
+        private async Task<MatchOutcome> MatchAndTagAllAsync(RunContext ctx, CancellationToken cancellationToken)
+        {
+            _log.Blank();
+            _log.Info("» Applying tags");
+            var (tagsAdded, tagsRemoved, itemsChanged) = await ApplyTagsPhase(ctx);
+            return new MatchOutcome { TagsAdded = tagsAdded, TagsRemoved = tagsRemoved };
+        }
+
+        private async Task<CollOutcome> ApplyCollectionsAsync(RunContext ctx, CancellationToken cancellationToken)
+        {
+            _log.Blank();
+            _log.Info("» Collections");
+            var (collCreated, collUpdated, collWouldCreate, collWouldUpdate, collDeleted) = await CollectionsPhase(ctx, cancellationToken);
+            int cleanupBoxSetTagsRemoved = CleanupBoxSetTags(ctx.Config, ctx.DryRun, cancellationToken);
+            return new CollOutcome
+            {
+                CollCreated = collCreated,
+                CollUpdated = collUpdated,
+                CollWouldCreate = collWouldCreate,
+                CollWouldUpdate = collWouldUpdate,
+                CollDeleted = collDeleted,
+                CleanupBoxSetTagsRemoved = cleanupBoxSetTagsRemoved
+            };
+        }
+
+        private async Task ApplyHomeSectionsAsync(RunContext ctx, CancellationToken cancellationToken)
+        {
+            HomeSectionsPhase(ctx, cancellationToken);
+            await Task.CompletedTask;
+        }
+
+        private async Task BuildAndWriteTopListsAsync(RunContext ctx, CancellationToken cancellationToken)
+        {
+            TopListsPhase(ctx, cancellationToken);
+            await Task.CompletedTask;
+        }
+
+        private async Task PersistAndSummarizeAsync(
+            RunContext ctx,
+            FetchOutcome fetch,
+            MatchOutcome match,
+            CollOutcome coll,
+            CancellationToken cancellationToken,
+            IProgress<double> progress)
+        {
+            progress.Report(100);
+            string elapsedStr = RunLog.Elapsed(DateTime.Now - ctx.StartTime);
+
+            // Merge BoxSet HSE entries with the same DisplayName + TagName into one display block
+            var displayStatsList = new List<GroupRunStats>();
+            var boxSetMergeMap = new Dictionary<string, GroupRunStats>(StringComparer.OrdinalIgnoreCase);
+            foreach (var gs in ctx.StatsList)
+            {
+                if (gs.BoxSetHse)
+                {
+                    var key = $"{gs.DisplayName}\x00{gs.TagName}";
+                    if (boxSetMergeMap.TryGetValue(key, out var existing))
+                    {
+                        existing.BoxSetTaggedCount += gs.BoxSetTaggedCount;
+                        existing.Warnings.AddRange(gs.Warnings);
+                        existing.ElapsedMs += gs.ElapsedMs;
+                        if (gs.HomeSectionSynced)
+                        {
+                            existing.HomeSectionSynced = true;
+                            existing.HomeSectionUserCount = Math.Max(existing.HomeSectionUserCount, gs.HomeSectionUserCount);
+                        }
+                        if (gs.HomeSectionRemoved) existing.HomeSectionRemoved = true;
+                    }
+                    else
+                    {
+                        var merged = new GroupRunStats
+                        {
+                            DisplayName = gs.DisplayName,
+                            SourceType = gs.SourceType,
+                            Skipped = gs.Skipped,
+                            SkipReason = gs.SkipReason,
+                            ErrorMessage = gs.ErrorMessage,
+                            EnableTag = gs.EnableTag,
+                            EnableCollection = gs.EnableCollection,
+                            EnableHomeSection = gs.EnableHomeSection,
+                            HomeSectionSynced = gs.HomeSectionSynced,
+                            HomeSectionUserCount = gs.HomeSectionUserCount,
+                            HomeSectionRemoved = gs.HomeSectionRemoved,
+                            BoxSetHse = true,
+                            BoxSetFound = gs.BoxSetFound,
+                            BoxSetTaggedCount = gs.BoxSetTaggedCount,
+                            TagName = gs.TagName,
+                            CollectionName = gs.CollectionName,
+                            SourceLabel = gs.SourceLabel,
+                            EnablePlaylist = gs.EnablePlaylist,
+                            PlaylistName = gs.PlaylistName,
+                            PlaylistUsersTotal = gs.PlaylistUsersTotal,
+                            PlaylistUsersCreated = gs.PlaylistUsersCreated,
+                            PlaylistUsersUpdated = gs.PlaylistUsersUpdated,
+                            PlaylistUsersFailed = gs.PlaylistUsersFailed,
+                            Warnings = new List<string>(gs.Warnings),
+                            MissingItems = new List<string>(gs.MissingItems),
+                            ElapsedMs = gs.ElapsedMs,
+                        };
+                        boxSetMergeMap[key] = merged;
+                        displayStatsList.Add(merged);
+                    }
+                }
+                else
+                {
+                    displayStatsList.Add(gs);
+                }
+            }
+            int displayTotal = displayStatsList.Count;
+            for (int i = 0; i < displayStatsList.Count; i++)
+            {
+                displayStatsList[i].GroupIndex = i + 1;
+                displayStatsList[i].GroupTotal = displayTotal;
+            }
+
+            // Emit per-group blocks
+            WriteResultsBlock(displayStatsList, ctx.DryRun, ctx.LogMissing);
+
+            // Log cleanup of tags from deleted/disabled groups (tags that had removals but
+            // no matching entry in displayStatsList to attribute them to).
+            var displayedTagNames = new HashSet<string>(
+                displayStatsList.Where(g => g.TagName != null).Select(g => g.TagName!),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in _runTagRemovedByTag!.Where(kvp => kvp.Value > 0 && !displayedTagNames.Contains(kvp.Key)))
+            {
+                _log.Info("[Cleanup]");
+                _log.Skip($"Tag \"{kvp.Key}\" {(ctx.DryRun ? "would be removed" : "removed")} from {RunLog.Plural(kvp.Value, "item")} (its group is deleted or disabled)");
+                _log.Blank();
+            }
+
+            // Final summary
+            int totalCollCreated = ctx.StatsList.Count(g => g.CollectionCreated);
+            int totalCollUpdated = ctx.StatsList.Count(g => !g.CollectionCreated && !g.Skipped && g.EnableCollection && (g.CollectionItemsAdded > 0 || g.CollectionItemsRemoved > 0));
+            int totalHsSynced = ctx.StatsList.Count(g => g.HomeSectionSynced);
+            int totalHsRemoved = ctx.StatsList.Count(g => g.HomeSectionRemoved);
+
+            int totalBoxSetsTagged = displayStatsList
+                .Where(g => g.BoxSetHse && !g.Skipped && g.ErrorMessage == null)
+                .Sum(g => g.BoxSetTaggedCount);
+            int summaryTagsAdded = match.TagsAdded + totalBoxSetsTagged;
+            int tagsRemoved = match.TagsRemoved + coll.CleanupBoxSetTagsRemoved;
+
+            if (fetch.AiConfigChanged)
+                Plugin.Instance.SaveConfiguration();
+
+            int groupsFailed = displayStatsList.Count(g => g.ErrorMessage != null);
+            int groupsSkipped = displayStatsList.Count(g => g.Skipped);
+            int groupsWarned = displayStatsList.Count(g => !g.Skipped && g.ErrorMessage == null && g.Warnings.Count > 0);
+            int groupsOk = displayStatsList.Count - groupsFailed - groupsSkipped - groupsWarned;
+            string finalStatus = BuildFinalStatus(ctx.DryRun, groupsFailed, groupsWarned);
+            LastRunStatus = $"{finalStatus} ({DateTime.Now:HH:mm})";
+
+            _log.Rule();
+            _log.Info("Summary");
+            var _groupParts = new List<string> { $"{groupsOk} OK" };
+            if (groupsWarned > 0) _groupParts.Add($"{groupsWarned} with warnings");
+            if (groupsSkipped > 0) _groupParts.Add($"{groupsSkipped} skipped");
+            if (groupsFailed > 0) _groupParts.Add($"{groupsFailed} failed");
+            _log.Info($"  Groups:        {string.Join(", ", _groupParts)}");
+            _log.Info($"  Tags:          +{summaryTagsAdded} added, -{tagsRemoved} removed");
+            _log.Info(ctx.DryRun
+                ? $"  Collections:   {coll.CollWouldCreate} would be created, {coll.CollWouldUpdate} updated"
+                : $"  Collections:   {totalCollCreated} created, {totalCollUpdated} updated, {coll.CollDeleted} removed");
+            if (ctx.StatsList.Any(g => g.EnablePlaylist))
+                _log.Info($"  Playlists:     {ctx.StatsList.Sum(g => g.PlaylistUsersCreated)} created, {ctx.StatsList.Sum(g => g.PlaylistUsersUpdated)} updated{(ctx.StatsList.Sum(g => g.PlaylistUsersFailed) > 0 ? $", {ctx.StatsList.Sum(g => g.PlaylistUsersFailed)} failed" : "")}");
+            _log.Info($"  Home sections: {totalHsSynced} synced, {totalHsRemoved} removed");
+            _log.Info($"  Done in {elapsedStr}  ·  {StatusSymbol(groupsFailed, groupsWarned)} {finalStatus}");
+            _log.Rule();
+
+            await Task.CompletedTask;
         }
 
         public async Task<(bool Success, string Message)> RunSingleEntryAsync(string entryName, CancellationToken cancellationToken)
