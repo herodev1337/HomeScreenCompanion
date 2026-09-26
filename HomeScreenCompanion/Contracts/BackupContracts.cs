@@ -1,12 +1,11 @@
 using System.Collections.Generic;
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 
 namespace HomeScreenCompanion
 {
-    /// <summary>
-    /// Request to export a backup of plugin configuration. Each section is opt-in.
-    /// </summary>
     [Route("/HomeScreenCompanion/Backup/Export", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class ExportBackupRequest : IReturn<BackupFile>
     {
         public bool Settings { get; set; } = true;
@@ -17,9 +16,6 @@ namespace HomeScreenCompanion
         public bool HomeSync { get; set; } = true;
     }
 
-    /// <summary>
-    /// Top-level backup file payload returned by <see cref="ExportBackupRequest"/>.
-    /// </summary>
     public class BackupFile
     {
         public int BackupVersion { get; set; }
@@ -34,9 +30,6 @@ namespace HomeScreenCompanion
         public BackupHomeSync? HomeSync { get; set; }
     }
 
-    /// <summary>
-    /// Plugin settings block embedded in <see cref="BackupFile"/>.
-    /// </summary>
     public class BackupSettings
     {
         public string OpenAiModel { get; set; } = "";
@@ -51,9 +44,6 @@ namespace HomeScreenCompanion
         public bool PreserveTagsOnEmptyResult { get; set; } = true;
     }
 
-    /// <summary>
-    /// External API keys block embedded in <see cref="BackupFile"/>.
-    /// </summary>
     public class BackupApiKeys
     {
         public string TraktClientId { get; set; } = "";
@@ -64,9 +54,6 @@ namespace HomeScreenCompanion
         public string ClaudeApiKey { get; set; } = "";
     }
 
-    /// <summary>
-    /// Home-screen sync settings block embedded in <see cref="BackupFile"/>.
-    /// </summary>
     public class BackupHomeSync
     {
         public bool HomeSyncEnabled { get; set; }
@@ -75,9 +62,6 @@ namespace HomeScreenCompanion
         public bool HomeSyncLibraryOrder { get; set; }
     }
 
-    /// <summary>
-    /// One top-list entry inside <see cref="BackupFile.TopLists"/>.
-    /// </summary>
     public class BackupTopList
     {
         public TopListHomeSection Config { get; set; } = new TopListHomeSection();
@@ -86,9 +70,6 @@ namespace HomeScreenCompanion
         public List<BackupTopListItem> Items { get; set; } = new List<BackupTopListItem>();
     }
 
-    /// <summary>
-    /// Single movie entry inside <see cref="BackupTopList.Items"/>.
-    /// </summary>
     public class BackupTopListItem
     {
         public string ImdbId { get; set; } = "";
@@ -97,10 +78,8 @@ namespace HomeScreenCompanion
         public int? Year { get; set; }
     }
 
-    /// <summary>
-    /// Request to import a backup that was previously produced by <see cref="ExportBackupRequest"/>.
-    /// </summary>
     [Route("/HomeScreenCompanion/Backup/Import", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class ImportBackupRequest : IReturn<ImportBackupResponse>
     {
         public string BackupJson { get; set; } = "";
@@ -112,9 +91,6 @@ namespace HomeScreenCompanion
         public bool HomeSync { get; set; } = true;
     }
 
-    /// <summary>
-    /// Response for <see cref="ImportBackupRequest"/>.
-    /// </summary>
     public class ImportBackupResponse
     {
         public bool Success { get; set; }

@@ -1,9 +1,0 @@
-{
-  "empty_array": false,
-  "null_array": false,
-  "exact_match": true,
-  "case_insensitive": true,
-  "no_match": false,
-  "substring_match": true,
-  "empty_search": true
-}

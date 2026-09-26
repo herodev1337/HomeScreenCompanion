@@ -1,17 +1,13 @@
 using System.Collections.Generic;
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 
 namespace HomeScreenCompanion
 {
-    /// <summary>
-    /// Request to fetch the TopList sync task status snapshot.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/Status", "GET")]
+    [Authenticated]
     public class GetTopListStatusRequest : IReturn<TopListStatusResponse> { }
 
-    /// <summary>
-    /// Response for <see cref="GetTopListStatusRequest"/>.
-    /// </summary>
     public class TopListStatusResponse
     {
         public bool IsRunning { get; set; }
@@ -20,10 +16,8 @@ namespace HomeScreenCompanion
         public string StartedUtc { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to prepare (create / refresh) a top-list folder for the given tag.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/PrepareFolder", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class PrepareTopListFolderRequest : IReturn<PrepareTopListFolderResponse>
     {
         public string TagName { get; set; } = "";
@@ -31,9 +25,6 @@ namespace HomeScreenCompanion
         public string BadgeStyle { get; set; } = "neutral";
     }
 
-    /// <summary>
-    /// Response for <see cref="PrepareTopListFolderRequest"/>.
-    /// </summary>
     public class PrepareTopListFolderResponse
     {
         public bool Success { get; set; }
@@ -42,33 +33,23 @@ namespace HomeScreenCompanion
         public int FilesCreated { get; set; }
     }
 
-    /// <summary>
-    /// Request to enumerate existing top-list folders and their movie counts.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/List", "GET")]
+    [Authenticated]
     public class GetTopListsRequest : IReturn<GetTopListsResponse> { }
 
-    /// <summary>
-    /// Response for <see cref="GetTopListsRequest"/>.
-    /// </summary>
     public class GetTopListsResponse
     {
         public List<string> FolderNames { get; set; } = new List<string>();
         public Dictionary<string, int> MovieCounts { get; set; } = new Dictionary<string, int>();
     }
 
-    /// <summary>
-    /// Request to fetch the manual movie list backing a manual top-list folder.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/ManualItems", "GET")]
+    [Authenticated]
     public class GetManualTopListItemsRequest : IReturn<GetManualTopListItemsResponse>
     {
         public string ListName { get; set; } = "";
     }
 
-    /// <summary>
-    /// Response for <see cref="GetManualTopListItemsRequest"/>.
-    /// </summary>
     public class GetManualTopListItemsResponse
     {
         public bool Success { get; set; }
@@ -81,18 +62,13 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to delete a top-list folder (and its underlying library, where applicable).
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/Delete", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class DeleteTopListRequest : IReturn<DeleteTopListResponse>
     {
         public string TagName { get; set; } = "";
     }
 
-    /// <summary>
-    /// Response for <see cref="DeleteTopListRequest"/>.
-    /// </summary>
     public class DeleteTopListResponse
     {
         public bool Success { get; set; }
@@ -100,18 +76,13 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to create / sync the home sections for a top-list folder.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/SyncHomeSections", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class PrepareTopListHomeSectionsRequest : IReturn<PrepareTopListHomeSectionsResponse>
     {
         public string TagName { get; set; } = "";
     }
 
-    /// <summary>
-    /// Response for <see cref="PrepareTopListHomeSectionsRequest"/>.
-    /// </summary>
     public class PrepareTopListHomeSectionsResponse
     {
         public bool Success { get; set; }
@@ -120,15 +91,10 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to run a full sync across every top-list folder.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/SyncAllSections", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class SyncAllTopListSectionsRequest : IReturn<SyncAllTopListSectionsResponse> { }
 
-    /// <summary>
-    /// Response for <see cref="SyncAllTopListSectionsRequest"/>.
-    /// </summary>
     public class SyncAllTopListSectionsResponse
     {
         public bool Success { get; set; }
@@ -136,18 +102,13 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to merge on-disk top-list versions for a given tag.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/MergeVersions", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class MergeTopListVersionsRequest : IReturn<MergeTopListVersionsResponse>
     {
         public string TagName { get; set; } = "";
     }
 
-    /// <summary>
-    /// Response for <see cref="MergeTopListVersionsRequest"/>.
-    /// </summary>
     public class MergeTopListVersionsResponse
     {
         public bool Success { get; set; }
@@ -156,15 +117,10 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to list every movie currently present in any top-list folder.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/AllMovies", "GET")]
+    [Authenticated(Roles = "Admin")]
     public class GetAllMoviesRequest : IReturn<GetAllMoviesResponse> { }
 
-    /// <summary>
-    /// Lightweight movie descriptor used by top-list responses.
-    /// </summary>
     public class MovieItem
     {
         public string Name { get; set; } = "";
@@ -173,26 +129,18 @@ namespace HomeScreenCompanion
         public string ItemId { get; set; } = "";
     }
 
-    /// <summary>
-    /// Response for <see cref="GetAllMoviesRequest"/>.
-    /// </summary>
     public class GetAllMoviesResponse
     {
         public List<MovieItem> Movies { get; set; } = new List<MovieItem>();
     }
 
-    /// <summary>
-    /// Request to grant every user in the system access to a top-list library.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/GrantLibraryAccess", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class GrantTopListLibraryAccessRequest : IReturn<GrantTopListLibraryAccessResponse>
     {
         public string LibraryId { get; set; } = "";
     }
 
-    /// <summary>
-    /// Response for <see cref="GrantTopListLibraryAccessRequest"/>.
-    /// </summary>
     public class GrantTopListLibraryAccessResponse
     {
         public bool Success { get; set; }
@@ -200,15 +148,10 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to snapshot the current top-list access policies.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/SnapshotPolicies", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class SnapshotPoliciesRequest : IReturn<SnapshotPoliciesResponse> { }
 
-    /// <summary>
-    /// Response for <see cref="SnapshotPoliciesRequest"/>.
-    /// </summary>
     public class SnapshotPoliciesResponse
     {
         public bool Success { get; set; }
@@ -217,19 +160,14 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to restore top-list access from a previously taken snapshot.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/RestoreAndGrantAccess", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class RestoreAndGrantAccessRequest : IReturn<RestoreAndGrantAccessResponse>
     {
         public string SnapshotId { get; set; } = "";
         public string LibraryId { get; set; } = "";
     }
 
-    /// <summary>
-    /// Response for <see cref="RestoreAndGrantAccessRequest"/>.
-    /// </summary>
     public class RestoreAndGrantAccessResponse
     {
         public bool Success { get; set; }
@@ -237,10 +175,8 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    /// <summary>
-    /// Request to create a top-list folder from a manually-supplied list of movies.
-    /// </summary>
     [Route("/HomeScreenCompanion/TopList/PrepareManualFolder", "POST")]
+    [Authenticated(Roles = "Admin")]
     public class PrepareManualTopListFolderRequest : IReturn<PrepareTopListFolderResponse>
     {
         public string ListName { get; set; } = "";
@@ -248,20 +184,15 @@ namespace HomeScreenCompanion
         public string BadgeStyle { get; set; } = "neutral";
     }
 
-    /// <summary>
-    /// Single movie entry supplied to a manual top-list folder.
-    /// </summary>
     public class ManualTopListItem
     {
         public string ImdbId { get; set; } = "";
         public string ItemId { get; set; } = "";
     }
 
-    /// <summary>
-    /// Top-list whose Emby library could not be found after an import. The UI can run the
-    /// normal library-creation flow for each of these using the folder already prepared
-    /// server-side.
-    /// </summary>
+    // Top-list whose Emby library could not be found after an import. The UI can run the
+    // normal library-creation flow for each of these using the folder already prepared
+    // server-side.
     public class TopListLibraryInfo
     {
         public string TagName { get; set; } = "";

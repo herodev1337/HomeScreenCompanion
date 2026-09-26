@@ -6,7 +6,6 @@ using MediaBrowser.Model.Users;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,12 +16,15 @@ namespace HomeScreenCompanion
         private readonly IUserManager _userManager;
         private readonly ILogger _logger;
 
-        public static string LastSyncTime { get; private set; } = "Never";
-        public static bool IsRunning { get; private set; } = false;
-        public static string LastSyncResult { get; private set; } = "";
-        public static int LastSectionsCopied { get; private set; } = 0;
-        public static List<string> ExecutionLog { get; } = new List<string>();
-        public static DateTime? LastStartedUtc { get; private set; }
+        internal static string LastSyncTime { get; private set; } = "Never";
+        internal static bool IsRunning { get; private set; } = false;
+        internal static string LastSyncResult { get; private set; } = "";
+        internal static int LastSectionsCopied { get; private set; } = 0;
+        internal static List<string> ExecutionLog { get; } = new List<string>();
+        internal static DateTime? LastStartedUtc { get; private set; }
+
+        public const string HscTaskKey = "HomeSectionSyncTask";
+        public const string HscTaskName = "Home Screen Sync";
         private RunLog _log;
 
         public HomeSectionSyncTask(IUserManager userManager, ILogManager logManager)
@@ -227,14 +229,32 @@ namespace HomeScreenCompanion
 
         private static ContentSection CopySection(ContentSection source)
         {
-            var copy = new ContentSection();
-            foreach (var prop in typeof(ContentSection).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            return new ContentSection
             {
-                if (prop.Name == "Id") continue;
-                if (prop.CanRead && prop.CanWrite)
-                    prop.SetValue(copy, prop.GetValue(source));
-            }
-            return copy;
+                Name = source.Name,
+                CustomName = source.CustomName,
+                Subtitle = source.Subtitle,
+                SectionType = source.SectionType,
+                CollectionType = source.CollectionType,
+                ViewType = source.ViewType,
+                ImageType = source.ImageType,
+                DisplayMode = source.DisplayMode,
+                Monitor = source.Monitor,
+                ItemTypes = source.ItemTypes,
+                ExcludedFolders = source.ExcludedFolders,
+                CardSizeOffset = source.CardSizeOffset,
+                ScrollDirection = source.ScrollDirection,
+                ParentItem = source.ParentItem,
+                ParentId = source.ParentId,
+                TextInfo = source.TextInfo,
+                PremiumFeature = source.PremiumFeature,
+                PremiumMessage = source.PremiumMessage,
+                RefreshInterval = source.RefreshInterval,
+                SortBy = source.SortBy,
+                SortOrder = source.SortOrder,
+                IncludeNextUpInResume = source.IncludeNextUpInResume,
+                Query = source.Query
+            };
         }
     }
 }

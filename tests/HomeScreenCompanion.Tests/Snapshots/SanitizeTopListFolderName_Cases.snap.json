@@ -1,9 +1,0 @@
-{
-  "plain": "Normal Name",
-  "invalid_chars": "Has:Invalid*Chars?",
-  "trailing_dots": "  trailing dots...  ",
-  "empty": "unknown",
-  "whitespace_only": "unknown",
-  "all_dots": "unknown",
-  "null_input": "unknown"
-}

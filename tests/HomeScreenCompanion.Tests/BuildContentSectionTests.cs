@@ -55,16 +55,7 @@ public class BuildContentSectionTests
 
     private static ContentSection Build(Dictionary<string, string> settings, ContentSection? existing = null)
     {
-        HscAssembly.EnsureAvailable();
-        var method = HscAssembly.Assembly
-            .GetType(HscAssembly.TaskTypeName)!
-            .GetMethod("BuildContentSection",
-                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public,
-                binder: null,
-                types: new[] { typeof(IJsonSerializer), typeof(Dictionary<string, string>), typeof(string), typeof(ContentSection) },
-                modifiers: null);
-        Assert.NotNull(method);
-        return (ContentSection)method!.Invoke(null, new object?[] { FakeJsonSerializer.Create(), settings, "libId", existing })!;
+        return HomeScreenCompanionTask.BuildContentSection(FakeJsonSerializer.Create(), settings, "libId", existing);
     }
 
     [Fact]

@@ -21,10 +21,10 @@ namespace HomeScreenCompanion
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
 
-        public static List<string> ExecutionLog { get; } = new List<string>();
-        public static bool IsRunning { get; private set; } = false;
+        internal static List<string> ExecutionLog { get; } = new List<string>();
+        internal static bool IsRunning { get; private set; } = false;
         private static RunLog _log = new RunLog(ExecutionLog, null, "", false);
-        public static string LastRunStatus { get; private set; } = "Never";
+        internal static string LastRunStatus { get; private set; } = "Never";
 
         private readonly ILogger _logger;
 
@@ -59,7 +59,10 @@ namespace HomeScreenCompanion
                 };
                 providerManager.QueueRefresh(li.InternalId, opts, RefreshPriority.High);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _log.Warn($"Top-list probe could not be queued for '{li.Name}': {ex.Message}");
+            }
         }
 
         public string Key => "MergeTopListVersionsTask";
@@ -73,14 +76,14 @@ namespace HomeScreenCompanion
         {
             IsRunning = true;
             lock (ExecutionLog) { ExecutionLog.Clear(); }
-            var startTime = DateTime.Now;
+            var startTime = DateTime.UtcNow;
             _log = new RunLog(ExecutionLog, _logger, "[Top-list merge]", Plugin.Instance?.Configuration?.ExtendedConsoleOutput ?? false);
             try
             {
                 _log.Info($"» Merging top-list versions with library  ·  {startTime:yyyy-MM-dd HH:mm}");
                 var merged = MergeAll(_libraryManager, _providerManager, _fileSystem, cancellationToken);
                 LastRunStatus = $"Done — {merged} item(s) linked.";
-                _log.Ok($"{RunLog.Plural(merged, "top-list item")} linked to library movies  ·  {RunLog.Elapsed(DateTime.Now - startTime)}");
+                _log.Ok($"{RunLog.Plural(merged, "top-list item")} linked to library movies  ·  {RunLog.Elapsed(DateTime.UtcNow - startTime)}");
             }
             catch (Exception ex)
             {
@@ -214,7 +217,10 @@ namespace HomeScreenCompanion
                     QueueStrmProbe(providerManager, fileSystem, li);
                     merged++;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    _log.Warn($"'{li.Name}' could not be linked to '{primary.Name}': {ex.Message}");
+                }
             }
 
             return (strmItems.Count, merged);

@@ -1,88 +1,42 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using Xunit;
 
 namespace HomeScreenCompanion.Tests;
 
 /// <summary>
-/// Snapshot tests for private static pure functions in
-/// <c>HomeScreenCompanionTask.cs</c>. Each test invokes the method via reflection
-/// against the built DLL (see <see cref="HscAssembly"/>) and snapshots the JSON
-/// output. Snapshots live in <c>Snapshots/&lt;TestName&gt;.snap.json</c>.
+/// Direct-typed tests for the <c>internal static</c> pure functions in
+/// <c>HomeScreenCompanionTask</c> and friends. Each method is invoked directly
+/// against the typed surface (no reflection, no snapshot files) — see the
+/// test runner's <c>Snapshots/</c> directory deletion in the commit that
+/// introduced this style.
 /// </summary>
 public class PureFunctionTests
 {
-    private const string T = HscAssembly.TaskTypeName;
+    private static TagConfig NewTagConfig() => new();
 
-    // ─── Construction helpers ────────────────────────────────────────────────────
+    private static PluginConfiguration NewPluginConfig() => new();
 
-    private static object NewTagConfig() =>
-        Activator.CreateInstance(HscAssembly.FindType("HomeScreenCompanion.TagConfig")!)!;
-
-    private static object NewPluginConfig() =>
-        Activator.CreateInstance(HscAssembly.FindType("HomeScreenCompanion.PluginConfiguration")!)!;
-
-    private static object NewDateInterval() =>
-        Activator.CreateInstance(HscAssembly.FindType("HomeScreenCompanion.DateInterval")!)!;
-
-    /// <summary>
-    /// Constructs a typed <c>List&lt;TagConfig&gt;</c> using the loaded assembly's
-    /// <c>TagConfig</c> type so reflection's type checks accept it.
-    /// </summary>
-    private static object NewTagConfigList()
-    {
-        var listType = typeof(System.Collections.Generic.List<>).MakeGenericType(
-            HscAssembly.FindType("HomeScreenCompanion.TagConfig")!);
-        return Activator.CreateInstance(listType)!;
-    }
-
-    private static void SetProp(object o, string name, object? value)
+    private static void SetProp<T>(object o, string name, T value)
     {
         var p = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance)
             ?? throw new MissingMemberException(o.GetType().FullName, name);
         p.SetValue(o, value);
     }
 
-    private static object? GetProp(object o, string name)
-    {
-        var p = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance)!;
-        return p.GetValue(o);
-    }
-
-    private static void SetField(object o, string name, object? value)
-    {
-        var f = o.GetType().GetField(name, BindingFlags.Public | BindingFlags.Instance)
-            ?? throw new MissingFieldException(o.GetType().FullName, name);
-        f.SetValue(o, value);
-    }
-
-    private static MethodInfo S(string name, params Type[] args) =>
-        HscAssembly.FindStaticMethod(T, name, args)
-            ?? throw new MissingMethodException(T, name);
-
-    private static object? Invoke(MethodInfo m, params object?[] args) => m.Invoke(null, args);
-
     // ─── MatchesAny(string[], string) ─────────────────────────────────────────────
 
     [Fact]
     public void MatchesAny_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("MatchesAny", typeof(string[]), typeof(string));
-
-        Snap.Match(new
-        {
-            empty_array = Invoke(m, Array.Empty<string>(), "foo"),
-            null_array = Invoke(m, (string[]?)null, "foo"),
-            exact_match = Invoke(m, new[] { "foo", "bar" }, "foo"),
-            case_insensitive = Invoke(m, new[] { "FOO", "bar" }, "foo"),
-            no_match = Invoke(m, new[] { "alpha", "beta" }, "gamma"),
-            substring_match = Invoke(m, new[] { "alpha-beta" }, "pha-bet"),
-            empty_search = Invoke(m, new[] { "abc" }, ""),
-        });
+        Assert.False(HomeScreenCompanionTask.MatchesAny(Array.Empty<string>(), "foo"));
+        Assert.False(HomeScreenCompanionTask.MatchesAny(null!, "foo"));
+        Assert.True(HomeScreenCompanionTask.MatchesAny(new[] { "foo", "bar" }, "foo"));
+        Assert.True(HomeScreenCompanionTask.MatchesAny(new[] { "FOO", "bar" }, "foo"));
+        Assert.False(HomeScreenCompanionTask.MatchesAny(new[] { "alpha", "beta" }, "gamma"));
+        Assert.True(HomeScreenCompanionTask.MatchesAny(new[] { "alpha-beta" }, "pha-bet"));
+        Assert.True(HomeScreenCompanionTask.MatchesAny(new[] { "abc" }, ""));
     }
 
     // ─── SplitCommaValues(string) ─────────────────────────────────────────────────
@@ -90,18 +44,14 @@ public class PureFunctionTests
     [Fact]
     public void SplitCommaValues_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("SplitCommaValues", typeof(string));
-
-        Snap.Match(new
-        {
-            basic = Invoke(m, "a,b,c"),
-            newlines = Invoke(m, "a\nb\rc"),
-            trimmed = Invoke(m, "  a , b  ,c"),
-            empty = Invoke(m, ""),
-            whitespace_only = Invoke(m, "   "),
-            mixed = Invoke(m, "a,\nb,\rc"),
-        });
+        // Despite the name, SplitCommaValues only splits on \n and \r.
+        // The "comma" entries come through as a single element.
+        Assert.Equal(new[] { "a,b,c" }, HomeScreenCompanionTask.SplitCommaValues("a,b,c"));
+        Assert.Equal(new[] { "a", "b", "c" }, HomeScreenCompanionTask.SplitCommaValues("a\nb\rc"));
+        Assert.Equal(new[] { "a , b  ,c" }, HomeScreenCompanionTask.SplitCommaValues("  a , b  ,c"));
+        Assert.Empty(HomeScreenCompanionTask.SplitCommaValues(""));
+        Assert.Empty(HomeScreenCompanionTask.SplitCommaValues("   "));
+        Assert.Equal(new[] { "a,", "b,", "c" }, HomeScreenCompanionTask.SplitCommaValues("a,\nb,\rc"));
     }
 
     // ─── MatchesImdbId(string?, string) ───────────────────────────────────────────
@@ -109,19 +59,13 @@ public class PureFunctionTests
     [Fact]
     public void MatchesImdbId_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("MatchesImdbId", typeof(string), typeof(string));
-
-        Snap.Match(new
-        {
-            exact = Invoke(m, "tt1234567", "tt1234567"),
-            list_match = Invoke(m, "tt1234567", "tt9999999\ntt1234567"),
-            no_match = Invoke(m, "tt1234567", "tt9999999"),
-            null_item = Invoke(m, (string?)null, "tt1234567"),
-            empty_item = Invoke(m, "", "tt1234567"),
-            case_insensitive = Invoke(m, "ttABCdef", "ttabcDEF"),
-            whitespace_in_list = Invoke(m, "tt1234567", " tt1234567 \ntt9999999"),
-        });
+        Assert.True(HomeScreenCompanionTask.MatchesImdbId("tt1234567", "tt1234567"));
+        Assert.True(HomeScreenCompanionTask.MatchesImdbId("tt1234567", "tt9999999\ntt1234567"));
+        Assert.False(HomeScreenCompanionTask.MatchesImdbId("tt1234567", "tt9999999"));
+        Assert.False(HomeScreenCompanionTask.MatchesImdbId(null, "tt1234567"));
+        Assert.False(HomeScreenCompanionTask.MatchesImdbId("", "tt1234567"));
+        Assert.True(HomeScreenCompanionTask.MatchesImdbId("ttABCdef", "ttabcDEF"));
+        Assert.True(HomeScreenCompanionTask.MatchesImdbId("tt1234567", " tt1234567 \ntt9999999"));
     }
 
     // ─── ApplyNumericOp(double, string, double) ──────────────────────────────────
@@ -129,24 +73,18 @@ public class PureFunctionTests
     [Fact]
     public void ApplyNumericOp_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("ApplyNumericOp", typeof(double), typeof(string), typeof(double));
-
-        Snap.Match(new
-        {
-            gt_true = Invoke(m, 5.0, ">", 3.0),
-            gt_false = Invoke(m, 5.0, ">", 5.0),
-            gte_true = Invoke(m, 5.0, ">=", 5.0),
-            gte_false = Invoke(m, 5.0, ">=", 6.0),
-            lt_true = Invoke(m, 5.0, "<", 6.0),
-            lt_false = Invoke(m, 5.0, "<", 5.0),
-            lte_true = Invoke(m, 5.0, "<=", 5.0),
-            lte_false = Invoke(m, 5.0, "<=", 4.0),
-            eq_true = Invoke(m, 5.0, "=", 5.0),
-            eq_within_tolerance = Invoke(m, 5.0, "=", 5.005),
-            eq_outside_tolerance = Invoke(m, 5.0, "=", 5.02),
-            unknown_op = Invoke(m, 5.0, "??", 5.0),
-        });
+        Assert.True(HomeScreenCompanionTask.ApplyNumericOp(5.0, ">", 3.0));
+        Assert.False(HomeScreenCompanionTask.ApplyNumericOp(5.0, ">", 5.0));
+        Assert.True(HomeScreenCompanionTask.ApplyNumericOp(5.0, ">=", 5.0));
+        Assert.False(HomeScreenCompanionTask.ApplyNumericOp(5.0, ">=", 6.0));
+        Assert.True(HomeScreenCompanionTask.ApplyNumericOp(5.0, "<", 6.0));
+        Assert.False(HomeScreenCompanionTask.ApplyNumericOp(5.0, "<", 5.0));
+        Assert.True(HomeScreenCompanionTask.ApplyNumericOp(5.0, "<=", 5.0));
+        Assert.False(HomeScreenCompanionTask.ApplyNumericOp(5.0, "<=", 4.0));
+        Assert.True(HomeScreenCompanionTask.ApplyNumericOp(5.0, "=", 5.0));
+        Assert.True(HomeScreenCompanionTask.ApplyNumericOp(5.0, "=", 5.005));
+        Assert.False(HomeScreenCompanionTask.ApplyNumericOp(5.0, "=", 5.02));
+        Assert.False(HomeScreenCompanionTask.ApplyNumericOp(5.0, "??", 5.0));
     }
 
     // ─── TagConfigTargetsEpisodes(TagConfig) ─────────────────────────────────────
@@ -154,9 +92,6 @@ public class PureFunctionTests
     [Fact]
     public void TagConfigTargetsEpisodes_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("TagConfigTargetsEpisodes", HscAssembly.FindType("HomeScreenCompanion.TagConfig")!);
-
         var hit = NewTagConfig();
         SetProp(hit, "MediaInfoConditions", new List<string> { "MediaType:Episode" });
 
@@ -171,14 +106,11 @@ public class PureFunctionTests
 
         var empty = NewTagConfig();
 
-        Snap.Match(new
-        {
-            direct_hit = Invoke(m, hit),
-            episodeIncludeSeries_startswith = Invoke(m, includeSeries),
-            negated = Invoke(m, negated),
-            wrong_prefix = Invoke(m, noMatch),
-            empty_criteria = Invoke(m, empty),
-        });
+        Assert.True(HomeScreenCompanionTask.TagConfigTargetsEpisodes(hit));
+        Assert.True(HomeScreenCompanionTask.TagConfigTargetsEpisodes(includeSeries));
+        Assert.True(HomeScreenCompanionTask.TagConfigTargetsEpisodes(negated));
+        Assert.False(HomeScreenCompanionTask.TagConfigTargetsEpisodes(noMatch));
+        Assert.False(HomeScreenCompanionTask.TagConfigTargetsEpisodes(empty));
     }
 
     // ─── TagConfigIncludesParentSeries(TagConfig) ─────────────────────────────────
@@ -186,9 +118,6 @@ public class PureFunctionTests
     [Fact]
     public void TagConfigIncludesParentSeries_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("TagConfigIncludesParentSeries", HscAssembly.FindType("HomeScreenCompanion.TagConfig")!);
-
         var hit = NewTagConfig();
         SetProp(hit, "MediaInfoConditions", new List<string> { "MediaType:EpisodeIncludeSeries" });
 
@@ -198,12 +127,12 @@ public class PureFunctionTests
         var negated = NewTagConfig();
         SetProp(negated, "MediaInfoConditions", new List<string> { "!MediaType:EpisodeIncludeSeries" });
 
-        Snap.Match(new
-        {
-            hit = Invoke(m, hit),
-            episode_only = Invoke(m, episodeOnly),
-            negated = Invoke(m, negated),
-        });
+        Assert.True(HomeScreenCompanionTask.TagConfigIncludesParentSeries(hit));
+        Assert.False(HomeScreenCompanionTask.TagConfigIncludesParentSeries(episodeOnly));
+        // `!MediaType:EpisodeIncludeSeries` after TrimStart('!') matches — the helper
+        // only strips the negation, so the negated form is still considered
+        // "includes parent series" semantically.
+        Assert.True(HomeScreenCompanionTask.TagConfigIncludesParentSeries(negated));
     }
 
     // ─── TagConfigTargetsSeason(TagConfig) ────────────────────────────────────────
@@ -211,9 +140,6 @@ public class PureFunctionTests
     [Fact]
     public void TagConfigTargetsSeason_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("TagConfigTargetsSeason", HscAssembly.FindType("HomeScreenCompanion.TagConfig")!);
-
         var seasonTrue = NewTagConfig();
         SetProp(seasonTrue, "TagTargetSeason", true);
 
@@ -227,13 +153,10 @@ public class PureFunctionTests
 
         var none = NewTagConfig();
 
-        Snap.Match(new
-        {
-            tag_target_season = Invoke(m, seasonTrue),
-            collection_target_season = Invoke(m, cSeasonTrue),
-            legacy_season = Invoke(m, legacySeason),
-            none = Invoke(m, none),
-        });
+        Assert.True(HomeScreenCompanionTask.TagConfigTargetsSeason(seasonTrue));
+        Assert.True(HomeScreenCompanionTask.TagConfigTargetsSeason(cSeasonTrue));
+        Assert.True(HomeScreenCompanionTask.TagConfigTargetsSeason(legacySeason));
+        Assert.False(HomeScreenCompanionTask.TagConfigTargetsSeason(none));
     }
 
     // ─── EffectiveLegacyTargetType(TagConfig) ─────────────────────────────────────
@@ -241,9 +164,6 @@ public class PureFunctionTests
     [Fact]
     public void EffectiveLegacyTargetType_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("EffectiveLegacyTargetType", HscAssembly.FindType("HomeScreenCompanion.TagConfig")!);
-
         var explicitEpisode = NewTagConfig();
         SetProp(explicitEpisode, "MediaInfoTargetType", "Episode");
 
@@ -253,12 +173,9 @@ public class PureFunctionTests
 
         var empty = NewTagConfig();
 
-        Snap.Match(new
-        {
-            @explicit = Invoke(m, explicitEpisode),
-            legacy_season_mode = Invoke(m, legacySeason),
-            empty = Invoke(m, empty),
-        });
+        Assert.Equal("Episode", HomeScreenCompanionTask.EffectiveLegacyTargetType(explicitEpisode));
+        Assert.Equal("Season", HomeScreenCompanionTask.EffectiveLegacyTargetType(legacySeason));
+        Assert.Equal("", HomeScreenCompanionTask.EffectiveLegacyTargetType(empty));
     }
 
     // ─── ConfigNeedsMusicItems(PluginConfiguration) ───────────────────────────────
@@ -266,55 +183,40 @@ public class PureFunctionTests
     [Fact]
     public void ConfigNeedsMusicItems_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("ConfigNeedsMusicItems", HscAssembly.FindType("HomeScreenCompanion.PluginConfiguration")!);
-
         var noTags = NewPluginConfig();
+        Assert.False(HomeScreenCompanionTask.ConfigNeedsMusicItems(noTags));
 
         var artistTag = NewPluginConfig();
         var t1 = NewTagConfig();
         SetProp(t1, "Active", true);
         SetProp(t1, "SourceType", "MediaInfo");
         SetProp(t1, "MediaInfoConditions", new List<string> { "Artist:Beatles" });
-        var artistList = NewTagConfigList();
-        ((System.Collections.IList)artistList).Add(t1);
-        SetProp(artistTag, "Tags", artistList);
+        artistTag.Tags.Add(t1);
+        Assert.True(HomeScreenCompanionTask.ConfigNeedsMusicItems(artistTag));
 
         var externalTag = NewPluginConfig();
         var t2 = NewTagConfig();
         SetProp(t2, "Active", true);
         SetProp(t2, "SourceType", "External");
         SetProp(t2, "MediaInfoConditions", new List<string> { "Artist:Beatles" });
-        var externalList = NewTagConfigList();
-        ((System.Collections.IList)externalList).Add(t2);
-        SetProp(externalTag, "Tags", externalList);
+        externalTag.Tags.Add(t2);
+        Assert.False(HomeScreenCompanionTask.ConfigNeedsMusicItems(externalTag));
 
         var inactive = NewPluginConfig();
         var t3 = NewTagConfig();
         SetProp(t3, "Active", false);
         SetProp(t3, "SourceType", "MediaInfo");
         SetProp(t3, "MediaInfoConditions", new List<string> { "Artist:Beatles" });
-        var inactiveList = NewTagConfigList();
-        ((System.Collections.IList)inactiveList).Add(t3);
-        SetProp(inactive, "Tags", inactiveList);
+        inactive.Tags.Add(t3);
+        Assert.False(HomeScreenCompanionTask.ConfigNeedsMusicItems(inactive));
 
         var mediaTypeAudio = NewPluginConfig();
         var t4 = NewTagConfig();
         SetProp(t4, "Active", true);
         SetProp(t4, "SourceType", "MediaInfo");
         SetProp(t4, "MediaInfoConditions", new List<string> { "MediaType:Audio" });
-        var mtList = NewTagConfigList();
-        ((System.Collections.IList)mtList).Add(t4);
-        SetProp(mediaTypeAudio, "Tags", mtList);
-
-        Snap.Match(new
-        {
-            no_tags = Invoke(m, noTags),
-            artist_tag = Invoke(m, artistTag),
-            external_source_artist = Invoke(m, externalTag),
-            inactive_tag = Invoke(m, inactive),
-            media_type_audio = Invoke(m, mediaTypeAudio),
-        });
+        mediaTypeAudio.Tags.Add(t4);
+        Assert.True(HomeScreenCompanionTask.ConfigNeedsMusicItems(mediaTypeAudio));
     }
 
     // ─── BuildItemTypes(PluginConfiguration) ──────────────────────────────────────
@@ -322,25 +224,16 @@ public class PureFunctionTests
     [Fact]
     public void BuildItemTypes_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("BuildItemTypes", HscAssembly.FindType("HomeScreenCompanion.PluginConfiguration")!);
-
         var noMusic = NewPluginConfig();
+        Assert.Equal(new[] { "Movie", "Series" }, HomeScreenCompanionTask.BuildItemTypes(noMusic));
 
         var music = NewPluginConfig();
         var t = NewTagConfig();
         SetProp(t, "Active", true);
         SetProp(t, "SourceType", "MediaInfo");
         SetProp(t, "MediaInfoConditions", new List<string> { "MediaType:Audio" });
-        var musicList = NewTagConfigList();
-        ((System.Collections.IList)musicList).Add(t);
-        SetProp(music, "Tags", musicList);
-
-        Snap.Match(new
-        {
-            no_music = Invoke(m, noMusic),
-            music_tag = Invoke(m, music),
-        });
+        music.Tags.Add(t);
+        Assert.Equal(new[] { "Movie", "Series", "Audio", "MusicVideo", "MusicAlbum", "MusicArtist" }, HomeScreenCompanionTask.BuildItemTypes(music));
     }
 
     // ─── ExtractTitleContains(TagConfig) ──────────────────────────────────────────
@@ -348,9 +241,6 @@ public class PureFunctionTests
     [Fact]
     public void ExtractTitleContains_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("ExtractTitleContains", HscAssembly.FindType("HomeScreenCompanion.TagConfig")!);
-
         var hit = NewTagConfig();
         SetProp(hit, "MediaInfoConditions", new List<string> { "Title:Foo Bar" });
 
@@ -366,14 +256,11 @@ public class PureFunctionTests
         var noTitle = NewTagConfig();
         SetProp(noTitle, "MediaInfoConditions", new List<string> { "Genre:Action" });
 
-        Snap.Match(new
-        {
-            hit = Invoke(m, hit),
-            negated = Invoke(m, negated),
-            empty = Invoke(m, empty),
-            spaced = Invoke(m, spaced),
-            no_title = Invoke(m, noTitle),
-        });
+        Assert.Equal("Foo Bar", HomeScreenCompanionTask.ExtractTitleContains(hit));
+        Assert.Equal("Foo", HomeScreenCompanionTask.ExtractTitleContains(negated));
+        Assert.Null(HomeScreenCompanionTask.ExtractTitleContains(empty));
+        Assert.Equal("Spaced", HomeScreenCompanionTask.ExtractTitleContains(spaced));
+        Assert.Null(HomeScreenCompanionTask.ExtractTitleContains(noTitle));
     }
 
     // ─── GroupKey(TagConfig) ──────────────────────────────────────────────────────
@@ -381,8 +268,10 @@ public class PureFunctionTests
     [Fact]
     public void GroupKey_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("GroupKey", HscAssembly.FindType("HomeScreenCompanion.TagConfig")!);
+        // US (\x1F) separator — avoid using \x escape sequences in string
+        // literals because the C# compiler greedily consumes up to 4 hex digits
+        // after \x, which can mask the separator.
+        const char sep = '\u001F';
 
         var t1 = NewTagConfig();
         SetProp(t1, "Name", "foo");
@@ -396,12 +285,23 @@ public class PureFunctionTests
         SetProp(t3, "Name", "");
         SetProp(t3, "Tag", "");
 
-        Snap.Match(new
-        {
-            basic = Invoke(m, t1),
-            trimmed = Invoke(m, t2),
-            empty = Invoke(m, t3),
-        });
+        var key1 = HomeScreenCompanionTask.GroupKey(t1);
+        Assert.Equal(7, key1.Length);
+        Assert.Equal('f', key1[0]);
+        Assert.Equal('o', key1[1]);
+        Assert.Equal('o', key1[2]);
+        Assert.Equal(sep, key1[3]);
+        Assert.Equal('b', key1[4]);
+        Assert.Equal('a', key1[5]);
+        Assert.Equal('r', key1[6]);
+
+        var key2 = HomeScreenCompanionTask.GroupKey(t2);
+        Assert.Equal(7, key2.Length);
+        Assert.Equal(sep, key2[3]);
+
+        var key3 = HomeScreenCompanionTask.GroupKey(t3);
+        Assert.Single(key3);
+        Assert.Equal(sep, key3[0]);
     }
 
     // ─── DescribeSourceCounts(GroupRunStats) ──────────────────────────────────────
@@ -409,57 +309,23 @@ public class PureFunctionTests
     [Fact]
     public void DescribeSourceCounts_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var taskType = HscAssembly.FindType(T)!;
-        var statsType = taskType.GetNestedType("GroupRunStats", BindingFlags.NonPublic)!;
-        var m = taskType.GetMethod("DescribeSourceCounts",
-            BindingFlags.Static | BindingFlags.NonPublic,
-            binder: null, types: new[] { statsType }, modifiers: null)!;
+        var boxSetTagged = new HomeScreenCompanionTask.GroupRunStats { BoxSetHse = true, BoxSetTaggedCount = 2 };
+        Assert.Equal("2 collections tagged", HomeScreenCompanionTask.DescribeSourceCounts(boxSetTagged));
 
-        object NewStats()
-        {
-            var s = Activator.CreateInstance(statsType)!;
-            // Defaults are fine; set fields per-case below.
-            return s;
-        }
+        var boxSetMissing = new HomeScreenCompanionTask.GroupRunStats { BoxSetHse = true, BoxSetTaggedCount = 0 };
+        Assert.Equal("collection not found", HomeScreenCompanionTask.DescribeSourceCounts(boxSetMissing));
 
-        var boxSetTagged = NewStats();
-        SetField(boxSetTagged, "BoxSetHse", true);
-        SetField(boxSetTagged, "BoxSetTaggedCount", 2);
+        var mediaInfoViewerOnly = new HomeScreenCompanionTask.GroupRunStats { SourceType = "MediaInfo", ViewerOnly = true };
+        Assert.Equal("current-user filter, resolved per user by the home section", HomeScreenCompanionTask.DescribeSourceCounts(mediaInfoViewerOnly));
 
-        var boxSetMissing = NewStats();
-        SetField(boxSetMissing, "BoxSetHse", true);
-        SetField(boxSetMissing, "BoxSetTaggedCount", 0);
+        var mediaInfoScanned = new HomeScreenCompanionTask.GroupRunStats { SourceType = "MediaInfo", ListCount = 100, MatchCount = 15 };
+        Assert.Equal("scanned 100 items, 15 matched", HomeScreenCompanionTask.DescribeSourceCounts(mediaInfoScanned));
 
-        var mediaInfoViewerOnly = NewStats();
-        SetField(mediaInfoViewerOnly, "SourceType", "MediaInfo");
-        SetField(mediaInfoViewerOnly, "ViewerOnly", true);
+        var localCollection = new HomeScreenCompanionTask.GroupRunStats { SourceType = "LocalCollection", ListCount = 5, MatchCount = 2 };
+        Assert.Equal("5 in source, 2 matched", HomeScreenCompanionTask.DescribeSourceCounts(localCollection));
 
-        var mediaInfoScanned = NewStats();
-        SetField(mediaInfoScanned, "SourceType", "MediaInfo");
-        SetField(mediaInfoScanned, "ViewerOnly", false);
-        SetField(mediaInfoScanned, "ListCount", 100);
-        SetField(mediaInfoScanned, "MatchCount", 15);
-
-        var localCollection = NewStats();
-        SetField(localCollection, "SourceType", "LocalCollection");
-        SetField(localCollection, "ListCount", 5);
-        SetField(localCollection, "MatchCount", 2);
-
-        var external = NewStats();
-        SetField(external, "SourceType", "External");
-        SetField(external, "ListCount", 10);
-        SetField(external, "MatchCount", 3);
-
-        Snap.Match(new
-        {
-            boxset_tagged = Invoke(m, boxSetTagged),
-            boxset_missing = Invoke(m, boxSetMissing),
-            mediaInfo_viewer_only = Invoke(m, mediaInfoViewerOnly),
-            mediaInfo_scanned = Invoke(m, mediaInfoScanned),
-            local_collection = Invoke(m, localCollection),
-            external = Invoke(m, external),
-        });
+        var external = new HomeScreenCompanionTask.GroupRunStats { SourceType = "External", ListCount = 10, MatchCount = 3 };
+        Assert.Equal("10 in list, 3 in your library", HomeScreenCompanionTask.DescribeSourceCounts(external));
     }
 
     // ─── BuildFinalStatus(bool, int, int) ─────────────────────────────────────────
@@ -467,21 +333,15 @@ public class PureFunctionTests
     [Fact]
     public void BuildFinalStatus_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("BuildFinalStatus", typeof(bool), typeof(int), typeof(int));
-
-        Snap.Match(new
-        {
-            dry_run_clean = Invoke(m, true, 0, 0),
-            dry_run_failed = Invoke(m, true, 2, 0),
-            dry_run_warned = Invoke(m, true, 0, 1),
-            live_clean = Invoke(m, false, 0, 0),
-            live_failed_one = Invoke(m, false, 1, 0),
-            live_failed_many = Invoke(m, false, 5, 0),
-            live_warned_one = Invoke(m, false, 0, 1),
-            live_warned_many = Invoke(m, false, 0, 3),
-            live_failed_and_warned = Invoke(m, false, 1, 1),
-        });
+        Assert.Equal("Dry run — completed", HomeScreenCompanionTask.BuildFinalStatus(true, 0, 0));
+        Assert.Equal("Dry run — completed with 2 errors", HomeScreenCompanionTask.BuildFinalStatus(true, 2, 0));
+        Assert.Equal("Dry run — completed with 1 warning", HomeScreenCompanionTask.BuildFinalStatus(true, 0, 1));
+        Assert.Equal("Completed", HomeScreenCompanionTask.BuildFinalStatus(false, 0, 0));
+        Assert.Equal("Completed with 1 error", HomeScreenCompanionTask.BuildFinalStatus(false, 1, 0));
+        Assert.Equal("Completed with 5 errors", HomeScreenCompanionTask.BuildFinalStatus(false, 5, 0));
+        Assert.Equal("Completed with 1 warning", HomeScreenCompanionTask.BuildFinalStatus(false, 0, 1));
+        Assert.Equal("Completed with 3 warnings", HomeScreenCompanionTask.BuildFinalStatus(false, 0, 3));
+        Assert.Equal("Completed with 1 error", HomeScreenCompanionTask.BuildFinalStatus(false, 1, 1));
     }
 
     // ─── StatusSymbol(int, int) ───────────────────────────────────────────────────
@@ -489,35 +349,45 @@ public class PureFunctionTests
     [Fact]
     public void StatusSymbol_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("StatusSymbol", typeof(int), typeof(int));
-
-        Snap.Match(new
-        {
-            failed = Invoke(m, 2, 0),
-            failed_overrides_warned = Invoke(m, 1, 5),
-            warned = Invoke(m, 0, 1),
-            clean = Invoke(m, 0, 0),
-        });
+        Assert.Equal("✖", HomeScreenCompanionTask.StatusSymbol(2, 0));
+        Assert.Equal("✖", HomeScreenCompanionTask.StatusSymbol(1, 5));
+        Assert.Equal("⚠", HomeScreenCompanionTask.StatusSymbol(0, 1));
+        Assert.Equal("✔", HomeScreenCompanionTask.StatusSymbol(0, 0));
     }
 
-    // ─── SanitizeTopListFolderName(string) ────────────────────────────────────────
+    // ─── FolderNames.Sanitize(string) ────────────────────────────────────────
 
     [Fact]
     public void SanitizeTopListFolderName_Cases()
     {
-        HscAssembly.EnsureAvailable();
-        var m = S("SanitizeTopListFolderName", typeof(string));
+        Assert.Equal("Normal Name", FolderNames.Sanitize("Normal Name"));
+        // NUL is invalid on every platform; the sanitizer replaces invalid chars
+        // with '_'. (`:` / `*` / `?` are invalid only on Windows.)
+        Assert.Equal("Has_Invalid_Chars_", FolderNames.Sanitize("Has\0Invalid\0Chars\0"));
+        // Trim('.') only trims leading/trailing dots; when the string ends with
+        // spaces (not dots), the dots stay in place.
+        Assert.Equal("  trailing dots...  ", FolderNames.Sanitize("  trailing dots...  "));
+        // When dots are at the very end they get trimmed.
+        Assert.Equal("trailing dots", FolderNames.Sanitize("trailing dots..."));
+        Assert.Equal("unknown", FolderNames.Sanitize(""));
+        Assert.Equal("unknown", FolderNames.Sanitize("   "));
+        Assert.Equal("unknown", FolderNames.Sanitize("....."));
+        Assert.Equal("unknown", FolderNames.Sanitize(null));
+    }
 
-        Snap.Match(new
-        {
-            plain = Invoke(m, "Normal Name"),
-            invalid_chars = Invoke(m, "Has:Invalid*Chars?"),
-            trailing_dots = Invoke(m, "  trailing dots...  "),
-            empty = Invoke(m, ""),
-            whitespace_only = Invoke(m, "   "),
-            all_dots = Invoke(m, "....."),
-            null_input = Invoke(m, (string?)null),
-        });
+    // ─── Typed direct call smoke checks on items via FakeBaseItem ─────────────────
+
+    [Fact]
+    public void TryGetDateModified_DefaultsToNullOnFakeItem()
+    {
+        var item = new FakeBaseItem();
+        Assert.Null(HomeScreenCompanionTask.TryGetDateModified(item));
+    }
+
+    [Fact]
+    public void TryGetFileSize_DefaultsToNullOnFakeItem()
+    {
+        var item = new FakeBaseItem();
+        Assert.Null(HomeScreenCompanionTask.TryGetFileSize(item));
     }
 }

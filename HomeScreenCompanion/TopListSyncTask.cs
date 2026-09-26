@@ -22,11 +22,11 @@ namespace HomeScreenCompanion
         private readonly IJsonSerializer _jsonSerializer;
         private readonly ILogger _logger;
 
-        public static List<string> ExecutionLog { get; } = new List<string>();
-        public static bool IsRunning { get; private set; } = false;
-        public static DateTime? LastStartedUtc { get; private set; }
+        internal static List<string> ExecutionLog { get; } = new List<string>();
+        internal static bool IsRunning { get; private set; } = false;
+        internal static DateTime? LastStartedUtc { get; private set; }
         private static RunLog _log = new RunLog(ExecutionLog, null, "", false);
-        public static string LastRunStatus { get; private set; } = "Never";
+        internal static string LastRunStatus { get; private set; } = "Never";
 
         public TopListSyncTask(ILibraryManager libraryManager, IUserViewManager userViewManager, IUserManager userManager, IJsonSerializer jsonSerializer, ILogManager logManager)
         {
@@ -351,8 +351,6 @@ namespace HomeScreenCompanion
 
         internal static void GrantTopListLibraryAccess(List<TopListHomeSection> topLists, IUserManager userManager, ILibraryManager libraryManager, ILogger logger)
         {
-            dynamic mgr = userManager;
-
             foreach (var tl in topLists)
             {
                 if (string.IsNullOrEmpty(tl.HomeSectionLibraryId) || tl.HomeSectionLibraryId == "auto") continue;
@@ -385,15 +383,12 @@ namespace HomeScreenCompanion
                     try
                     {
                         var uid = userManager.GetInternalId(user.Id.ToString());
-                        dynamic policy = GetPolicy(mgr, user, uid);
+                        var policy = GetPolicy(userManager, user, uid);
                         if (policy == null) continue;
 
-                        bool enableAll;
-                        try { enableAll = (bool)policy.EnableAllFolders; } catch { enableAll = false; }
-                        if (enableAll) continue;
+                        if (policy.EnableAllFolders) continue;
 
-                        string[] folders;
-                        try { folders = (string[])policy.EnabledFolders ?? Array.Empty<string>(); } catch { folders = Array.Empty<string>(); }
+                        var folders = policy.EnabledFolders ?? Array.Empty<string>();
 
                         if (folders.Any(f => string.Equals(f.Replace("-", ""), libGuid, StringComparison.OrdinalIgnoreCase)))
                             continue;
@@ -403,7 +398,7 @@ namespace HomeScreenCompanion
                             .Where(f => !string.Equals(f.Replace("-", ""), rawLibId.Replace("-", ""), StringComparison.OrdinalIgnoreCase))
                             .ToArray();
                         policy.EnabledFolders = cleanedFolders.Concat(new[] { libGuid }).ToArray();
-                        UpdatePolicy(mgr, user, uid, policy);
+                        UpdatePolicy(userManager, uid, policy);
                         logger.Info($"[Access] Granted library '{tl.TagName}' to '{user.Name}'.");
                     }
                     catch (Exception ex) { logger.Error($"[Access] Grant error for '{user.Name}': {ex.GetBaseException().Message}"); }
@@ -416,15 +411,12 @@ namespace HomeScreenCompanion
                     try
                     {
                         var uid = userManager.GetInternalId(user.Id.ToString());
-                        dynamic policy = GetPolicy(mgr, user, uid);
+                        var policy = GetPolicy(userManager, user, uid);
                         if (policy == null) continue;
 
-                        bool enableAll;
-                        try { enableAll = (bool)policy.EnableAllFolders; } catch { enableAll = false; }
-                        if (enableAll) continue;
+                        if (policy.EnableAllFolders) continue;
 
-                        string[] folders;
-                        try { folders = (string[])policy.EnabledFolders ?? Array.Empty<string>(); } catch { folders = Array.Empty<string>(); }
+                        var folders = policy.EnabledFolders ?? Array.Empty<string>();
 
                         var hasEntry = folders.Any(f =>
                             string.Equals(f.Replace("-", ""), libGuid, StringComparison.OrdinalIgnoreCase) ||
@@ -437,7 +429,7 @@ namespace HomeScreenCompanion
                                 !string.Equals(f.Replace("-", ""), rawNorm, StringComparison.OrdinalIgnoreCase))
                             .ToArray();
 
-                        UpdatePolicy(mgr, user, uid, policy);
+                        UpdatePolicy(userManager, uid, policy);
                         logger.Info($"[Access] Revoked library '{tl.TagName}' from '{user.Name}'.");
                     }
                     catch (Exception ex) { logger.Error($"[Access] Revoke error for '{user.Name}': {ex.GetBaseException().Message}"); }
@@ -473,25 +465,16 @@ namespace HomeScreenCompanion
             return null;
         }
 
-        internal static object GetPolicy(dynamic mgr, BaseItem user, long uid)
+        internal static UserPolicy GetPolicy(IUserManager mgr, BaseItem user, long uid)
         {
-            dynamic policy = null;
-            try { policy = mgr.GetUserPolicy(user); return policy; }
+            try { return mgr.GetUserPolicy(user as User); }
             catch { }
-            try { policy = mgr.GetUserPolicy(user.Id); return policy; }
-            catch { }
-            try { policy = mgr.GetUserPolicy(uid); return policy; }
-            catch { }
-            return user.GetType().GetProperty("Policy")?.GetValue(user);
+            return (user as User)?.Policy;
         }
 
-        internal static void UpdatePolicy(dynamic mgr, BaseItem user, long uid, dynamic policy)
+        internal static void UpdatePolicy(IUserManager mgr, long uid, UserPolicy policy)
         {
-            try { mgr.UpdateUserPolicy(uid, policy); return; }
-            catch { }
-            try { mgr.UpdateUserPolicy(user.Id, policy); return; }
-            catch { }
-            mgr.UpdateUserPolicy(user, policy);
+            mgr.UpdateUserPolicy(uid, policy);
         }
 
     }

@@ -39,13 +39,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: npm
-          cache-dependency-path: HomeScreenCompanion/ClientApp/package-lock.json
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -127,22 +120,6 @@ jobs:
           git add version.txt
           git commit -m "chore(release): bump version to ${{ steps.version.outputs.version }} [skip ci]"
           git push origin HEAD:main
-
-      - name: Install JS deps
-        working-directory: HomeScreenCompanion/ClientApp
-        run: npm ci
-
-      - name: JS typecheck & lint
-        working-directory: HomeScreenCompanion/ClientApp
-        run: npm run typecheck && npm run lint
-
-      - name: JS tests
-        working-directory: HomeScreenCompanion/ClientApp
-        run: npm test
-
-      - name: Build JS bundle
-        working-directory: HomeScreenCompanion/ClientApp
-        run: npm run build
 
       - name: Restore
         run: dotnet restore "$PROJECT"

@@ -19,17 +19,19 @@ namespace HomeScreenCompanion
         private readonly ILibraryManager _libraryManager;
         private readonly ILogger _logger;
         private readonly IJsonSerializer _jsonSerializer;
+        private readonly IXmlSerializer _xmlSerializer;
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
 
         private readonly object _strmLock = new object();
         private readonly HashSet<Guid> _processedStrmIds = new HashSet<Guid>();
 
-        public ServerEntryPoint(ILibraryManager libraryManager, ILogManager logManager, IJsonSerializer jsonSerializer, IProviderManager providerManager, IFileSystem fileSystem)
+        public ServerEntryPoint(ILibraryManager libraryManager, ILogManager logManager, IJsonSerializer jsonSerializer, IXmlSerializer xmlSerializer, IProviderManager providerManager, IFileSystem fileSystem)
         {
             _libraryManager = libraryManager;
             _logger = logManager.GetLogger("HomeScreenCompanion_RealTime");
             _jsonSerializer = jsonSerializer;
+            _xmlSerializer = xmlSerializer;
             _providerManager = providerManager;
             _fileSystem = fileSystem;
         }
@@ -38,6 +40,8 @@ namespace HomeScreenCompanion
         {
             if (Plugin.Instance == null) return;
             RunAutoMigration();
+            TagCacheManager.SetLogger(_logger);
+            ListFetcher.SetLogger(_logger);
             TagCacheManager.Instance.Initialize(Plugin.Instance.DataFolderPath, _jsonSerializer);
 
             _libraryManager.ItemAdded += OnItemChanged;
@@ -55,7 +59,7 @@ namespace HomeScreenCompanion
 
                 _logger.Info("[Migration] AutoTag.xml found, starting automatic migration...");
 
-                var oldConfig = Plugin.XmlSerializer.DeserializeFromFile(typeof(PluginConfiguration), oldConfigPath) as PluginConfiguration;
+                var oldConfig = _xmlSerializer.DeserializeFromFile(typeof(PluginConfiguration), oldConfigPath) as PluginConfiguration;
                 if (oldConfig == null)
                 {
                     _logger.Warn("[Migration] Could not parse AutoTag.xml — skipping migration.");
@@ -108,7 +112,7 @@ namespace HomeScreenCompanion
             }
             catch (Exception ex)
             {
-                _logger.Error("[Migration] Migration failed: " + ex.Message);
+                _logger.ErrorException("[Migration] Migration failed: " + ex.Message, ex);
             }
         }
 
@@ -220,13 +224,13 @@ namespace HomeScreenCompanion
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error("[TopList] ProcessTopListStrmItem(bg) error: " + ex.Message);
+                        _logger.ErrorException("[TopList] ProcessTopListStrmItem(bg) error: " + ex.Message, ex);
                     }
                 });
             }
             catch (Exception ex)
             {
-                _logger.Error("[TopList] ProcessTopListStrmItem error: " + ex.Message);
+                _logger.ErrorException("[TopList] ProcessTopListStrmItem error: " + ex.Message, ex);
             }
         }
 
