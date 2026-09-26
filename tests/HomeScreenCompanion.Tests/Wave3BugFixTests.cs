@@ -138,6 +138,22 @@ public sealed class Wave3BugFixTests
     }
 
     [Fact]
+    public void AddSourceDialog_Has_Parameterized_Ctor_For_Logger_And_Refresh_Hook()
+    {
+        // Regression: the parent page must refresh after the dialog persists,
+        // even when the SDK's OnDialogResult doesn't propagate. The dialog's
+        // (string, ILogger, Action) constructor wires that hook.
+        var t = GetType("HomeScreenCompanion.UI.Tabs.AddSourceDialog");
+        var ctor = t.GetConstructor(new[]
+        {
+            typeof(string),
+            typeof(MediaBrowser.Model.Logging.ILogger),
+            typeof(System.Action),
+        });
+        Assert.NotNull(ctor);
+    }
+
+    [Fact]
     public void TagRuleFactory_Generates_Unique_Names()
     {
         var existing = new List<TagConfig>

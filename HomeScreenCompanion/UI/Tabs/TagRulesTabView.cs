@@ -38,7 +38,17 @@ namespace HomeScreenCompanion.UI.Tabs
         {
             if (commandId == TagRulesTabUI.AddSourceCommand)
             {
-                return Task.FromResult<IPluginUIView>(new AddSourceDialog(this.PluginId));
+                // Pass a refresh hook so the rule list always rebuilds,
+                // even if the Emby SDK never calls OnDialogResult for the
+                // dialog that was just dismissed.
+                return Task.FromResult<IPluginUIView>(new AddSourceDialog(
+                    this.PluginId,
+                    this._logger,
+                    () =>
+                    {
+                        this.RebuildRuleList();
+                        this.RaiseUIViewInfoChanged();
+                    }));
             }
 
             if (commandId.StartsWith("EditRule:"))
@@ -74,23 +84,12 @@ namespace HomeScreenCompanion.UI.Tabs
 
         public override void OnDialogResult(IPluginUIView dialogView, bool completedOk, object data)
         {
-            if (completedOk && dialogView is AddSourceDialog add && add.CreatedTag != null)
+            // AddSourceDialog already persisted + notified the parent
+            // via its onPersisted callback. Rebuild again here so the
+            // SDK's OnDialogResult path (when it does fire) is also
+            // idempotent.
+            if (completedOk && (dialogView is AddSourceDialog || dialogView is TagRowEditDialog))
             {
-                // AddSourceDialog already persisted the new TagConfig inside
-                // its OnOkCommand (the SDK does not always propagate
-                // OnDialogResult reliably). Either path refreshes the list.
-                this.RebuildRuleList();
-                this.RaiseUIViewInfoChanged();
-            }
-            else if (completedOk && dialogView is AddSourceDialog)
-            {
-                this.RebuildRuleList();
-                this.RaiseUIViewInfoChanged();
-            }
-            else if (completedOk && dialogView is TagRowEditDialog edited)
-            {
-                // TagRowEditDialog persists itself in OnOkCommand. Just
-                // refresh the list so any name change shows up.
                 this.RebuildRuleList();
                 this.RaiseUIViewInfoChanged();
             }
