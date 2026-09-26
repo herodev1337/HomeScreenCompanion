@@ -24,13 +24,13 @@ namespace HomeScreenCompanion.UI.Tabs
         public string SourceType { get; set; } = "External";
 
         [Browsable(false)]
-        public IEnumerable<EditorSelectOption> SourceTypes { get; } = new[]
+        public List<EditorSelectOption> SourceTypes { get; } = new List<EditorSelectOption>
         {
-            new EditorSelectOption { Value = "External", Name = "External — URL or local library item list" },
-            new EditorSelectOption { Value = "MediaInfo", Name = "MediaInfo — filter by metadata (genre/year/...)" },
-            new EditorSelectOption { Value = "AI", Name = "AI — ask an LLM for recommendations" },
-            new EditorSelectOption { Value = "Playlist", Name = "Playlist — sync items from an existing Emby playlist" },
-            new EditorSelectOption { Value = "Collection", Name = "Collection — sync items from an existing box set" },
+            new EditorSelectOption("External", "External — URL or local library item list") { IsEnabled = true },
+            new EditorSelectOption("MediaInfo", "MediaInfo — filter by metadata (genre/year/...)") { IsEnabled = true },
+            new EditorSelectOption("AI", "AI — ask an LLM for recommendations") { IsEnabled = true },
+            new EditorSelectOption("Playlist", "Playlist — sync items from an existing Emby playlist") { IsEnabled = true },
+            new EditorSelectOption("Collection", "Collection — sync items from an existing box set") { IsEnabled = true },
         };
     }
 }

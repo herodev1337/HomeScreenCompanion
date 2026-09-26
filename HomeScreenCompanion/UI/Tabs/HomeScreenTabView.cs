@@ -1,18 +1,22 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Emby.Web.GenericEdit.Common;
 using Emby.Web.GenericEdit.Elements;
 using Emby.Web.GenericEdit.Elements.List;
 using HomeScreenCompanion.UIBaseClasses.Views;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI.Views;
+using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Tasks;
 
@@ -32,6 +36,8 @@ namespace HomeScreenCompanion.UI.Tabs
         private readonly ITaskManager _taskManager;
         private readonly ILogger _logger;
 
+        public const string UserListRefreshCommand = nameof(UserListRefreshCommand);
+
         public HomeScreenTabView(
             PluginInfo pluginInfo,
             IHttpClient httpClient,
@@ -50,20 +56,39 @@ namespace HomeScreenCompanion.UI.Tabs
             this.HelpUrl = new Uri(
                 "https://github.com/herodev1337/HomeScreenCompanion/wiki/Home-screen",
                 UriKind.Absolute);
+            this.PopulateUserOptions();
         }
 
         public HomeScreenTabUI Page => this.ContentData as HomeScreenTabUI;
+
+        public override bool IsCommandAllowed(string commandKey)
+        {
+            if (string.Equals(commandKey, UserListRefreshCommand, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            return base.IsCommandAllowed(commandKey);
+        }
 
         public override async Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
         {
             switch (commandId)
             {
+                case UserListRefreshCommand:
+                    // Re-populate and refresh sections in one roundtrip.
+                    this.PopulateUserOptions();
+                    await this.RefreshSectionsAsync();
+                    return this;
+
                 case HomeScreenTabUI.RefreshSectionsCommand:
                     await this.RefreshSectionsAsync();
                     return this;
 
                 case HomeScreenTabUI.SyncNowCommand:
                     await this.SyncNowAsync();
+                    return this;
+
+                case "Cancel":
                     return this;
 
                 case "DeleteSection:":
@@ -76,15 +101,80 @@ namespace HomeScreenCompanion.UI.Tabs
             return await base.RunCommand(itemId, commandId, data);
         }
 
+        /// <summary>
+        /// Populates <see cref="HomeScreenTabUI.SourceUserOptions"/> with the
+        /// list of non-disabled Emby users. Called on construction (admin
+        /// sees every user) and after [AutoPostBack] fires on
+        /// <see cref="HomeScreenTabUI.SourceUserId"/>. Returns the currently
+        /// selected id so the dropdown doesn't snap back when refreshed.
+        /// </summary>
+        public void PopulateUserOptions()
+        {
+            var page = this.Page;
+            if (page == null) return;
+
+            var options = new List<EditorSelectOption>();
+            try
+            {
+                var userManager = this._applicationHost?.Resolve<MediaBrowser.Controller.Library.IUserManager>();
+                if (userManager != null)
+                {
+                    var users = userManager.GetUserList(new UserQuery { IsDisabled = false })
+                        ?? Array.Empty<User>();
+                    foreach (var user in users.OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (user == null || string.IsNullOrEmpty(user.Id.ToString()))
+                        {
+                            continue;
+                        }
+
+                        options.Add(new EditorSelectOption(
+                            user.Id.ToString(),
+                            string.IsNullOrEmpty(user.Name) ? user.Id.ToString() : user.Name)
+                        { IsEnabled = true });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                this._logger?.Warn("[HomeScreenTab] Failed to enumerate users: " + ex.Message);
+            }
+
+            // Always include a blank option for callers who fall back to
+            // "current user" when nothing is picked.
+            if (options.All(o => !string.IsNullOrEmpty(o.Value)))
+            {
+                options.Insert(0, new EditorSelectOption(string.Empty, "— pick a user —") { IsEnabled = true });
+            }
+
+            page.SourceUserOptions = options;
+        }
+
         private async Task RefreshSectionsAsync()
         {
             var page = this.Page;
             if (page == null) return;
 
+            // Make sure the dropdown has at least the picker entry before
+            // we attempt anything below.
+            if (page.SourceUserOptions == null || page.SourceUserOptions.Count == 0)
+            {
+                this.PopulateUserOptions();
+            }
+
+            var requested = page.SourceUserId ?? "";
+            if (string.IsNullOrEmpty(requested))
+            {
+                page.ManageStatus.StatusText = "Pick a source user first.";
+                page.ManageStatus.Status = ItemStatus.Unavailable;
+                this.RaiseUIViewInfoChanged();
+                return;
+            }
+
             try
             {
                 var url = this.BuildLocalUrl("/HomeScreenCompanion/UserSections?UserId="
-                    + Uri.EscapeDataString(page.SourceUserId ?? ""));
+                    + Uri.EscapeDataString(requested));
                 var response = await this._httpClient.GetResponse(new HttpRequestOptions
                 {
                     Url = url,
@@ -94,6 +184,16 @@ namespace HomeScreenCompanion.UI.Tabs
 
                 using (response)
                 {
+                    if (response.StatusCode == HttpStatusCode.Unauthorized
+                        || response.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        // Often caused by requesting another user's
+                        // sections without admin. Fall back to the
+                        // caller's own id silently before bailing.
+                        await this.RefreshWithSelfFallbackAsync(page);
+                        return;
+                    }
+
                     if (response.StatusCode != HttpStatusCode.OK)
                     {
                         page.ManageStatus.StatusText = "Refresh failed: HTTP " + response.StatusCode;
@@ -142,6 +242,70 @@ namespace HomeScreenCompanion.UI.Tabs
             catch (Exception ex)
             {
                 this._logger.ErrorException("[HomeScreen] Refresh failed", ex);
+                page.ManageStatus.StatusText = "Error: " + ex.Message;
+                page.ManageStatus.Status = ItemStatus.Failed;
+                this.RaiseUIViewInfoChanged();
+            }
+        }
+
+        private async Task RefreshWithSelfFallbackAsync(HomeScreenTabUI page)
+        {
+            try
+            {
+                // The server endpoint already falls back to the caller's
+                // own id when the requested user isn't accessible.
+                // We just retry with no UserId so the endpoint picks
+                // up the caller's sections.
+                var url = this.BuildLocalUrl("/HomeScreenCompanion/UserSections");
+                var response = await this._httpClient.GetResponse(new HttpRequestOptions
+                {
+                    Url = url,
+                    LogErrors = false,
+                    CancellationToken = CancellationToken.None,
+                }).ConfigureAwait(false);
+
+                using (response)
+                {
+                    if (response.StatusCode != HttpStatusCode.OK || response.Content == null)
+                    {
+                        page.ManageStatus.StatusText = "Refresh failed (HTTP " + response.StatusCode + ").";
+                        page.ManageStatus.Status = ItemStatus.Failed;
+                        this.RaiseUIViewInfoChanged();
+                        return;
+                    }
+
+                    string body;
+                    using (var reader = new System.IO.StreamReader(response.Content, Encoding.UTF8))
+                    {
+                        body = await reader.ReadToEndAsync().ConfigureAwait(false);
+                    }
+
+                    var parsed = this._jsonSerializer.DeserializeFromString<UserSectionsResponse>(body);
+                    page.Sections.Clear();
+                    foreach (var section in parsed?.Sections ?? Array.Empty<ContentSection>())
+                    {
+                        page.Sections.Add(new GenericListItem
+                        {
+                            PrimaryText = string.IsNullOrEmpty(section.Name) ? "(no name)" : section.Name,
+                            SecondaryText = section.SectionType ?? "",
+                            Icon = IconNames.menu,
+                            IconMode = ItemListIconMode.LargeRegular,
+                            Button1 = new ButtonItem("Delete")
+                            {
+                                Icon = IconNames.remove_circle_outline,
+                                Data1 = "DeleteSection:" + (section.Id ?? ""),
+                                ConfirmationPrompt = "Delete section '" + (section.Name ?? "") + "'?"
+                            },
+                        });
+                    }
+                    page.ManageStatus.StatusText = "Loaded " + page.Sections.Count + " of your own section(s).";
+                    page.ManageStatus.Status = ItemStatus.Succeeded;
+                    this.RaiseUIViewInfoChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                this._logger.ErrorException("[HomeScreen] Self-fallback refresh failed", ex);
                 page.ManageStatus.StatusText = "Error: " + ex.Message;
                 page.ManageStatus.Status = ItemStatus.Failed;
                 this.RaiseUIViewInfoChanged();

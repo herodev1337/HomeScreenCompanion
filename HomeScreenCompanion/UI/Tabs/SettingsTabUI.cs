@@ -133,13 +133,13 @@ namespace HomeScreenCompanion.UI.Tabs
 
         public ButtonItem ExportBackupButton { get; set; } = new ButtonItem("Export backup…")
         {
-            Icon = IconNames.bookmark_outline,
+            Icon = IconNames.save_alt,
             Data1 = ExportBackupCommand
         };
 
         public ButtonItem ImportBackupButton { get; set; } = new ButtonItem("Import backup…")
         {
-            Icon = IconNames.bookmarks,
+            Icon = IconNames.unarchive,
             Data1 = ImportBackupCommand
         };
 

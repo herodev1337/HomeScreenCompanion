@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using HomeScreenCompanion.UIBaseClasses.Views;
@@ -42,6 +43,27 @@ namespace HomeScreenCompanion.UI
 
         public override async Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
         {
+            if (commandId == "OpenReleaseNotes")
+            {
+                var url = (this.MainPageUi?.ReleaseNotesUrl ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(url))
+                {
+                    throw new MediaBrowser.Model.Plugins.UI.EmbyUserException(
+                        "Set a Release notes URL above first.", null);
+                }
+
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+                    || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+                {
+                    throw new MediaBrowser.Model.Plugins.UI.EmbyUserException(
+                        "Release notes URL must be an http(s) URL.", null);
+                }
+
+                this.RedirectViewUrl = parsed.ToString();
+                this.RaiseUIViewInfoChanged();
+                return this;
+            }
+
             if (commandId.StartsWith("EditTag:"))
             {
                 var tagName = commandId.Substring("EditTag:".Length);

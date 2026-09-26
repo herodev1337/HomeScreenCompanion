@@ -10,9 +10,11 @@ namespace HomeScreenCompanion.UI.Tabs
 {
     /// <summary>
     /// Inline edit dialog for a <see cref="TopListHomeSection"/>. The
-    /// parent <c>TopListsTabView</c> populates <see cref="Source"/>
-    /// from <see cref="PluginConfiguration.TopLists"/>; on OK, the
-    /// dialog writes its <see cref="Model"/> back to the source.
+    /// parent <c>TopListsTabView</c> builds the new or existing
+    /// <see cref="Source"/> and hands it in. <see cref="OnOkCommand"/>
+    /// persists it to <see cref="PluginConfiguration.TopLists"/> so the
+    /// round-trip works even when the SDK client doesn't propagate
+    /// <see cref="IPluginUIView.OnDialogResult"/>.
     /// </summary>
     public sealed class TopListEditDialog : PluginDialogView
     {
@@ -29,6 +31,7 @@ namespace HomeScreenCompanion.UI.Tabs
                 SettingsJson = string.IsNullOrEmpty(source.HomeSectionSettings) ? "{}" : source.HomeSectionSettings,
             };
             this.ContentData = this.Model;
+            this.OKButtonCaption = "Save";
         }
 
         public TopListHomeSection Source { get; }
@@ -38,25 +41,70 @@ namespace HomeScreenCompanion.UI.Tabs
         public override string Caption =>
             string.IsNullOrEmpty(this.Source?.TagName) ? "Top list" : this.Source.TagName;
 
+        public override async Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
+        {
+            // Some SDK clients dispatch a stray "Cancel" command instead of
+            // IPluginDialogView.OnCancelCommand when the user closes the
+            // dialog. Swallow it explicitly so the request never bubbles up
+            // as a 500.
+            if (string.Equals(commandId, "Cancel", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return this;
+            }
+
+            return await base.RunCommand(itemId, commandId, data);
+        }
+
         public override Task OnOkCommand(string providerId, string commandId, string data)
         {
             var m = this.Model;
-            if (this.Source != null && m != null)
+            if (m == null)
             {
-                if (string.IsNullOrWhiteSpace(m.TagName))
-                {
-                    throw new EmbyUserException("Tag name is required.", null);
-                }
-                this.Source.TagName = m.TagName;
-                this.Source.MaxItems = m.MaxItems;
-                this.Source.HomeSectionLibraryId = string.IsNullOrWhiteSpace(m.LibraryId) ? "auto" : m.LibraryId;
-                this.Source.HomeSectionUserIds = (m.UserIds ?? "")
-                    .Split(new[] { '\n', '\r' }, System.StringSplitOptions.RemoveEmptyEntries)
-                    .Select(s => s.Trim())
-                    .Where(s => !string.IsNullOrEmpty(s))
-                    .ToList();
-                this.Source.HomeSectionSettings = m.SettingsJson ?? "{}";
+                throw new EmbyUserException("Dialog model not initialised.", null);
             }
+
+            if (string.IsNullOrWhiteSpace(m.TagName))
+            {
+                throw new EmbyUserException("Tag name is required.", null);
+            }
+
+            this.Source.TagName = m.TagName.Trim();
+            this.Source.MaxItems = m.MaxItems;
+            this.Source.HomeSectionLibraryId = string.IsNullOrWhiteSpace(m.LibraryId) ? "auto" : m.LibraryId;
+            this.Source.HomeSectionUserIds = (m.UserIds ?? "")
+                .Split(new[] { '\n', '\r' }, System.StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToList();
+            this.Source.HomeSectionSettings = m.SettingsJson ?? "{}";
+
+            var plugin = Plugin.Instance;
+            if (plugin != null)
+            {
+                var config = plugin.Configuration;
+                if (config != null)
+                {
+                    if (config.TopLists == null)
+                    {
+                        config.TopLists = new List<TopListHomeSection>();
+                    }
+
+                    var existing = config.TopLists
+                        .FirstOrDefault(t => !ReferenceEquals(t, this.Source)
+                            && string.Equals(t.TagName, this.Source.TagName, System.StringComparison.OrdinalIgnoreCase));
+                    if (existing == null)
+                    {
+                        // Brand-new row from the "+ Add list" sub-menu — persist it.
+                        if (!config.TopLists.Contains(this.Source))
+                        {
+                            config.TopLists.Add(this.Source);
+                        }
+                    }
+
+                    plugin.UpdateConfiguration(config);
+                }
+            }
+
             return base.OnOkCommand(providerId, commandId, data);
         }
     }

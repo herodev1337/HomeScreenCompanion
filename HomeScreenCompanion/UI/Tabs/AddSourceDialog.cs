@@ -7,13 +7,15 @@ namespace HomeScreenCompanion.UI.Tabs
 {
     /// <summary>
     /// Picker for the type of a new tag rule. The dialog collects the
-    /// source type; the parent (<c>TagRulesTabView</c>) reads it via
-    /// <see cref="IPluginUIView.OnDialogResult"/> and constructs the
-    /// corresponding <see cref="TagConfig"/> + <c>TagRowEditDialog</c>.
+    /// source type and itself persists the resulting <see cref="TagConfig"/>
+    /// in <see cref="OnOkCommand"/> so the parent view only needs to refresh
+    /// its list (the SDK doesn't always propagate
+    /// <see cref="IPluginUIView.OnDialogResult"/> reliably across all clients).
     /// </summary>
     public sealed class AddSourceDialog : PluginDialogView
     {
         public const string ResultKey = nameof(ResultKey);
+        public const string CreatedTagNameKey = nameof(CreatedTagNameKey);
 
         public AddSourceDialog(string pluginId)
             : base(pluginId)
@@ -31,12 +33,25 @@ namespace HomeScreenCompanion.UI.Tabs
 
         public AddSourceOptionsUI Options => this.ContentData as AddSourceOptionsUI;
 
+        public TagConfig CreatedTag { get; private set; }
+
         public override Task OnOkCommand(string providerId, string commandId, string data)
         {
             var opts = this.Options;
             if (opts == null || string.IsNullOrWhiteSpace(opts.SourceType))
             {
                 throw new EmbyUserException("Pick a source type.", null);
+            }
+
+            var plugin = Plugin.Instance;
+            if (plugin != null)
+            {
+                var config = plugin.Configuration ?? new PluginConfiguration();
+                var tag = TagRuleFactory.CreateBlank(config.Tags, opts.SourceType);
+                config.Tags ??= new System.Collections.Generic.List<TagConfig>();
+                config.Tags.Add(tag);
+                this.CreatedTag = tag;
+                plugin.UpdateConfiguration(config);
             }
 
             return Task.CompletedTask;
