@@ -10,6 +10,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using MediaBrowser.Model.Users;
+using HomeScreenCompanion.Criteria;
 
 namespace HomeScreenCompanion
 {
@@ -600,5 +601,117 @@ namespace HomeScreenCompanion
                 ManageHomeSections(ctx.Config, cancellationToken, ctx.Debug, new List<GroupRunStats> { gs }, gs.TagName);
         }
 
+        // For every user that the plugin manages home sections for, add the supplied library ids
+        // to the ExcludedFolders + Query.ExcludeUserViewIdStrings of every non-tracked,
+        // non-library-scoped section. Keeps BoxSet sections clean when a top-list library is added.
+        internal static int UpdateUntrackedSections(
+            IJsonSerializer jsonSerializer,
+            IUserManager userManager,
+            PluginConfiguration config,
+            IEnumerable<string> libraryIdsToExclude,
+            CancellationToken cancellationToken)
+        {
+            var allTrackedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tag in config.Tags ?? new List<TagConfig>())
+                foreach (var tr in tag.HomeSectionTracked ?? new List<HomeSectionTracking>())
+                    if (!string.IsNullOrEmpty(tr.SectionId)) allTrackedIds.Add(tr.SectionId);
+            foreach (var topList in config.TopLists ?? new List<TopListHomeSection>())
+                foreach (var tr in topList.HomeSectionTracked ?? new List<HomeSectionTracking>())
+                    if (!string.IsNullOrEmpty(tr.SectionId)) allTrackedIds.Add(tr.SectionId);
+
+            var managedUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tag in config.Tags ?? new List<TagConfig>())
+                foreach (var uid in tag.HomeSectionUserIds ?? new List<string>())
+                    managedUserIds.Add(uid);
+            foreach (var topList in config.TopLists ?? new List<TopListHomeSection>())
+                foreach (var uid in topList.HomeSectionUserIds ?? new List<string>())
+                    managedUserIds.Add(uid);
+
+            var libIds = libraryIdsToExclude
+                .Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0)
+                .Distinct().ToList();
+            if (libIds.Count == 0) return 0;
+
+            int updated = 0;
+
+            foreach (var userId in managedUserIds)
+            {
+                try
+                {
+                    var uid = userManager.GetInternalId(userId);
+                    var allSecs = userManager.GetHomeSections(uid, cancellationToken)?.Sections
+                        ?? Array.Empty<ContentSection>();
+
+                    foreach (var sec in allSecs)
+                    {
+                        if (string.IsNullOrEmpty(sec.Id)) continue;
+                        if (allTrackedIds.Contains(sec.Id)) continue;
+
+                        // Library-scoped sections already filter to one library.
+                        if (!string.IsNullOrEmpty(sec.ParentId)) continue;
+
+                        // ExcludeUserViewIdStrings lives on UserViewQuery and NextUpQuery;
+                        // ItemsQuery (the static ContentSection.Query type) does not have it.
+                        var existingExcluded = (sec.ExcludedFolders ?? Array.Empty<string>())
+                            .Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0).ToList();
+                        try
+                        {
+                            var query = (object?)sec.Query;
+                            if (query is MediaBrowser.Model.Library.UserViewQuery uvq)
+                            {
+                                var viewIds = uvq.ExcludeUserViewIdStrings;
+                                if (viewIds != null)
+                                    existingExcluded.AddRange(
+                                        viewIds.Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0));
+                            }
+                            else if (query is MediaBrowser.Model.Querying.NextUpQuery nq)
+                            {
+                                var viewIds = nq.ExcludeUserViewIdStrings;
+                                if (viewIds != null)
+                                    existingExcluded.AddRange(
+                                        viewIds.Select(s => s.Trim().ToLowerInvariant()).Where(s => s.Length > 0));
+                            }
+                        }
+                        catch { }
+
+                        existingExcluded = existingExcluded.Distinct().ToList();
+                        var missing = libIds
+                            .Where(id => !existingExcluded.Contains(id, StringComparer.OrdinalIgnoreCase))
+                            .ToList();
+                        if (missing.Count == 0) continue;
+
+                        existingExcluded.AddRange(missing);
+                        var newExcluded = existingExcluded.ToArray();
+
+                        sec.ExcludedFolders = newExcluded;
+                        try
+                        {
+                            var query = (object?)sec.Query;
+                            if (query is MediaBrowser.Model.Library.UserViewQuery uvq2)
+                                uvq2.ExcludeUserViewIdStrings = newExcluded;
+                            else if (query is MediaBrowser.Model.Querying.NextUpQuery nq2)
+                                nq2.ExcludeUserViewIdStrings = newExcluded;
+                        }
+                        catch { }
+                        userManager.UpdateHomeSection(uid, sec, cancellationToken);
+                        updated++;
+                    }
+                }
+                catch { }
+            }
+            return updated;
+        }
+
+        internal static void ApplyViewerCriteriaToSectionSettings(TagConfig tagConfig, Dictionary<string, string> settingsDict)
+        {
+            CriterionCatalog.ApplySectionQuery(GetAllCriteria(tagConfig), settingsDict);
+        }
+
+        private void HsWarn(List<GroupRunStats>? statsList, string tagName, string displayName, string message)
+        {
+            _log.Warn($"{displayName}: {message}");
+            var gs = statsList?.FirstOrDefault(s => s.TagName != null && string.Equals(s.TagName, tagName, StringComparison.OrdinalIgnoreCase));
+            gs?.Warnings.Add("Home section: " + message);
+        }
     }
 }
