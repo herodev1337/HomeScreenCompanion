@@ -38,6 +38,16 @@ dotnet test  tests/HomeScreenCompanion.Tests/HomeScreenCompanion.Tests.csproj -c
 dotnet format whitespace HomeScreenCompanion/HomeScreenCompanion.csproj --verify-no-changes --no-restore
 ```
 
+## Remotes
+
+- `origin` = `herodev1337/HomeScreenCompanion` (the active fork). **All pushes
+  go here** — branches, tags, release commits.
+- `upstream` = `soderlund91/HomeScreenCompanion`. **Never push here.** No
+  write access on this remote, and even if credentials were added later,
+  upstream releases are coordinated out-of-band with the upstream
+  maintainer. To get a change upstream, open a PR from
+  `origin/<branch>` → `upstream:main` and let the maintainer merge.
+
 ## Versioning & releases
 
 - `version.txt` (repo root) is the single source of truth for the plugin

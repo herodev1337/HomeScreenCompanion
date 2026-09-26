@@ -27,7 +27,6 @@ env:
   PROJECT: HomeScreenCompanion/HomeScreenCompanion.csproj
   TESTS: tests/HomeScreenCompanion.Tests/HomeScreenCompanion.Tests.csproj
   DLL: HomeScreenCompanion/bin/Release/netstandard2.0/HomeScreenCompanion.dll
-  ZIP: dist/HomeScreenCompanion_${{ steps.version.outputs.version || 'dev' }}.zip
 
 jobs:
   build-release:
