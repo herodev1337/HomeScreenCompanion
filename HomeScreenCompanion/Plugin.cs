@@ -3,6 +3,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI;
 using MediaBrowser.Model.Serialization;
@@ -28,6 +29,7 @@ namespace HomeScreenCompanion
         private readonly IServerApplicationHost _applicationHost;
         private readonly IHttpClient _httpClient;
         private readonly IJsonSerializer _jsonSerializer;
+        private readonly IUserManager _userManager;
         private readonly ITaskManager _taskManager;
         private readonly ILogger _logger;
         private MainPageOptionsStore _mainPageOptionsStore;
@@ -40,6 +42,7 @@ namespace HomeScreenCompanion
             IJsonSerializer jsonSerializer,
             IFileSystem fileSystem,
             IHttpClient httpClient,
+            IUserManager userManager,
             ITaskManager taskManager,
             ILogManager logManager)
             : base(applicationPaths, xmlSerializer)
@@ -48,6 +51,7 @@ namespace HomeScreenCompanion
             _applicationHost = applicationHost;
             _jsonSerializer = jsonSerializer;
             _httpClient = httpClient;
+            _userManager = userManager;
             _taskManager = taskManager;
             _logger = logManager.GetLogger("HomeScreenCompanion");
             _mainPageOptionsStore = new MainPageOptionsStore(
@@ -74,6 +78,7 @@ namespace HomeScreenCompanion
                             _mainPageOptionsStore,
                             _httpClient,
                             _jsonSerializer,
+                            _userManager,
                             _taskManager,
                             _logger)
                     };

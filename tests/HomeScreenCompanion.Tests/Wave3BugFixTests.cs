@@ -57,6 +57,34 @@ public sealed class Wave3BugFixTests
         Assert.DoesNotContain("Tags", names);
     }
 
+    [Fact]
+    public void MainPageUI_Is_QuickAccess_Only()
+    {
+        // The first tab is a "quick summary" — API keys, AI provider
+        // settings, advanced toggles and backup/restore all live on
+        // the Settings tab. Stripping those out of MainPageUI keeps
+        // the two surfaces from drifting apart.
+        var names = typeof(MainPageUI)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.Name)
+            .ToHashSet();
+
+        Assert.DoesNotContain("ExtendedConsoleOutput", names);
+        Assert.DoesNotContain("LogMissingItems", names);
+        Assert.DoesNotContain("PreserveTagsOnEmptyResult", names);
+        Assert.DoesNotContain("TraktClientId", names);
+        Assert.DoesNotContain("MdblistApiKey", names);
+        Assert.DoesNotContain("TmdbApiKey", names);
+        Assert.DoesNotContain("OpenAiApiKey", names);
+        Assert.DoesNotContain("OpenAiModel", names);
+        Assert.DoesNotContain("GeminiApiKey", names);
+        Assert.DoesNotContain("GeminiModel", names);
+        Assert.DoesNotContain("ClaudeApiKey", names);
+        Assert.DoesNotContain("ClaudeModel", names);
+        Assert.DoesNotContain("OllamaBaseUrl", names);
+        Assert.DoesNotContain("OllamaModel", names);
+    }
+
     // ─── Tab 2: Tag & Collection (AddSourceDialog + dropdowns) ────────
 
     [Fact]
