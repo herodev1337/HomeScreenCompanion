@@ -8,7 +8,7 @@ namespace HomeScreenCompanion.Tests;
 /// <summary>
 /// Source-scan guard for audit finding E3: the four BindingFlags-driven dispatch
 /// sites in <c>TopListEndpoints.cs</c> and the two dynamic
-/// <c>IUserManager.MoveHomeSections</c> calls in <c>HscEndpoints.cs</c> have
+/// <c>IUserManager.MoveHomeSections</c> calls in <c>Endpoints.cs</c> have
 /// been replaced with direct interface calls. Compilation against
 /// <c>IUserManager.MoveHomeSections(long, string[], int, CancellationToken)</c>
 /// is the real regression test; this class prevents the reflection pattern
@@ -43,23 +43,23 @@ public class NoReflectionTests
 
     [Theory]
     [InlineData("TopListEndpoints.cs")]
-    [InlineData("HscEndpoints.cs")]
+    [InlineData("Endpoints.cs")]
     public void NoBindingFlagsUsage(string fileName)
     {
         var path = Path.Combine(EndpointsDir(), fileName);
         var content = ReadOrThrow(path);
-        // The HscDebugMethodsRequest handler intentionally walks the runtime type tree
+        // The DebugMethodsRequest handler intentionally walks the runtime type tree
         // with NonPublic + DeclaredOnly flags to surface non-public/declared-only methods
         // to operators — that debug endpoint is exempt from this rule. We anchor on the
         // actual method body (the first `t.GetMethods(BindingFlags` site) and trim
         // everything past the handler's closing brace so the BindingFlags check ignores
         // it but still scans the rest of the file.
-        if (fileName == "HscEndpoints.cs")
+        if (fileName == "Endpoints.cs")
         {
             var startIdx = content.IndexOf("t.GetMethods(BindingFlags", StringComparison.Ordinal);
             if (startIdx >= 0)
             {
-                // Find the end of the HscDebugMethodsRequest handler by matching
+                // Find the end of the DebugMethodsRequest handler by matching
                 // the next top-level "public object " signature after the anchor.
                 var tail = content.Substring(startIdx);
                 var endMarker = tail.IndexOf("\n        public object ", StringComparison.Ordinal);
@@ -75,7 +75,7 @@ public class NoReflectionTests
 
     [Theory]
     [InlineData("TopListEndpoints.cs")]
-    [InlineData("HscEndpoints.cs")]
+    [InlineData("Endpoints.cs")]
     public void NoGetMethodInvocation(string fileName)
     {
         var path = Path.Combine(EndpointsDir(), fileName);
@@ -89,7 +89,7 @@ public class NoReflectionTests
 
     [Theory]
     [InlineData("TopListEndpoints.cs")]
-    [InlineData("HscEndpoints.cs")]
+    [InlineData("Endpoints.cs")]
     public void NoDynamicKeyword(string fileName)
     {
         var path = Path.Combine(EndpointsDir(), fileName);

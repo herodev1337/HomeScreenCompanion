@@ -50,10 +50,10 @@ public class EndpointAuthTests
         "RestoreAndGrantAccessRequest",
         "PrepareManualTopListFolderRequest",
         // DTOs.cs
-        "HscSaveUserSectionsRequest",
-        "HscDebugMethodsRequest",
-        "HscApplyTagHomeSectionsRequest",
-        "HscRunRequest",
+        "SaveUserSectionsRequest",
+        "DebugMethodsRequest",
+        "ApplyTagHomeSectionsRequest",
+        "RunRequest",
         "TestAiSourceRequest"
     };
 
@@ -63,7 +63,7 @@ public class EndpointAuthTests
         // StatusContracts
         "GetStatusRequest",
         "VersionRequest",
-        "HscGetStatusRequest",
+        "StatusRequest",
         // ManageContracts
         "GetManagedTagsRequest",
         "GetManagedCollectionsRequest",
@@ -72,9 +72,9 @@ public class EndpointAuthTests
         "GetTopListsRequest",
         "GetManualTopListItemsRequest",
         // DTOs.cs
-        "HscGetUserSectionsRequest",
-        "HscGetSectionSchemaRequest",
-        "HscGetStatusV2Request"
+        "GetUserSectionsRequest",
+        "GetSectionSchemaRequest",
+        "StatusV2Request"
     };
 
     /// <summary>
@@ -83,7 +83,7 @@ public class EndpointAuthTests
     /// </summary>
     private static readonly HashSet<string> SelfScopedUserIdDtos = new(StringComparer.Ordinal)
     {
-        "HscGetUserSectionsRequest"
+        "GetUserSectionsRequest"
     };
 
     private static readonly Regex HandlerSignature = new(

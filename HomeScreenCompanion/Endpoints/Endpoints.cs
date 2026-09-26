@@ -27,11 +27,11 @@ namespace HomeScreenCompanion
             }
         }
 
-        public object Get(HscGetStatusRequest request)
+        public object Get(StatusRequest request)
         {
             List<string> logs;
             lock (HomeSectionSyncTask.ExecutionLog) { logs = HomeSectionSyncTask.ExecutionLog.ToList(); }
-            return new HscSyncStatusResponse
+            return new SyncStatusResponse
             {
                 LastSyncTime = HomeSectionSyncTask.LastSyncTime,
                 IsRunning = HomeSectionSyncTask.IsRunning,
@@ -52,7 +52,7 @@ namespace HomeScreenCompanion
                 State = HomeSectionSyncTask.IsRunning ? TaskState.Running : TaskState.Idle,
                 LastExecutionResult = new TaskResult
                 {
-                    Status = HscResultMapper.ToCompletionStatus(lastResultText),
+                    Status = ResultMapper.ToCompletionStatus(lastResultText),
                     Name = HomeSectionSyncTask.HscTaskName,
                     Key = HomeSectionSyncTask.HscTaskKey,
                     StartTimeUtc = HomeSectionSyncTask.LastStartedUtc ?? DateTimeOffset.MinValue,
@@ -66,11 +66,11 @@ namespace HomeScreenCompanion
         /// Typed status endpoint returning the SDK <see cref="TaskInfo"/>
         /// directly. The new SDK-UI pages (U7's LogsPage) bind to this shape.
         /// </summary>
-        public object Get(HscGetStatusV2Request request)
+        public object Get(StatusV2Request request)
         {
             List<string> logs;
             lock (HomeSectionSyncTask.ExecutionLog) { logs = HomeSectionSyncTask.ExecutionLog.ToList(); }
-            return new HscStatusResponse
+            return new StatusResponse
             {
                 TaskInfo = BuildTaskInfo(),
                 Logs = logs,
@@ -82,14 +82,14 @@ namespace HomeScreenCompanion
         /// <summary>
         /// Typed run endpoint that wraps the SDK's
         /// <see cref="HomeScreenCompanionTask.RunSingleEntryAsync"/>.
-        /// Returns the updated <see cref="HscStatusResponse"/> so the
+        /// Returns the updated <see cref="StatusResponse"/> so the
         /// SDK-UI can re-render from one roundtrip.
         /// </summary>
-        public async Task<object> Post(HscRunRequest request)
+        public async Task<object> Post(RunRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.TagName))
             {
-                return new HscStatusResponse { TaskInfo = BuildTaskInfo() };
+                return new StatusResponse { TaskInfo = BuildTaskInfo() };
             }
 
             var task = HomeScreenCompanionTask.Instance;
@@ -100,18 +100,18 @@ namespace HomeScreenCompanion
                     var (success, message) = await task.RunSingleEntryAsync(request.TagName, CancellationToken.None);
                     if (!success)
                     {
-                        _logger?.Warn("[HSC/Run] Tag '" + request.TagName + "' run failed: " + message);
+                        _logger?.Warn("[Run] Tag '" + request.TagName + "' run failed: " + message);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger?.Warn("[HSC/Run] Tag '" + request.TagName + "' run threw: " + ex.Message);
+                    _logger?.Warn("[Run] Tag '" + request.TagName + "' run threw: " + ex.Message);
                 }
             }
 
             List<string> logs;
             lock (HomeScreenCompanionTask.ExecutionLog) { logs = HomeScreenCompanionTask.ExecutionLog.ToList(); }
-            return new HscStatusResponse
+            return new StatusResponse
             {
                 TaskInfo = BuildTaskInfo(),
                 Logs = logs,
@@ -119,7 +119,7 @@ namespace HomeScreenCompanion
             };
         }
 
-        public object Get(HscGetUserSectionsRequest request)
+        public object Get(GetUserSectionsRequest request)
         {
             try
             {
@@ -128,24 +128,24 @@ namespace HomeScreenCompanion
                 var isAdmin = auth?.User?.Policy?.IsAdministrator == true;
                 var userId = ResolveUserId(callerId, isAdmin, request.UserId);
                 if (string.IsNullOrWhiteSpace(userId))
-                    return new HscUserSectionsResponse();
+                    return new UserSectionsResponse();
 
                 var internalId = _userManager.GetInternalId(userId);
                 var result = _userManager.GetHomeSections(internalId, CancellationToken.None);
-                return new HscUserSectionsResponse
+                return new UserSectionsResponse
                 {
                     Sections = result?.Sections ?? Array.Empty<ContentSection>()
                 };
             }
             catch (Exception ex)
             {
-                return new HscSaveUserSectionsResponse { Success = false, Message = ex.Message };
+                return new SaveUserSectionsResponse { Success = false, Message = ex.Message };
             }
         }
 
 
 
-        public object Get(HscDebugMethodsRequest request)
+        public object Get(DebugMethodsRequest request)
         {
             // Replaces the runtime reflection BFS over IUserManager with a
             // static list of the methods the plugin actually uses. The SDK's
@@ -165,12 +165,12 @@ namespace HomeScreenCompanion
             return lines.ToString();
         }
 
-        public object Post(HscSaveUserSectionsRequest request)
+        public object Post(SaveUserSectionsRequest request)
         {
             try
             {
                 if (string.IsNullOrWhiteSpace(request.UserId))
-                    return new HscSaveUserSectionsResponse { Success = false, Message = "No user specified." };
+                    return new SaveUserSectionsResponse { Success = false, Message = "No user specified." };
 
                 var internalId = _userManager.GetInternalId(request.UserId);
                 var requestedSections = request.Sections ?? Array.Empty<ContentSection>();
@@ -222,37 +222,37 @@ namespace HomeScreenCompanion
                     }
                 }
 
-                return new HscSaveUserSectionsResponse { Success = true, Message = moveDebug };
+                return new SaveUserSectionsResponse { Success = true, Message = moveDebug };
             }
             catch (Exception ex)
             {
-                return new HscSaveUserSectionsResponse { Success = false, Message = ex.Message };
+                return new SaveUserSectionsResponse { Success = false, Message = ex.Message };
             }
         }
 
-        public object Post(HscApplyTagHomeSectionsRequest request)
+        public object Post(ApplyTagHomeSectionsRequest request)
         {
             try
             {
                 var config = Plugin.Instance?.Configuration;
                 if (config == null)
-                    return new HscApplyTagHomeSectionsResponse { Success = false, Message = "Plugin configuration not available." };
+                    return new ApplyTagHomeSectionsResponse { Success = false, Message = "Plugin configuration not available." };
 
                 var tc = config.Tags?.FirstOrDefault(t =>
                     string.Equals(t.Name, request.TagName, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(t.Tag, request.TagName, StringComparison.OrdinalIgnoreCase));
 
                 if (tc == null)
-                    return new HscApplyTagHomeSectionsResponse { Success = false, Message = $"Tag '{request.TagName}' not found." };
+                    return new ApplyTagHomeSectionsResponse { Success = false, Message = $"Tag '{request.TagName}' not found." };
 
                 if (!tc.EnableHomeSection)
-                    return new HscApplyTagHomeSectionsResponse { Success = true, Message = "Home section not enabled for this tag." };
+                    return new ApplyTagHomeSectionsResponse { Success = true, Message = "Home section not enabled for this tag." };
 
                 var realTracked = (tc.HomeSectionTracked ?? new System.Collections.Generic.List<HomeSectionTracking>())
                     .Where(t => !string.IsNullOrEmpty(t.SectionId) && !t.SectionId.StartsWith("hsc__"))
                     .ToList();
                 if (realTracked.Count == 0)
-                    return new HscApplyTagHomeSectionsResponse { Success = true, Message = "No existing tracked sections — nothing to apply." };
+                    return new ApplyTagHomeSectionsResponse { Success = true, Message = "No existing tracked sections — nothing to apply." };
 
                 // Deserialize settings
                 var settingsDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -294,7 +294,7 @@ namespace HomeScreenCompanion
                         resolvedLibraryId = tc.HomeSectionLibraryId;
                     }
                     if (string.IsNullOrEmpty(resolvedLibraryId))
-                        return new HscApplyTagHomeSectionsResponse { Success = false, Message = "Collection not found — cannot apply." };
+                        return new ApplyTagHomeSectionsResponse { Success = false, Message = "Collection not found — cannot apply." };
                 }
 
                 // Look up tag ID for query (items type)
@@ -342,17 +342,17 @@ namespace HomeScreenCompanion
                     }
                 }
 
-                return new HscApplyTagHomeSectionsResponse { Success = true, UsersUpdated = updated, Message = $"Applied to {updated} user(s)." };
+                return new ApplyTagHomeSectionsResponse { Success = true, UsersUpdated = updated, Message = $"Applied to {updated} user(s)." };
             }
             catch (Exception ex)
             {
-                return new HscApplyTagHomeSectionsResponse { Success = false, Message = ex.Message };
+                return new ApplyTagHomeSectionsResponse { Success = false, Message = ex.Message };
             }
         }
 
-        public object Get(HscGetSectionSchemaRequest request)
+        public object Get(GetSectionSchemaRequest request)
         {
-            var fields = new List<HscSectionField>
+            var fields = new List<SectionField>
             {
                 new() { Name = nameof(ContentSection.Name), Type = "string" },
                 new() { Name = nameof(ContentSection.CustomName), Type = "string" },
@@ -375,7 +375,7 @@ namespace HomeScreenCompanion
                 new() { Name = nameof(ContentSection.ItemTypes), Type = "stringarray" },
                 new() { Name = nameof(ContentSection.ExcludedFolders), Type = "stringarray" },
             };
-            return new HscSectionSchemaResponse { Fields = fields };
+            return new SectionSchemaResponse { Fields = fields };
         }
     }
 }

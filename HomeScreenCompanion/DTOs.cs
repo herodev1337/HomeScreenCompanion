@@ -49,7 +49,7 @@ namespace HomeScreenCompanion
         public string imdb { get; set; }
     }
 
-    public class HscSyncStatusResponse
+    public class SyncStatusResponse
     {
         public string LastSyncTime { get; set; } = "";
         public bool IsRunning { get; set; }
@@ -59,7 +59,7 @@ namespace HomeScreenCompanion
         public string StartedUtc { get; set; } = "";
     }
 
-    public class HscStatusResponse
+    public class StatusResponse
     {
         public MediaBrowser.Model.Tasks.TaskInfo TaskInfo { get; set; } = new MediaBrowser.Model.Tasks.TaskInfo();
         public List<string> Logs { get; set; } = new List<string>();
@@ -67,57 +67,57 @@ namespace HomeScreenCompanion
         public int SectionsCopied { get; set; }
     }
 
-    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/StatusV2", "GET")]
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/StatusV2", "GET")]
     [Authenticated]
-    public class HscGetStatusV2Request : MediaBrowser.Model.Services.IReturn<HscStatusResponse> { }
+    public class StatusV2Request : MediaBrowser.Model.Services.IReturn<StatusResponse> { }
 
-    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/Run", "POST")]
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Run", "POST")]
     [Authenticated(Roles = "Admin")]
-    public class HscRunRequest : MediaBrowser.Model.Services.IReturn<HscStatusResponse>
+    public class RunRequest : MediaBrowser.Model.Services.IReturn<StatusResponse>
     {
         public string TagName { get; set; } = "";
     }
 
-    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/UserSections", "GET")]
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/UserSections", "GET")]
     [Authenticated]
-    public class HscGetUserSectionsRequest : MediaBrowser.Model.Services.IReturn<HscUserSectionsResponse>
+    public class GetUserSectionsRequest : MediaBrowser.Model.Services.IReturn<UserSectionsResponse>
     {
         public string UserId { get; set; } = "";
     }
 
-    public class HscUserSectionsResponse
+    public class UserSectionsResponse
     {
         public ContentSection[] Sections { get; set; } = System.Array.Empty<ContentSection>();
     }
 
-    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/UserSections", "POST")]
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/UserSections", "POST")]
     [Authenticated(Roles = "Admin")]
-    public class HscSaveUserSectionsRequest : MediaBrowser.Model.Services.IReturn<HscSaveUserSectionsResponse>
+    public class SaveUserSectionsRequest : MediaBrowser.Model.Services.IReturn<SaveUserSectionsResponse>
     {
         public string UserId { get; set; } = "";
         public ContentSection[] Sections { get; set; } = System.Array.Empty<ContentSection>();
     }
 
-    public class HscSaveUserSectionsResponse
+    public class SaveUserSectionsResponse
     {
         public bool Success { get; set; }
         public string Message { get; set; } = "";
     }
 
-    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/SectionSchema", "GET")]
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/SectionSchema", "GET")]
     [Authenticated]
-    public class HscGetSectionSchemaRequest : MediaBrowser.Model.Services.IReturn<HscSectionSchemaResponse> { }
+    public class GetSectionSchemaRequest : MediaBrowser.Model.Services.IReturn<SectionSchemaResponse> { }
 
-    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/DebugMethods", "GET")]
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/DebugMethods", "GET")]
     [Authenticated(Roles = "Admin")]
-    public class HscDebugMethodsRequest : MediaBrowser.Model.Services.IReturn<string> { }
+    public class DebugMethodsRequest : MediaBrowser.Model.Services.IReturn<string> { }
 
-    public class HscSectionSchemaResponse
+    public class SectionSchemaResponse
     {
-        public List<HscSectionField> Fields { get; set; } = new List<HscSectionField>();
+        public List<SectionField> Fields { get; set; } = new List<SectionField>();
     }
 
-    public class HscSectionField
+    public class SectionField
     {
         public string Name { get; set; } = "";
         public string Type { get; set; } = "";
@@ -191,14 +191,14 @@ namespace HomeScreenCompanion
         public string type { get; set; } = "";
     }
 
-    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/Hsc/ApplyTagHomeSections", "POST")]
+    [MediaBrowser.Model.Services.Route("/HomeScreenCompanion/ApplyTagHomeSections", "POST")]
     [Authenticated(Roles = "Admin")]
-    public class HscApplyTagHomeSectionsRequest : MediaBrowser.Model.Services.IReturn<HscApplyTagHomeSectionsResponse>
+    public class ApplyTagHomeSectionsRequest : MediaBrowser.Model.Services.IReturn<ApplyTagHomeSectionsResponse>
     {
         public string TagName { get; set; } = "";
     }
 
-    public class HscApplyTagHomeSectionsResponse
+    public class ApplyTagHomeSectionsResponse
     {
         public bool Success { get; set; }
         public string Message { get; set; } = "";

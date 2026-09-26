@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using HomeScreenCompanion;
 using Xunit;
 
 namespace HomeScreenCompanion.Tests;
@@ -28,25 +29,25 @@ public sealed class EndpointReflectionTests
         ?? throw new System.InvalidOperationException("SDK type not found: " + fullName);
 
     [Fact]
-    public void HscEndpoints_File_Has_Zero_BindingFlags_References()
+    public void Endpoints_File_Has_Zero_BindingFlags_References()
     {
         // T2 replaces the runtime reflection BFS over IUserManager with a
         // static method list. This guard prevents the reflection crawl from
         // creeping back.
-        var path = Path.Combine(RepoRoot, "HomeScreenCompanion", "Endpoints", "HscEndpoints.cs");
+        var path = Path.Combine(RepoRoot, "HomeScreenCompanion", "Endpoints", "Endpoints.cs");
         Assert.True(File.Exists(path));
         var text = File.ReadAllText(path);
 
         Assert.False(text.Contains("BindingFlags."),
-            "HscEndpoints.cs must not reference System.Reflection.BindingFlags.");
+            "Endpoints.cs must not reference System.Reflection.BindingFlags.");
         Assert.False(text.Contains("typeof(IUserManager)"),
-            "HscEndpoints.cs must not walk IUserManager by reflection.");
+            "Endpoints.cs must not walk IUserManager by reflection.");
     }
 
     [Fact]
-    public void HscStatusResponse_Has_TaskInfo_Of_SDK_Type()
+    public void StatusResponse_Has_TaskInfo_Of_SDK_Type()
     {
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscStatusResponse");
+        var t = typeof(StatusResponse);
         Assert.NotNull(t);
         var prop = t!.GetProperty("TaskInfo", BindingFlags.Public | BindingFlags.Instance);
         Assert.NotNull(prop);
@@ -54,9 +55,9 @@ public sealed class EndpointReflectionTests
     }
 
     [Fact]
-    public void HscStatusResponse_Also_Exposes_Logs_StartedUtc_And_SectionsCopied()
+    public void StatusResponse_Also_Exposes_Logs_StartedUtc_And_SectionsCopied()
     {
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscStatusResponse")!;
+        var t = typeof(StatusResponse);
         var names = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.Name)
             .ToHashSet();
@@ -67,9 +68,9 @@ public sealed class EndpointReflectionTests
     }
 
     [Fact]
-    public void HscRunRequest_Is_Admin_Only()
+    public void RunRequest_Is_Admin_Only()
     {
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscRunRequest")!;
+        var t = typeof(RunRequest);
         var authType = SdkType("MediaBrowser.Controller.Net.AuthenticatedAttribute");
         var attrs = t.GetCustomAttributesData();
         Assert.Contains(attrs, a => a.AttributeType?.FullName == authType.FullName);
@@ -82,17 +83,17 @@ public sealed class EndpointReflectionTests
             .Any(arg => arg.MemberName == "Roles"
                      && arg.TypedValue.ArgumentType == typeof(string)
                      && (string?)arg.TypedValue.Value == "Admin");
-        Assert.True(hasAdmin, "HscRunRequest must declare [Authenticated(Roles = \"Admin\")].");
+        Assert.True(hasAdmin, "RunRequest must declare [Authenticated(Roles = \"Admin\")].");
     }
 
     [Fact]
-    public void HscGetStatusV2Request_Is_Authenticated_Not_Admin()
+    public void StatusV2Request_Is_Authenticated_Not_Admin()
     {
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscGetStatusV2Request")!;
+        var t = typeof(StatusV2Request);
         var authType = SdkType("MediaBrowser.Controller.Net.AuthenticatedAttribute");
         var attrs = t.GetCustomAttributesData();
         bool isAuth = attrs.Any(a => a.AttributeType?.FullName == authType.FullName);
-        Assert.True(isAuth, "HscGetStatusV2Request must be [Authenticated].");
+        Assert.True(isAuth, "StatusV2Request must be [Authenticated].");
 
         bool isAdmin = attrs
             .Where(a => a.AttributeType.FullName == authType.FullName)
@@ -100,13 +101,13 @@ public sealed class EndpointReflectionTests
             .Any(arg => arg.MemberName == "Roles"
                      && arg.TypedValue.ArgumentType == typeof(string)
                      && (string?)arg.TypedValue.Value == "Admin");
-        Assert.False(isAdmin, "HscGetStatusV2Request must NOT be Admin-only.");
+        Assert.False(isAdmin, "StatusV2Request must NOT be Admin-only.");
     }
 
     [Fact]
-    public void HscDebugMethodsRequest_Is_Admin_Only()
+    public void DebugMethodsRequest_Is_Admin_Only()
     {
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscDebugMethodsRequest")!;
+        var t = typeof(DebugMethodsRequest);
         var authType = SdkType("MediaBrowser.Controller.Net.AuthenticatedAttribute");
         var attrs = t.GetCustomAttributesData();
         bool isAdmin = attrs

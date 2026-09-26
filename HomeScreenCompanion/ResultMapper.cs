@@ -6,7 +6,7 @@ namespace HomeScreenCompanion
     /// Maps the HSC task's free-form status text ("Success", "Failed:
     /// …", empty) onto the SDK's <see cref="TaskCompletionStatus"/>.
     /// </summary>
-    internal static class HscResultMapper
+    internal static class ResultMapper
     {
         public static TaskCompletionStatus ToCompletionStatus(string statusText)
         {

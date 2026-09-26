@@ -22,7 +22,7 @@ namespace HomeScreenCompanion
         {
             List<string> logs;
             lock (HomeScreenCompanionTask.ExecutionLog) { logs = HomeScreenCompanionTask.ExecutionLog.ToList(); }
-            return new StatusResponse
+            return new BasicStatusResponse
             {
                 LastRunStatus = HomeScreenCompanionTask.LastRunStatus,
                 Logs = logs,

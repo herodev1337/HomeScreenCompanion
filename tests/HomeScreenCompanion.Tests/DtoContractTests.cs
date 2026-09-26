@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Reflection;
+using HomeScreenCompanion;
 using MediaBrowser.Model.Tasks;
 using Xunit;
 
@@ -11,7 +12,7 @@ namespace HomeScreenCompanion.Tests;
 /// Verifies:
 /// * dead types <c>HscUserDto</c> + <c>HscUsersResponse</c> are gone,
 /// * <c>ExternalItemDto</c> moved to <c>ListFetcher</c> namespace,
-/// * <c>HscSyncStatusResponse.LastSyncResult</c> is the SDK <c>TaskInfo</c>,
+/// * <c>SyncStatusResponse.LastSyncResult</c> is the SDK <c>TaskInfo</c>,
 /// * JSON property names stay stable (the legacy ClientApp is gone, but
 ///   we still produce stable wire shapes for ad-hoc API consumers).
 /// </summary>
@@ -46,9 +47,9 @@ public sealed class DtoContractTests
     }
 
     [Fact]
-    public void HscSyncStatusResponse_LastSyncResult_Is_TaskInfo()
+    public void SyncStatusResponse_LastSyncResult_Is_TaskInfo()
     {
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscSyncStatusResponse");
+        var t = typeof(SyncStatusResponse);
         Assert.NotNull(t);
         var prop = t!.GetProperty("LastSyncResult", BindingFlags.Public | BindingFlags.Instance);
         Assert.NotNull(prop);
@@ -56,12 +57,12 @@ public sealed class DtoContractTests
     }
 
     [Fact]
-    public void HscSyncStatusResponse_Has_Stable_Json_Property_Names()
+    public void SyncStatusResponse_Has_Stable_Json_Property_Names()
     {
         // The legacy ClientApp (now deleted) parsed these field names; any
         // extension API consumers still depend on them, so renaming would be
         // a breaking API change.
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscSyncStatusResponse")!;
+        var t = typeof(SyncStatusResponse);
         var names = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.Name)
             .ToHashSet();
@@ -74,11 +75,11 @@ public sealed class DtoContractTests
     }
 
     [Fact]
-    public void HscResultMapper_Static_ToCompletionStatus_Maps_Free_Form_Text()
+    public void ResultMapper_Static_ToCompletionStatus_Maps_Free_Form_Text()
     {
-        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscResultMapper");
+        var t = typeof(ResultMapper);
         Assert.NotNull(t);
-        Assert.True(t!.IsAbstract && t.IsSealed, "HscResultMapper must be a static class");
+        Assert.True(t!.IsAbstract && t.IsSealed, "ResultMapper must be a static class");
 
         var method = t.GetMethod("ToCompletionStatus",
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);

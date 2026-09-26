@@ -21,7 +21,7 @@ namespace HomeScreenCompanion
 
     [Route("/HomeScreenCompanion/Status", "GET")]
     [Authenticated]
-    public class GetStatusRequest : IReturn<StatusResponse> { }
+    public class GetStatusRequest : IReturn<BasicStatusResponse> { }
 
     [Route("/HomeScreenCompanion/Version", "GET")]
     [Authenticated]
@@ -32,7 +32,7 @@ namespace HomeScreenCompanion
         public string Version { get; set; } = "";
     }
 
-    public class StatusResponse
+    public class BasicStatusResponse
     {
         public string LastRunStatus { get; set; } = string.Empty;
         public List<string> Logs { get; set; } = new List<string>();
@@ -53,9 +53,9 @@ namespace HomeScreenCompanion
         public string Message { get; set; } = "";
     }
 
-    [Route("/HomeScreenCompanion/Hsc/Status", "GET")]
+    [Route("/HomeScreenCompanion/SyncStatus", "GET")]
     [Authenticated]
-    public class HscGetStatusRequest : IReturn<HscSyncStatusResponse> { }
+    public class StatusRequest : IReturn<SyncStatusResponse> { }
 
     [Route("/HomeScreenCompanion/DebugSections", "GET")]
     [Authenticated(Roles = "Admin")]
