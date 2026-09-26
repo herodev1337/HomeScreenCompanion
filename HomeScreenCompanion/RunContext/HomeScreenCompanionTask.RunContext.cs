@@ -20,7 +20,7 @@ namespace HomeScreenCompanion
         // they no longer need closure-captured locals or instance fields.
         // Uses plain fields (no `required`) because the project targets netstandard2.0 where the
         // required-metadata runtime attribute is not available.
-        private sealed class RunContext
+        internal sealed class RunContext
         {
             public PluginConfiguration Config;
             public bool Debug;

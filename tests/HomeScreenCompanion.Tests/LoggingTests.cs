@@ -11,28 +11,17 @@ namespace HomeScreenCompanion.Tests;
 
 /// <summary>
 /// E2a — logging/catch triage regressions:
-///   - RunLog sink is capped at <see cref="Cap"/> lines; oldest dropped first.
+///   - RunLog sink is capped at <see cref="RunLog.MaxLines"/> lines; oldest dropped first.
 ///   - RunLog source contains no <c>DateTime.Now</c> (UtcNow only).
-///   - TryParseDouble helper (if extracted) is culture-invariant.
+///   - TryParseDouble helper is culture-invariant.
 ///   - ListFetcher no longer has bare <c>catch { break; }</c> in pagination loops.
 /// </summary>
 public class LoggingTests
 {
-    private const string RunLogTypeName = "HomeScreenCompanion.RunLog";
-
-    private static Type? RunLogType()
+    private static RunLog NewRunLog(out List<string> sink, int extended = 0)
     {
-        HscAssembly.EnsureAvailable();
-        return HscAssembly.FindType(RunLogTypeName);
-    }
-
-    private static object NewRunLog(out List<string> sink, int extended = 0)
-    {
-        HscAssembly.EnsureAvailable();
         sink = new List<string>();
-        var t = RunLogType()!;
-        // ILogger lives in MediaBrowser.Model.dll which is not the plugin assembly — FindType on
-        // HscAssembly.Assembly won't find it. Resolve via the ctor parameter type instead.
+        var t = typeof(RunLog);
         var ctor = t.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
             .FirstOrDefault(c =>
             {
@@ -41,34 +30,28 @@ public class LoggingTests
                     && ps[0].ParameterType == typeof(List<string>)
                     && ps[2].ParameterType == typeof(string)
                     && ps[3].ParameterType == typeof(bool);
-            }) ?? throw new MissingMethodException(RunLogTypeName, ".ctor");
-        return ctor.Invoke(new object?[] { sink, null, "", extended != 0 });
+            }) ?? throw new MissingMethodException(typeof(RunLog).FullName!, ".ctor");
+        return (RunLog)ctor.Invoke(new object?[] { sink, null, "", extended != 0 });
     }
 
     [Fact]
     public void RunLog_CapHoldsAndDropsOldest()
     {
-        HscAssembly.EnsureAvailable();
-        var t = RunLogType()!;
-        var capField = t.GetField("MaxLines", BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(capField);
-        var cap = (int)capField!.GetValue(null)!;
+        var cap = RunLog.MaxLines;
         Assert.True(cap >= 1000, $"Cap constant should be at least 1000; got {cap}.");
 
         var log = NewRunLog(out var sink);
 
         // Append (cap + 500) lines via Info() so we exercise the public API path.
-        var info = t.GetMethod("Info", BindingFlags.Public | BindingFlags.Instance)!;
         var toWrite = cap + 500;
         for (int i = 0; i < toWrite; i++)
-            info.Invoke(log, new object?[] { $"line {i:0000}" });
+            log.Info($"line {i:0000}");
 
         Assert.True(sink.Count <= cap, $"Sink grew past cap: {sink.Count} > {cap}.");
         Assert.Equal(cap, sink.Count);
 
         // Oldest entries were dropped — the first surviving line is later than the very first one we wrote.
         var firstSurviving = sink[0];
-        var firstWritten = $"[{(DateTime.UtcNow.ToString("HH:mm:ss"))}] line 0000";
         // We can't compare timestamps directly because each line is timestamped; but we can check the
         // numeric suffix of the first surviving line is past 0 (proves oldest were dropped).
         Assert.DoesNotContain("line 0000", firstSurviving);
@@ -82,10 +65,6 @@ public class LoggingTests
     [Fact]
     public void RunLog_NoDateTimeNow()
     {
-        HscAssembly.EnsureAvailable();
-        var t = RunLogType()!;
-        var path = t.Assembly.Location;
-        // The compiled assembly is what matters; check its IL/source path.
         var srcRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
         var sourcePath = Path.Combine(srcRoot, "HomeScreenCompanion", "RunLog.cs");
         Assert.True(File.Exists(sourcePath), "RunLog.cs not found at " + sourcePath);
@@ -119,34 +98,17 @@ public class LoggingTests
     [Fact]
     public void TryParseDouble_InvariantCulture_ParsesDotOnly()
     {
-        HscAssembly.EnsureAvailable();
-        var t = HscAssembly.FindType("HomeScreenCompanion.TypeSniffing");
-        // Not every extraction lands the helper in this exact class; scan for a TryParseDouble method
-        // anywhere in the loaded assembly instead.
-        var helper = HscAssembly.Assembly.GetTypes()
-            .FirstOrDefault(x => x.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
-                .Any(m => m.Name == "TryParseDouble" && m.ReturnType == typeof(bool)
-                    && m.GetParameters().Length == 2
-                    && m.GetParameters()[0].ParameterType == typeof(string)
-                    && m.GetParameters()[1].ParameterType == typeof(double).MakeByRefType()));
-        Assert.NotNull(helper);
-
-        var method = helper!.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
-            .First(m => m.Name == "TryParseDouble");
-        var args = method.GetParameters();
-
         var prev = Thread.CurrentThread.CurrentCulture;
         try
         {
             Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
 
-            var dotArgs = new object?[] { "1.5", 0.0 };
-            var dotOk = (bool)method.Invoke(null, dotArgs)!;
+            double result;
+            var dotOk = ParseHelpers.TryParseDouble("1.5", out result);
             Assert.True(dotOk, "TryParseDouble('1.5') must succeed under de-DE (Invariant parsing of dot).");
-            Assert.Equal(1.5, (double)dotArgs[1]!, 6);
+            Assert.Equal(1.5, result, 6);
 
-            var commaArgs = new object?[] { "1,5", 0.0 };
-            var commaOk = (bool)method.Invoke(null, commaArgs)!;
+            var commaOk = ParseHelpers.TryParseDouble("1,5", out _);
             Assert.False(commaOk, "TryParseDouble('1,5') must fail under de-DE (Invariant culture rejects comma decimal).");
         }
         finally

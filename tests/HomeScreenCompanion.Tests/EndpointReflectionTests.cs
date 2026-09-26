@@ -1,8 +1,6 @@
-using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using Xunit;
 
 namespace HomeScreenCompanion.Tests;
@@ -10,18 +8,24 @@ namespace HomeScreenCompanion.Tests;
 /// <summary>
 /// Audit-plan v2 / Wave 2 / T2: source-level guarantees for the
 /// SDK-typed status / run endpoints. Source scan + reflection on
-/// the new typed response shape.
+/// the new typed response shape. All calls go through
+/// <see cref="typeof(HomeScreenCompanion.HomeScreenCompanionService).Assembly"/>
+/// — no separate DLL loading is needed because the test project
+/// has a <c>ProjectReference</c> to the plugin.
 /// </summary>
 public sealed class EndpointReflectionTests
 {
     private static string RepoRoot
-    {
-        get
-        {
-            var baseDir = System.AppContext.BaseDirectory;
-            return Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", ".."));
-        }
-    }
+        => Path.GetFullPath(Path.Combine(System.AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+
+    private static System.Type SdkType(string fullName) =>
+        typeof(MediaBrowser.Model.Plugins.PluginInfo).Assembly.GetType(fullName)
+        ?? typeof(MediaBrowser.Controller.Library.ILibraryManager).Assembly.GetType(fullName)
+        ?? typeof(MediaBrowser.Common.Net.IHttpClient).Assembly.GetType(fullName)
+        ?? System.AppDomain.CurrentDomain.GetAssemblies()
+            .Select(a => a.GetType(fullName))
+            .FirstOrDefault(t => t != null)
+        ?? throw new System.InvalidOperationException("SDK type not found: " + fullName);
 
     [Fact]
     public void HscEndpoints_File_Has_Zero_BindingFlags_References()
@@ -42,7 +46,7 @@ public sealed class EndpointReflectionTests
     [Fact]
     public void HscStatusResponse_Has_TaskInfo_Of_SDK_Type()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscStatusResponse");
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscStatusResponse");
         Assert.NotNull(t);
         var prop = t!.GetProperty("TaskInfo", BindingFlags.Public | BindingFlags.Instance);
         Assert.NotNull(prop);
@@ -52,7 +56,7 @@ public sealed class EndpointReflectionTests
     [Fact]
     public void HscStatusResponse_Also_Exposes_Logs_StartedUtc_And_SectionsCopied()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscStatusResponse")!;
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscStatusResponse")!;
         var names = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.Name)
             .ToHashSet();
@@ -65,16 +69,15 @@ public sealed class EndpointReflectionTests
     [Fact]
     public void HscRunRequest_Is_Admin_Only()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscRunRequest")!;
-        var authType = FindTypeAcrossLoadedAssemblies("MediaBrowser.Controller.Net.AuthenticatedAttribute");
-        Assert.NotNull(authType);
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscRunRequest")!;
+        var authType = SdkType("MediaBrowser.Controller.Net.AuthenticatedAttribute");
         var attrs = t.GetCustomAttributesData();
-        Assert.Contains(attrs, a => a.AttributeType?.FullName == authType!.FullName);
+        Assert.Contains(attrs, a => a.AttributeType?.FullName == authType.FullName);
 
         // [Authenticated(Roles = "Admin")] uses the parameterless ctor +
         // Roles as a named property.
         bool hasAdmin = attrs
-            .Where(a => a.AttributeType.FullName == authType!.FullName)
+            .Where(a => a.AttributeType.FullName == authType.FullName)
             .SelectMany(a => a.NamedArguments)
             .Any(arg => arg.MemberName == "Roles"
                      && arg.TypedValue.ArgumentType == typeof(string)
@@ -85,15 +88,14 @@ public sealed class EndpointReflectionTests
     [Fact]
     public void HscGetStatusV2Request_Is_Authenticated_Not_Admin()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscGetStatusV2Request")!;
-        var authType = FindTypeAcrossLoadedAssemblies("MediaBrowser.Controller.Net.AuthenticatedAttribute");
-        Assert.NotNull(authType);
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscGetStatusV2Request")!;
+        var authType = SdkType("MediaBrowser.Controller.Net.AuthenticatedAttribute");
         var attrs = t.GetCustomAttributesData();
-        bool isAuth = attrs.Any(a => a.AttributeType?.FullName == authType!.FullName);
+        bool isAuth = attrs.Any(a => a.AttributeType?.FullName == authType.FullName);
         Assert.True(isAuth, "HscGetStatusV2Request must be [Authenticated].");
 
         bool isAdmin = attrs
-            .Where(a => a.AttributeType?.FullName == authType!.FullName)
+            .Where(a => a.AttributeType.FullName == authType.FullName)
             .SelectMany(a => a.NamedArguments)
             .Any(arg => arg.MemberName == "Roles"
                      && arg.TypedValue.ArgumentType == typeof(string)
@@ -104,44 +106,15 @@ public sealed class EndpointReflectionTests
     [Fact]
     public void HscDebugMethodsRequest_Is_Admin_Only()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscDebugMethodsRequest")!;
-        var authType = FindTypeAcrossLoadedAssemblies("MediaBrowser.Controller.Net.AuthenticatedAttribute");
-        Assert.NotNull(authType);
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscDebugMethodsRequest")!;
+        var authType = SdkType("MediaBrowser.Controller.Net.AuthenticatedAttribute");
         var attrs = t.GetCustomAttributesData();
         bool isAdmin = attrs
-            .Where(a => a.AttributeType?.FullName == authType!.FullName)
+            .Where(a => a.AttributeType.FullName == authType.FullName)
             .SelectMany(a => a.NamedArguments)
             .Any(arg => arg.MemberName == "Roles"
                      && arg.TypedValue.ArgumentType == typeof(string)
                      && (string?)arg.TypedValue.Value == "Admin");
         Assert.True(isAdmin);
-    }
-
-    private static Type? FindTypeAcrossLoadedAssemblies(string fullName)
-    {
-        // First, walk already-loaded assemblies.
-        foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var t = asm.GetType(fullName, throwOnError: false);
-            if (t != null) return t;
-        }
-
-        // Fallback: explicitly load MediaBrowser.Controller.dll from the test
-        // bin folder (the SDK is a PrivateAssets="all" ref but the DLLs are
-        // not eagerly loaded by netcore/xunit). Cover the Common + Model +
-        // Controller trio so the same helper works for other SDK types too.
-        var baseDir = System.AppContext.BaseDirectory;
-        foreach (var name in new[] { "MediaBrowser.Controller.dll", "MediaBrowser.Common.dll", "MediaBrowser.Model.dll" })
-        {
-            try
-            {
-                var asm = Assembly.LoadFrom(Path.Combine(baseDir, name));
-                var t = asm.GetType(fullName, throwOnError: false);
-                if (t != null) return t;
-            }
-            catch (FileNotFoundException) { /* SDK dll not in the test bin */ }
-            catch (Exception) { /* ignore — helper is best-effort */ }
-        }
-        return null;
     }
 }

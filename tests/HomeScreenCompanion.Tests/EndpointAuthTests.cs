@@ -20,7 +20,6 @@ public class EndpointAuthTests
 {
     private const string AuthenticatedAttributeFullName = "MediaBrowser.Controller.Net.AuthenticatedAttribute";
     private const string UnauthenticatedAttributeFullName = "MediaBrowser.Controller.Net.UnauthenticatedAttribute";
-    private const string ServiceTypeName = "HomeScreenCompanion.HomeScreenCompanionService";
 
     /// <summary>Every route in this set must carry <c>[Authenticated(Roles = "Admin")]</c>.</summary>
     private static readonly string[] AdminDtos =
@@ -94,8 +93,6 @@ public class EndpointAuthTests
     [Fact]
     public void EveryRouteDto_CarriesAuthenticatedOrUnauthenticated()
     {
-        HscAssembly.EnsureAvailable();
-
         var routeDtos = RouteDtoTypes();
         Assert.Equal(36, routeDtos.Count);
 
@@ -113,8 +110,6 @@ public class EndpointAuthTests
     [Fact]
     public void AdminRouteDtos_RequireAdminRole()
     {
-        HscAssembly.EnsureAvailable();
-
         foreach (var name in AdminDtos)
         {
             var dto = RequireType(name);
@@ -130,8 +125,6 @@ public class EndpointAuthTests
     [Fact]
     public void AuthenticatedOnlyRouteDtos_AreNotAdminGated()
     {
-        HscAssembly.EnsureAvailable();
-
         foreach (var name in AuthenticatedDtos)
         {
             var dto = RequireType(name);
@@ -147,8 +140,6 @@ public class EndpointAuthTests
     [Fact]
     public void NoRouteDto_UsesUnauthenticated()
     {
-        HscAssembly.EnsureAvailable();
-
         var offenders = RouteDtoTypes()
             .Where(dto => FindAttribute(dto, UnauthenticatedAttributeFullName) != null)
             .Select(dto => dto.Name)
@@ -162,8 +153,6 @@ public class EndpointAuthTests
     [Fact]
     public void EndpointSources_OnlyTrustBodyUserId_OnAdminOrResolvedRoutes()
     {
-        HscAssembly.EnsureAvailable();
-
         var endpointsDir = Path.Combine(RepoRoot(), "HomeScreenCompanion", "Endpoints");
         Assert.True(Directory.Exists(endpointsDir), "Endpoints source directory not found: " + endpointsDir);
 
@@ -208,20 +197,12 @@ public class EndpointAuthTests
     [InlineData("u1", false, "U1", "u1")]
     public void ResolveUserId_TruthTable(string callerId, bool callerIsAdmin, string requestedUserId, string expected)
     {
-        HscAssembly.EnsureAvailable();
-
-        var method = HscAssembly.FindStaticMethod(ServiceTypeName, "ResolveUserId", typeof(string), typeof(bool), typeof(string));
-        Assert.NotNull(method);
-
-        var actual = (string)method!.Invoke(null, new object?[] { callerId, callerIsAdmin, requestedUserId })!;
-        Assert.Equal(expected, actual);
+        Assert.Equal(expected, HomeScreenCompanionService.ResolveUserId(callerId, callerIsAdmin, requestedUserId));
     }
 
     [Fact]
     public void Service_ImplementsIRequiresRequest_WithPublicSettableRequest()
     {
-        HscAssembly.EnsureAvailable();
-
         var service = RequireType("HomeScreenCompanionService");
         Assert.True(typeof(MediaBrowser.Model.Services.IRequiresRequest).IsAssignableFrom(service));
 
@@ -243,7 +224,7 @@ public class EndpointAuthTests
             .Where(method => handlerNames.Contains(method.Name))
             .Select(method => method.GetParameters())
             .Where(parameters => parameters.Length == 1
-                              && parameters[0].ParameterType.Assembly == HscAssembly.Assembly)
+                              && parameters[0].ParameterType.Assembly == typeof(Plugin).Assembly)
             .Select(parameters => parameters[0].ParameterType)
             .Distinct()
             .OrderBy(type => type.Name, StringComparer.Ordinal)
@@ -252,7 +233,7 @@ public class EndpointAuthTests
 
     private static Type RequireType(string name)
     {
-        var type = HscAssembly.FindType("HomeScreenCompanion." + name);
+        var type = typeof(Plugin).Assembly.GetType("HomeScreenCompanion." + name);
         Assert.True(type != null, "Type HomeScreenCompanion." + name + " not found in the plugin assembly.");
         return type!;
     }

@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 using System.Reflection;
 using MediaBrowser.Model.Tasks;
@@ -21,13 +20,13 @@ public sealed class DtoContractTests
     [Fact]
     public void HscUserDto_Is_Deleted()
     {
-        Assert.Null(HscAssembly.FindType("HomeScreenCompanion.HscUserDto"));
+        Assert.Null(typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscUserDto"));
     }
 
     [Fact]
     public void HscUsersResponse_Is_Deleted()
     {
-        Assert.Null(HscAssembly.FindType("HomeScreenCompanion.HscUsersResponse"));
+        Assert.Null(typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscUsersResponse"));
     }
 
     [Fact]
@@ -36,7 +35,7 @@ public sealed class DtoContractTests
         // Same namespace (HomeScreenCompanion); moved from DTOs.cs to
         // ListFetcher.cs in Wave 2 / T1 since ListFetcher is the only
         // consumer. Public contract unchanged.
-        var moved = HscAssembly.FindType("HomeScreenCompanion.ExternalItemDto");
+        var moved = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.ExternalItemDto");
         Assert.NotNull(moved);
         var props = moved!.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.Name)
@@ -49,7 +48,7 @@ public sealed class DtoContractTests
     [Fact]
     public void HscSyncStatusResponse_LastSyncResult_Is_TaskInfo()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscSyncStatusResponse");
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscSyncStatusResponse");
         Assert.NotNull(t);
         var prop = t!.GetProperty("LastSyncResult", BindingFlags.Public | BindingFlags.Instance);
         Assert.NotNull(prop);
@@ -62,7 +61,7 @@ public sealed class DtoContractTests
         // The legacy ClientApp (now deleted) parsed these field names; any
         // extension API consumers still depend on them, so renaming would be
         // a breaking API change.
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscSyncStatusResponse")!;
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscSyncStatusResponse")!;
         var names = t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => p.Name)
             .ToHashSet();
@@ -77,7 +76,7 @@ public sealed class DtoContractTests
     [Fact]
     public void HscResultMapper_Static_ToCompletionStatus_Maps_Free_Form_Text()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HscResultMapper");
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HscResultMapper");
         Assert.NotNull(t);
         Assert.True(t!.IsAbstract && t.IsSealed, "HscResultMapper must be a static class");
 
@@ -90,7 +89,7 @@ public sealed class DtoContractTests
     [Fact]
     public void HomeSectionSyncTask_Exposes_HscTaskKey_And_HscTaskName_Constants()
     {
-        var t = HscAssembly.FindType("HomeScreenCompanion.HomeSectionSyncTask")!;
+        var t = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.HomeSectionSyncTask")!;
         var key = t.GetField("HscTaskKey",
             BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(key);
@@ -100,15 +99,5 @@ public sealed class DtoContractTests
             BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(name);
         Assert.True(name!.IsLiteral, "HscTaskName must be a const");
-    }
-
-    private static Type? FindTypeAcrossLoadedAssemblies(string fullName)
-    {
-        foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var t = asm.GetType(fullName, throwOnError: false);
-            if (t != null) return t;
-        }
-        return null;
     }
 }

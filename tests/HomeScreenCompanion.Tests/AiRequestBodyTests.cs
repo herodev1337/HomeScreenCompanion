@@ -69,8 +69,6 @@ internal sealed class TestJsonSerializer : IJsonSerializer
 /// </summary>
 public class AiRequestBodyTests
 {
-    private const string FetcherType = "HomeScreenCompanion.ListFetcher";
-
     private static readonly string[] SpecialValues =
     {
         "double quote \" backslash \\ newline \n end",
@@ -79,33 +77,12 @@ public class AiRequestBodyTests
         new string('x', 10000)
     };
 
-    private static MethodInfo FindBuilder(string name, int stringArguments)
-    {
-        HscAssembly.EnsureAvailable();
-        var parameterTypes = new Type[1 + stringArguments];
-        parameterTypes[0] = typeof(IJsonSerializer);
-        for (var i = 1; i < parameterTypes.Length; i++) parameterTypes[i] = typeof(string);
-
-        var method = HscAssembly.FindStaticMethod(FetcherType, name, parameterTypes);
-        Assert.NotNull(method);
-        return method!;
-    }
-
-    private static string Build(string name, int stringArguments, params string[] values)
-    {
-        var args = new object?[values.Length + 1];
-        args[0] = new TestJsonSerializer();
-        for (var i = 0; i < values.Length; i++) args[i + 1] = values[i];
-        return (string)FindBuilder(name, stringArguments).Invoke(null, args)!;
-    }
-
     [Fact]
     public void OpenAiRequestBody_RoundTripsSpecialValues()
     {
-        HscAssembly.EnsureAvailable();
         foreach (var value in SpecialValues)
         {
-            var json = Build("BuildOpenAiRequestBody", 3, value, value, value);
+            var json = ListFetcher.BuildOpenAiRequestBody(new TestJsonSerializer(), value, value, value);
             using var doc = Stj.JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -122,10 +99,9 @@ public class AiRequestBodyTests
     [Fact]
     public void ClaudeRequestBody_RoundTripsSpecialValues()
     {
-        HscAssembly.EnsureAvailable();
         foreach (var value in SpecialValues)
         {
-            var json = Build("BuildClaudeRequestBody", 3, value, value, value);
+            var json = ListFetcher.BuildClaudeRequestBody(new TestJsonSerializer(), value, value, value);
             using var doc = Stj.JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -142,10 +118,9 @@ public class AiRequestBodyTests
     [Fact]
     public void OllamaRequestBody_RoundTripsSpecialValues()
     {
-        HscAssembly.EnsureAvailable();
         foreach (var value in SpecialValues)
         {
-            var json = Build("BuildOllamaRequestBody", 3, value, value, value);
+            var json = ListFetcher.BuildOllamaRequestBody(new TestJsonSerializer(), value, value, value);
             using var doc = Stj.JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -163,10 +138,9 @@ public class AiRequestBodyTests
     [Fact]
     public void GeminiRequestBody_RoundTripsSpecialValues()
     {
-        HscAssembly.EnsureAvailable();
         foreach (var value in SpecialValues)
         {
-            var json = Build("BuildGeminiRequestBody", 2, value, value);
+            var json = ListFetcher.BuildGeminiRequestBody(new TestJsonSerializer(), value, value);
             using var doc = Stj.JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -181,11 +155,7 @@ public class AiRequestBodyTests
     [Fact]
     public void GeminiUrl_CarriesModelAndKey()
     {
-        HscAssembly.EnsureAvailable();
-        var method = HscAssembly.FindStaticMethod(FetcherType, "BuildGeminiUrl", typeof(string), typeof(string));
-        Assert.NotNull(method);
-
-        var url = (string)method!.Invoke(null, new object?[] { "KEY", "gemini-2.0-flash" })!;
+        var url = ListFetcher.BuildGeminiUrl("KEY", "gemini-2.0-flash");
         Assert.Equal(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=KEY",
             url);
@@ -194,14 +164,10 @@ public class AiRequestBodyTests
     [Fact]
     public void EscapeJsonString_WasDeleted()
     {
-        HscAssembly.EnsureAvailable();
-        var type = HscAssembly.FindType(FetcherType);
-        Assert.NotNull(type);
-
-        var method = type!.GetMethod(
+        var type = typeof(ListFetcher);
+        var method = type.GetMethod(
             "EscapeJsonString",
             BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-
         Assert.Null(method);
     }
 }

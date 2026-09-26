@@ -1,6 +1,4 @@
 using System;
-using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Model.Serialization;
@@ -22,21 +20,10 @@ namespace HomeScreenCompanion.Tests;
 /// </summary>
 public class FetchAiListTests
 {
-    private const string FetcherType = "HomeScreenCompanion.ListFetcher";
-
-    private static object CreateFetcher()
-    {
-        HscAssembly.EnsureAvailable();
-        var type = HscAssembly.FindType(FetcherType);
-        Assert.NotNull(type);
-
-        var ctor = type!.GetConstructor(new[] { typeof(IHttpClient), typeof(IJsonSerializer) });
-        Assert.NotNull(ctor);
-        return ctor!.Invoke(new object?[] { null, new TestJsonSerializer() });
-    }
+    private static ListFetcher CreateFetcher() => new(null!, new TestJsonSerializer());
 
     private static Task InvokeFetchAiList(
-        object fetcher,
+        ListFetcher fetcher,
         string provider,
         string? openAiKey,
         string? geminiKey,
@@ -44,18 +31,7 @@ public class FetchAiListTests
         string? ollamaBaseUrl,
         string? ollamaModel)
     {
-        HscAssembly.EnsureAvailable();
-        var method = HscAssembly.FindType(FetcherType)!.GetMethod("FetchAiList", new[]
-        {
-            typeof(string), typeof(string), typeof(string), typeof(string),
-            typeof(string), typeof(string), typeof(string), typeof(string),
-            typeof(string), typeof(string), typeof(string), typeof(string),
-            typeof(int), typeof(CancellationToken)
-        });
-        Assert.NotNull(method);
-
-        return (Task)method!.Invoke(fetcher, new object?[]
-        {
+        return fetcher.FetchAiList(
             provider,
             "Recommend something",       // prompt
             openAiKey,
@@ -69,14 +45,12 @@ public class FetchAiListTests
             "",                          // systemPrompt
             "",                          // recentlyWatchedContext
             10,                          // limit
-            CancellationToken.None
-        })!;
+            default);
     }
 
     [Fact]
     public async Task OpenAI_MissingKey_ThrowsNotConfigured()
     {
-        HscAssembly.EnsureAvailable();
         var task = InvokeFetchAiList(CreateFetcher(), "OpenAI", null, "", "", "", "");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => task);
@@ -86,7 +60,6 @@ public class FetchAiListTests
     [Fact]
     public async Task Gemini_MissingKey_ThrowsNotConfigured()
     {
-        HscAssembly.EnsureAvailable();
         var task = InvokeFetchAiList(CreateFetcher(), "Gemini", "", null, "", "", "");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => task);
@@ -96,7 +69,6 @@ public class FetchAiListTests
     [Fact]
     public async Task Claude_MissingKey_ThrowsNotConfigured()
     {
-        HscAssembly.EnsureAvailable();
         var task = InvokeFetchAiList(CreateFetcher(), "Claude", "", "", "   ", "", "");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => task);
@@ -106,7 +78,6 @@ public class FetchAiListTests
     [Fact]
     public async Task Ollama_MissingBaseUrl_ThrowsNotConfigured()
     {
-        HscAssembly.EnsureAvailable();
         var task = InvokeFetchAiList(CreateFetcher(), "Ollama", "", "", "", null, "llama3");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => task);
@@ -116,7 +87,6 @@ public class FetchAiListTests
     [Fact]
     public async Task Ollama_MissingModel_ThrowsNotConfigured()
     {
-        HscAssembly.EnsureAvailable();
         var task = InvokeFetchAiList(CreateFetcher(), "Ollama", "", "", "", "http://localhost:11434", "");
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => task);

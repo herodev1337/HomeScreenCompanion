@@ -550,15 +550,15 @@ namespace HomeScreenCompanion
             } // EvaluateCriterionCore
         }
 
-        private static bool MatchesAny(string[] values, string search) =>
+        internal static bool MatchesAny(string[] values, string search) =>
             values != null && values.Any(v =>
                 v.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0);
 
-        private static string[] SplitCommaValues(string val) =>
+        internal static string[] SplitCommaValues(string val) =>
             val.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
                .Select(v => v.Trim()).Where(v => v.Length > 0).ToArray();
 
-        private static bool MatchesImdbId(string? itemImdb, string val) =>
+        internal static bool MatchesImdbId(string? itemImdb, string val) =>
             !string.IsNullOrEmpty(itemImdb) &&
             val.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
                .Any(id => string.Equals(itemImdb, id.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -590,7 +590,7 @@ namespace HomeScreenCompanion
             return CriterionCatalog.IsViewerOnlyGroup(GetAllCriteria(tagConfig));
         }
 
-        private static string EffectiveLegacyTargetType(TagConfig tagConfig)
+        internal static string EffectiveLegacyTargetType(TagConfig tagConfig)
         {
             if (!string.IsNullOrEmpty(tagConfig.MediaInfoTargetType))
                 return tagConfig.MediaInfoTargetType;
@@ -599,7 +599,7 @@ namespace HomeScreenCompanion
             return "";
         }
 
-        private static bool MatchesArtistOrAlbumArtist(BaseItem item, string name, bool exact)
+        internal static bool MatchesArtistOrAlbumArtist(BaseItem item, string name, bool exact)
         {
             try
             {
@@ -623,7 +623,7 @@ namespace HomeScreenCompanion
             return false;
         }
 
-        private static bool MatchesAlbumTitle(BaseItem item, string name, bool exact)
+        internal static bool MatchesAlbumTitle(BaseItem item, string name, bool exact)
         {
             string album = item.Album ?? "";
             return exact ? string.Equals(album, name, StringComparison.OrdinalIgnoreCase)
@@ -656,7 +656,7 @@ namespace HomeScreenCompanion
             return count;
         }
 
-        private static bool TagConfigIncludesParentSeries(TagConfig tagConfig) =>
+        internal static bool TagConfigIncludesParentSeries(TagConfig tagConfig) =>
             GetAllCriteria(tagConfig).Any(c =>
                 c.TrimStart('!').Equals("MediaType:EpisodeIncludeSeries", StringComparison.OrdinalIgnoreCase));
 
@@ -686,7 +686,7 @@ namespace HomeScreenCompanion
             return false;
         }
 
-        private static bool ApplyNumericOp(double v, string op, double num) => op switch
+        internal static bool ApplyNumericOp(double v, string op, double num) => op switch
         {
             ">" => v > num,
             ">=" => v >= num,
@@ -696,13 +696,13 @@ namespace HomeScreenCompanion
             _ => false
         };
 
-        private static double? TryGetDateModified(BaseItem item)
+        internal static double? TryGetDateModified(BaseItem item)
         {
             if (item.DateModified == default) return null;
             return (DateTime.UtcNow - item.DateModified.UtcDateTime).TotalDays;
         }
 
-        private static double? TryGetFileSize(BaseItem item)
+        internal static double? TryGetFileSize(BaseItem item)
         {
             if (item.Size <= 0) return null;
             return item.Size / 1048576.0;
@@ -732,11 +732,11 @@ namespace HomeScreenCompanion
             return (leg == "Episode", leg == "Season", leg == "Series");
         }
 
-        private static bool TagConfigTargetsEpisodes(TagConfig tagConfig) =>
+        internal static bool TagConfigTargetsEpisodes(TagConfig tagConfig) =>
             GetAllCriteria(tagConfig).Any(c =>
                 c.TrimStart('!').StartsWith("MediaType:Episode", StringComparison.OrdinalIgnoreCase));
 
-        private static bool ConfigNeedsMusicItems(PluginConfiguration config) =>
+        internal static bool ConfigNeedsMusicItems(PluginConfiguration config) =>
             config.Tags.Any(t => t.Active && t.SourceType == "MediaInfo"
                 && GetAllCriteria(t).Any(c =>
                 {
@@ -754,7 +754,7 @@ namespace HomeScreenCompanion
                         || s.StartsWith("DiscNumber:", StringComparison.OrdinalIgnoreCase);
                 }));
 
-        private static string[] BuildItemTypes(PluginConfiguration config)
+        internal static string[] BuildItemTypes(PluginConfiguration config)
         {
             var types = new List<string> { "Movie", "Series" };
             if (ConfigNeedsMusicItems(config))
@@ -762,7 +762,7 @@ namespace HomeScreenCompanion
             return types.ToArray();
         }
 
-        private static bool IsTaggableTopLevelItem(BaseItem item)
+        internal static bool IsTaggableTopLevelItem(BaseItem item)
         {
             var name = item.GetType().Name;
             return name.Contains("Movie") || name.Contains("Series")
@@ -770,7 +770,7 @@ namespace HomeScreenCompanion
                 || name.Contains("MusicVideo") || name.Contains("Audio");
         }
 
-        private static bool TagConfigTargetsSeason(TagConfig tagConfig)
+        internal static bool TagConfigTargetsSeason(TagConfig tagConfig)
         {
             var (_, tSea, _) = EffectiveTagTargets(tagConfig);
             var (_, cSea, _) = EffectiveCollectionTargets(tagConfig);
@@ -862,7 +862,7 @@ namespace HomeScreenCompanion
             return episodes;
         }
 
-        private static string? ExtractTitleContains(TagConfig tagConfig)
+        internal static string? ExtractTitleContains(TagConfig tagConfig)
         {
             foreach (var c in GetAllCriteria(tagConfig))
             {

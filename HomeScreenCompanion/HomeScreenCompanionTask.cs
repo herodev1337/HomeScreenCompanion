@@ -41,7 +41,7 @@ namespace HomeScreenCompanion
         // Single-run guard shared by Execute (scheduled) and RunSingleEntryAsync (HTTP).
         // Acquired at the top of each entry point so a second caller is rejected immediately
         // instead of interleaving with the active run.
-        private readonly RunGate _runGate = new RunGate();
+        internal readonly RunGate _runGate = new RunGate();
 
         // The RunContext created for the active run. The _run* property shims below
         // delegate to this field so the partials (Tagging/Collections/Playlists) keep
@@ -166,7 +166,7 @@ namespace HomeScreenCompanion
         // ExtendedItemsQuery class moved to HomeSections/HomeScreenCompanionTask.cs
         // (used only by BuildContentSection, which is also there).
 
-        private class GroupRunStats
+        internal class GroupRunStats
         {
             public string? DisplayName;
             public string? SourceType;
@@ -1602,7 +1602,7 @@ namespace HomeScreenCompanion
 
         // Identifies the UI group a flat TagConfig belongs to. The config page stores one flat entry
         // per URL / local source with the same Name + Tag, so several entries can share one key.
-        private static string GroupKey(TagConfig t) =>
+        internal static string GroupKey(TagConfig t) =>
             (t.Name ?? "").Trim() + "\x1F" + (t.Tag ?? "").Trim();
 
 

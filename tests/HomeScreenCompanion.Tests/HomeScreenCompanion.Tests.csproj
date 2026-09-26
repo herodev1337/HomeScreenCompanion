@@ -20,4 +20,8 @@
 		<PackageReference Include="SkiaSharp" Version="2.88.9" PrivateAssets="all" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<ProjectReference Include="..\..\HomeScreenCompanion\HomeScreenCompanion.csproj" />
+	</ItemGroup>
+
 </Project>

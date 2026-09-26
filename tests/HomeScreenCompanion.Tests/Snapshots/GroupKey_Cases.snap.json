@@ -1,5 +1,0 @@
-{
-  "basic": "foo\u001Fbar",
-  "trimmed": "foo\u001Fbar",
-  "empty": "\u001F"
-}

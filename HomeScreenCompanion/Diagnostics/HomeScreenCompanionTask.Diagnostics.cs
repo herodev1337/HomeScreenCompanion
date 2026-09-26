@@ -80,7 +80,7 @@ namespace HomeScreenCompanion
             _log.Info("    " + head + "  ·  " + DescribeSourceCounts(gs));
         }
 
-        private static string DescribeSourceCounts(GroupRunStats gs)
+        internal static string DescribeSourceCounts(GroupRunStats gs)
         {
             if (gs.BoxSetHse) return gs.BoxSetTaggedCount > 0 ? $"{RunLog.Plural(gs.BoxSetTaggedCount, "collection")} tagged" : "collection not found";
             if (gs.SourceType == "MediaInfo") return gs.ViewerOnly ? "current-user filter, resolved per user by the home section" : $"scanned {gs.ListCount:N0} items, {gs.MatchCount} matched";
@@ -206,7 +206,7 @@ namespace HomeScreenCompanion
             _log.Rule();
         }
 
-        private static string BuildFinalStatus(bool dryRun, int failed, int warned)
+        internal static string BuildFinalStatus(bool dryRun, int failed, int warned)
         {
             string s = failed > 0 ? $"Completed with {RunLog.Plural(failed, "error")}"
                      : warned > 0 ? $"Completed with {RunLog.Plural(warned, "warning")}"
@@ -214,7 +214,7 @@ namespace HomeScreenCompanion
             return dryRun ? "Dry run — " + s.Replace("Completed", "completed") : s;
         }
 
-        private static string StatusSymbol(int failed, int warned) => failed > 0 ? "✖" : warned > 0 ? "⚠" : "✔";
+        internal static string StatusSymbol(int failed, int warned) => failed > 0 ? "✖" : warned > 0 ? "⚠" : "✔";
 
         private void WriteMatchedItemsDebug(List<BaseItem> matchedLocalItems)
         {

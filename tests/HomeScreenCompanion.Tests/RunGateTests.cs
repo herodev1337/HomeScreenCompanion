@@ -42,8 +42,6 @@ namespace HomeScreenCompanion.Tests;
 /// </summary>
 public class RunGateTests
 {
-    private const string T = HscAssembly.TaskTypeName;
-
     private static readonly string[] MovedFieldNames =
     {
         "DesiredTagsMap",
@@ -90,97 +88,53 @@ public class RunGateTests
         "_runPlaylistGroupsToSkip",
     };
 
-    private static Type ResolveRunGateType()
-    {
-        HscAssembly.EnsureAvailable();
-        var taskType = HscAssembly.FindType(T)!;
-        var gateType = taskType.GetNestedType("RunGate", BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("HomeScreenCompanionTask.RunGate nested type not found.");
-        return gateType;
-    }
-
-    private static object NewGate()
-    {
-        var gateType = ResolveRunGateType();
-        return Activator.CreateInstance(gateType,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null, args: null, culture: null)!;
-    }
-
-    private static bool InvokeTryEnter(object gate, CancellationToken ct)
-    {
-        var m = ResolveRunGateType().GetMethod("TryEnterAsync",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException("HomeScreenCompanionTask.RunGate", "TryEnterAsync");
-        var task = (Task<bool>)m.Invoke(gate, new object[] { ct })!;
-        return task.GetAwaiter().GetResult();
-    }
-
-    private static void InvokeExit(object gate)
-    {
-        var m = ResolveRunGateType().GetMethod("Exit",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException("HomeScreenCompanionTask.RunGate", "Exit");
-        m.Invoke(gate, null);
-    }
-
-    private static bool GetIsHeld(object gate)
-    {
-        var p = ResolveRunGateType().GetProperty("IsHeld",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new MissingMemberException("HomeScreenCompanionTask.RunGate", "IsHeld");
-        return (bool)p.GetValue(gate)!;
-    }
-
     [Fact]
-    public void Acquire_Release_Acquire_Flow()
+    public async Task Acquire_Release_Acquire_Flow()
     {
-        var gate = NewGate();
+        var gate = new HomeScreenCompanionTask.RunGate();
 
         // 1. First acquire succeeds.
-        Assert.True(InvokeTryEnter(gate, CancellationToken.None));
-        Assert.True(GetIsHeld(gate));
+        Assert.True(await gate.TryEnterAsync(CancellationToken.None));
+        Assert.True(gate.IsHeld);
 
         // 2. Second acquire while held returns false, no exception.
-        var second = Record.Exception(() => InvokeTryEnter(gate, CancellationToken.None));
+        var second = await Record.ExceptionAsync(() => (System.Threading.Tasks.Task<bool>)gate.TryEnterAsync(CancellationToken.None));
         Assert.Null(second);
-        Assert.False(InvokeTryEnter(gate, CancellationToken.None));
-        Assert.True(GetIsHeld(gate));
+        Assert.False(await gate.TryEnterAsync(CancellationToken.None));
+        Assert.True(gate.IsHeld);
 
         // 3. Release, IsHeld drops, a fresh acquire succeeds.
-        InvokeExit(gate);
-        Assert.False(GetIsHeld(gate));
-        Assert.True(InvokeTryEnter(gate, CancellationToken.None));
-        Assert.True(GetIsHeld(gate));
+        gate.Exit();
+        Assert.False(gate.IsHeld);
+        Assert.True(await gate.TryEnterAsync(CancellationToken.None));
+        Assert.True(gate.IsHeld);
 
         // Cleanup so the test doesn't leak a held semaphore.
-        InvokeExit(gate);
+        gate.Exit();
     }
 
     [Fact]
-    public void Exit_IsIdempotent()
+    public async Task Exit_IsIdempotent()
     {
-        var gate = NewGate();
-        Assert.True(InvokeTryEnter(gate, CancellationToken.None));
+        var gate = new HomeScreenCompanionTask.RunGate();
+        Assert.True(await gate.TryEnterAsync(CancellationToken.None));
 
-        InvokeExit(gate);
+        gate.Exit();
         // Second Exit() without a paired Enter must not throw — gate's Exit guards
         // against SemaphoreFullException so entry points can bail early (e.g. after a
         // validation failure) without worrying about finally-clause state.
-        var ex = Record.Exception(() => InvokeExit(gate));
+        var ex = Record.Exception(() => gate.Exit());
         Assert.Null(ex);
     }
 
     [Fact]
     public void TryEnterAsync_PreCancelledToken_PropagatesAsCanceled()
     {
-        var gate = NewGate();
+        var gate = new HomeScreenCompanionTask.RunGate();
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        var m = ResolveRunGateType().GetMethod("TryEnterAsync",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
-        var task = (Task<bool>)m.Invoke(gate, new object[] { cts.Token })!;
+        var task = gate.TryEnterAsync(cts.Token);
 
         Assert.True(task.IsCanceled);
     }
@@ -188,10 +142,7 @@ public class RunGateTests
     [Fact]
     public void Task_HasNoRunInstanceFields()
     {
-        HscAssembly.EnsureAvailable();
-        var taskType = HscAssembly.FindType(T)!;
-
-        var taskFieldNames = taskType
+        var taskFieldNames = typeof(HomeScreenCompanionTask)
             .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             .Where(f => !f.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), inherit: false))
             .Select(f => f.Name)
@@ -210,10 +161,7 @@ public class RunGateTests
     [Fact]
     public void RunContext_HasAllMovedFields()
     {
-        HscAssembly.EnsureAvailable();
-        var taskType = HscAssembly.FindType(T)!;
-        var runContextType = taskType.GetNestedType("RunContext", BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("HomeScreenCompanionTask.RunContext nested type not found.");
+        var runContextType = typeof(HomeScreenCompanionTask.RunContext);
 
         var ctxFieldNames = runContextType
             .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
@@ -264,21 +212,12 @@ public class RunGateTests
     [Fact]
     public void Task_StaticIsRunning_ReflectsGate()
     {
-        HscAssembly.EnsureAvailable();
-        var taskType = HscAssembly.FindType(T)!;
-        var isRunningProp = taskType.GetProperty("IsRunning",
-            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(T, "IsRunning");
-
-        var current = (bool)isRunningProp.GetValue(null)!;
-
         // The static IsRunning is a projection of `Instance?._runGate?.IsHeld`. If
         // no plugin instance was loaded the projection must be false (no throw).
         // Otherwise it must equal the gate's IsHeld state — verifying the projection
         // is wired correctly.
-        var instanceProp = taskType.GetProperty("Instance",
-            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-        var instance = instanceProp?.GetValue(null);
+        var current = HomeScreenCompanionTask.IsRunning;
+        var instance = HomeScreenCompanionTask.Instance;
         Assert.True(current == false || instance != null,
             "IsRunning was true without an Instance — projection is broken.");
     }
@@ -292,43 +231,31 @@ public class RunGateTests
         // field the gate-held branch touches). A second caller arriving while the
         // gate is held must get a clean (false, "Task already running") response
         // instead of NRE-ing on the missing dependencies.
-        HscAssembly.EnsureAvailable();
-        var taskType = HscAssembly.FindType(T)!;
-        var gateType = ResolveRunGateType();
+        var taskType = typeof(HomeScreenCompanionTask);
         var runGateField = taskType.GetField("_runGate",
             BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new MissingFieldException(T, "_runGate");
-        var tryEnter = gateType.GetMethod("TryEnterAsync",
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new MissingMethodException(gateType.FullName!, "TryEnterAsync");
+            ?? throw new MissingFieldException(taskType.FullName!, "_runGate");
         var runSingleEntryAsync = taskType.GetMethod("RunSingleEntryAsync",
             BindingFlags.Public | BindingFlags.Instance)
-            ?? throw new MissingMethodException(T, "RunSingleEntryAsync");
+            ?? throw new MissingMethodException(taskType.FullName!, "RunSingleEntryAsync");
         var instanceProp = taskType.GetProperty("Instance",
             BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(T, "Instance");
-        var exit = gateType.GetMethod("Exit",
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!;
+            ?? throw new MissingMemberException(taskType.FullName!, "Instance");
 
-        var task = RuntimeHelpers.GetUninitializedObject(taskType);
-        var gate = Activator.CreateInstance(gateType,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null, args: null, culture: null)!;
+        var task = (HomeScreenCompanionTask)RuntimeHelpers.GetUninitializedObject(taskType);
+        var gate = new HomeScreenCompanionTask.RunGate();
         runGateField.SetValue(task, gate);
 
         // Acquire the gate so the second caller finds it held. (RunSingleEntryAsync
         // calls TryEnterAsync first; if held, it must return (false, "Task already
         // running") without touching any of the constructor-seeded Emby services.)
-        var heldTask = (Task<bool>)tryEnter.Invoke(gate, new object[] { CancellationToken.None })!;
-        Assert.True(await heldTask);
+        Assert.True(await gate.TryEnterAsync(CancellationToken.None));
 
         var prevInstance = instanceProp.GetValue(null);
         try
         {
             instanceProp.SetValue(null, task);
-            var resultTask = (Task<(bool Success, string Message)>)runSingleEntryAsync.Invoke(
-                task, new object[] { "any-entry", CancellationToken.None })!;
-            var result = await resultTask;
+            var result = await task.RunSingleEntryAsync("any-entry", CancellationToken.None);
             Assert.False(result.Success);
             Assert.Equal("Task already running", result.Message);
         }
@@ -336,7 +263,7 @@ public class RunGateTests
         {
             instanceProp.SetValue(null, prevInstance);
             // Release the gate so we don't leak a held semaphore into other tests.
-            exit.Invoke(gate, null);
+            gate.Exit();
         }
     }
 

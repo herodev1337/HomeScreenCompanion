@@ -1,24 +1,23 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using HomeScreenCompanion.UIBaseClasses;
+using HomeScreenCompanion.UIBaseClasses.Views;
 using Xunit;
 
 namespace HomeScreenCompanion.Tests;
 
 /// <summary>
 /// Audit-plan v2 / Wave 1 / U1: shape tests for the lifted <c>UIBaseClasses/</c>
-/// tree. Pure reflection — no project reference needed.
+/// tree. Uses the typed surface directly — no reflection-based type lookup.
 /// </summary>
 public sealed class BaseClassesShapeTests
 {
-    private static Type? FindType(string fullName) => HscAssembly.FindType(fullName);
-
     [Fact]
     public void ControllerBase_Is_Public_Abstract_And_Implements_IPluginUIPageController()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.ControllerBase");
-        Assert.NotNull(t);
-        Assert.True(t!.IsPublic, "ControllerBase must be public (SDK-UI templates need cross-assembly inheritance)");
+        var t = typeof(ControllerBase);
+        Assert.True(t.IsPublic, "ControllerBase must be public (SDK-UI templates need cross-assembly inheritance)");
         Assert.True(t.IsAbstract, "ControllerBase must be abstract");
         Assert.Contains(
             t.GetInterfaces(),
@@ -28,9 +27,8 @@ public sealed class BaseClassesShapeTests
     [Fact]
     public void PluginViewBase_Is_Public_And_Implements_IPluginUIView_And_IPluginViewWithOptions()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.Views.PluginViewBase");
-        Assert.NotNull(t);
-        Assert.True(t!.IsPublic, "PluginViewBase must be public");
+        var t = typeof(PluginViewBase);
+        Assert.True(t.IsPublic, "PluginViewBase must be public");
         Assert.Contains(
             t.GetInterfaces(),
             i => i.FullName == "MediaBrowser.Model.Plugins.UI.Views.IPluginUIView");
@@ -40,25 +38,22 @@ public sealed class BaseClassesShapeTests
     }
 
     [Theory]
-    [InlineData("HomeScreenCompanion.UIBaseClasses.Views.PluginViewBase")]
-    [InlineData("HomeScreenCompanion.UIBaseClasses.Views.PluginPageView")]
-    [InlineData("HomeScreenCompanion.UIBaseClasses.Views.PluginDialogView")]
-    [InlineData("HomeScreenCompanion.UIBaseClasses.Views.PluginWizardView")]
-    public void ViewBase_Is_Public(string fullName)
+    [InlineData(typeof(PluginViewBase))]
+    [InlineData(typeof(PluginPageView))]
+    [InlineData(typeof(PluginDialogView))]
+    [InlineData(typeof(PluginWizardView))]
+    public void ViewBase_Is_Public(Type t)
     {
-        var t = FindType(fullName);
-        Assert.NotNull(t);
-        Assert.True(t!.IsPublic, $"{fullName} must be public");
-        Assert.True(t.IsAbstract, $"{fullName} must be abstract");
+        Assert.True(t.IsPublic, $"{t.FullName} must be public");
+        Assert.True(t.IsAbstract, $"{t.FullName} must be abstract");
     }
 
     [Fact]
     public void PluginPageView_Implements_IPluginPageView_And_Has_ShowSave_AllowSave_OnSaveCommand()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.Views.PluginPageView");
-        Assert.NotNull(t);
+        var t = typeof(PluginPageView);
         Assert.Contains(
-            t!.GetInterfaces(),
+            t.GetInterfaces(),
             i => i.FullName == "MediaBrowser.Model.Plugins.UI.Views.IPluginPageView");
 
         Assert.Contains(t.GetProperties(BindingFlags.Public | BindingFlags.Instance),
@@ -75,10 +70,9 @@ public sealed class BaseClassesShapeTests
     [Fact]
     public void PluginDialogView_Implements_IPluginDialogView_With_AllowOk_AllowCancel_ShowDialogFullScreen_OnOkCommand_OnCancelCommand()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.Views.PluginDialogView");
-        Assert.NotNull(t);
+        var t = typeof(PluginDialogView);
         Assert.Contains(
-            t!.GetInterfaces(),
+            t.GetInterfaces(),
             i => i.FullName == "MediaBrowser.Model.Plugins.UI.Views.IPluginDialogView");
 
         foreach (var prop in new[] { "AllowOk", "AllowCancel", "ShowDialogFullScreen" })
@@ -96,10 +90,9 @@ public sealed class BaseClassesShapeTests
     [Fact]
     public void PluginWizardView_Implements_IPluginWizardView_With_AllowNext_AllowBack_AllowCancel_AllowFinish_OnNext_OnPrevious_OnFinish_OnCancel()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.Views.PluginWizardView");
-        Assert.NotNull(t);
+        var t = typeof(PluginWizardView);
         Assert.Contains(
-            t!.GetInterfaces(),
+            t.GetInterfaces(),
             i => i.FullName == "MediaBrowser.Model.Plugins.UI.Views.IPluginWizardView");
 
         foreach (var prop in new[] { "AllowNext", "AllowBack", "AllowCancel", "AllowFinish" })
@@ -118,7 +111,7 @@ public sealed class BaseClassesShapeTests
     [Fact]
     public void RaiseUIViewInfoChanged_Is_Protected_On_PluginViewBase()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.Views.PluginViewBase")!;
+        var t = typeof(PluginViewBase);
         var m = t.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
             .FirstOrDefault(x => x.Name == "RaiseUIViewInfoChanged");
         Assert.NotNull(m);
@@ -130,9 +123,8 @@ public sealed class BaseClassesShapeTests
     [Fact]
     public void SimpleFileStore_Ctor_Takes_ApplicationPaths_FileSystem_Json_Logger_And_Name()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.Store.SimpleFileStore`1");
-        Assert.NotNull(t);
-        Assert.True(t!.IsPublic, "SimpleFileStore<T> must be public");
+        var t = typeof(HomeScreenCompanion.UIBaseClasses.Store.SimpleFileStore<>);
+        Assert.True(t.IsPublic, "SimpleFileStore<T> must be public");
         Assert.True(t.IsAbstract, "SimpleFileStore<T> must be abstract");
 
         // ctor signature
@@ -150,16 +142,15 @@ public sealed class BaseClassesShapeTests
     [Fact]
     public void SimpleFileStore_Has_FileSaving_And_FileSaved_Events()
     {
-        var t = FindType("HomeScreenCompanion.UIBaseClasses.Store.SimpleFileStore`1");
-        Assert.NotNull(t);
+        var t = typeof(HomeScreenCompanion.UIBaseClasses.Store.SimpleFileStore<>);
 
-        var events = t!.GetEvents(BindingFlags.Public | BindingFlags.Instance);
+        var events = t.GetEvents(BindingFlags.Public | BindingFlags.Instance);
         Assert.Contains(events, e => e.Name == "FileSaving");
         Assert.Contains(events, e => e.Name == "FileSaved");
 
-        var argsSaving = HscAssembly.FindType("HomeScreenCompanion.UIBaseClasses.Store.FileSavingEventArgs");
+        var argsSaving = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.UIBaseClasses.Store.FileSavingEventArgs");
         Assert.NotNull(argsSaving);
-        var argsSaved = HscAssembly.FindType("HomeScreenCompanion.UIBaseClasses.Store.FileSavedEventArgs");
+        var argsSaved = typeof(Plugin).Assembly.GetType("HomeScreenCompanion.UIBaseClasses.Store.FileSavedEventArgs");
         Assert.NotNull(argsSaved);
     }
 }

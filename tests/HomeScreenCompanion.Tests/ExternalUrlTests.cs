@@ -16,20 +16,6 @@ namespace HomeScreenCompanion.Tests;
 /// </summary>
 public class ExternalUrlTests
 {
-    private const string FetcherType = "HomeScreenCompanion.ListFetcher";
-
-    private static bool InvokeValidator(string methodName, string? url)
-    {
-        HscAssembly.EnsureAvailable();
-        var method = HscAssembly.FindStaticMethod(FetcherType, methodName, typeof(string));
-        Assert.NotNull(method);
-        return (bool)method!.Invoke(null, new object?[] { url })!;
-    }
-
-    private static bool IsAllowedExternalUrl(string? url) => InvokeValidator("IsAllowedExternalUrl", url);
-
-    private static bool IsAllowedImageUrl(string? url) => InvokeValidator("IsAllowedImageUrl", url);
-
     [Theory]
     [InlineData("https://api.mdblist.com/x")]
     [InlineData("https://api.mdblist.com/lists/foo/items")]
@@ -43,8 +29,7 @@ public class ExternalUrlTests
     [InlineData("https://www.themoviedb.org/list/1")]
     public void IsAllowedExternalUrl_AcceptsAllowlistedHttpsHosts(string url)
     {
-        HscAssembly.EnsureAvailable();
-        Assert.True(IsAllowedExternalUrl(url));
+        Assert.True(ListFetcher.IsAllowedExternalUrl(url));
     }
 
     [Theory]
@@ -66,16 +51,14 @@ public class ExternalUrlTests
     [InlineData("https://localhost/x")]
     public void IsAllowedExternalUrl_RejectsNonAllowlistedAndUnsafeUrls(string? url)
     {
-        HscAssembly.EnsureAvailable();
-        Assert.False(IsAllowedExternalUrl(url));
+        Assert.False(ListFetcher.IsAllowedExternalUrl(url));
     }
 
     [Fact]
     public void IsAllowedImageUrl_AcceptsPublicHttpsUrl()
     {
-        HscAssembly.EnsureAvailable();
-        Assert.True(IsAllowedImageUrl("https://example.com/pic.jpg"));
-        Assert.True(IsAllowedImageUrl("https://cdn.example.org/images/pic.png?size=large"));
+        Assert.True(ListFetcher.IsAllowedImageUrl("https://example.com/pic.jpg"));
+        Assert.True(ListFetcher.IsAllowedImageUrl("https://cdn.example.org/images/pic.png?size=large"));
     }
 
     [Theory]
@@ -97,48 +80,28 @@ public class ExternalUrlTests
     [InlineData("https://foo.local/p.jpg")]
     public void IsAllowedImageUrl_RejectsUnsafeTargets(string? url)
     {
-        HscAssembly.EnsureAvailable();
-        Assert.False(IsAllowedImageUrl(url));
+        Assert.False(ListFetcher.IsAllowedImageUrl(url));
     }
 
     [Fact]
     public async Task FetchItems_DisallowedUrl_ReturnsEmptyListWithoutNetwork()
     {
-        HscAssembly.EnsureAvailable();
-        var type = HscAssembly.FindType(FetcherType);
-        Assert.NotNull(type);
-
-        var ctor = type!.GetConstructor(new[] { typeof(IHttpClient), typeof(IJsonSerializer) });
-        Assert.NotNull(ctor);
         // A null IHttpClient is safe: a disallowed URL must be rejected before
         // any provider fetch (an attempted fetch would throw NullReferenceException).
-        var fetcher = ctor!.Invoke(new object?[] { null, new TestJsonSerializer() });
+        var fetcher = new ListFetcher(null!, new TestJsonSerializer());
 
-        var method = type.GetMethod("FetchItems", new[]
-        {
-            typeof(string), typeof(int), typeof(string), typeof(string), typeof(string), typeof(CancellationToken)
-        });
-        Assert.NotNull(method);
-
-        var task = (Task)method!.Invoke(fetcher, new object?[]
-        {
-            "https://evil.example/mdblist.com", 10, "", "", "", CancellationToken.None
-        })!;
-        await task;
-
-        var result = task.GetType().GetProperty("Result")!.GetValue(task);
-        Assert.Empty((IEnumerable)result!);
+        var task = fetcher.FetchItems("https://evil.example/mdblist.com", 10, "", "", "", CancellationToken.None);
+        var result = await task;
+        Assert.Empty(result);
     }
 
     [Fact]
     public void OllamaBaseUrl_IsNotValidatedByTheseHelpers()
     {
-        HscAssembly.EnsureAvailable();
-
         // The Ollama base URL is user-configured and may intentionally be
         // localhost/plain http. It has its own code path (CallOllama) and must
         // not be run through the list/image validators.
-        Assert.False(IsAllowedExternalUrl("http://localhost:11434"));
-        Assert.False(IsAllowedImageUrl("http://localhost:11434/api/chat"));
+        Assert.False(ListFetcher.IsAllowedExternalUrl("http://localhost:11434"));
+        Assert.False(ListFetcher.IsAllowedImageUrl("http://localhost:11434/api/chat"));
     }
 }
