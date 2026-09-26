@@ -29,12 +29,23 @@ internal static class HscAssembly
     /// <summary>Full type name of the giant task class — short alias to keep call sites readable.</summary>
     public const string TaskTypeName = "HomeScreenCompanion.HomeScreenCompanionTask";
 
-    /// <summary>Throws (via <c>Skip.If</c>) if the DLL or a member is unavailable.</summary>
+    /// <summary>
+    /// Skips (locally) or fails (in CI) when the DLL or a member is unavailable.
+    /// CI is detected via the <c>CI</c> or <c>GITHUB_ACTIONS</c> env vars that
+    /// GitHub Actions / most CI providers set. The split prevents silent skips in
+    /// CI while keeping local development friction-free (no DLL yet? skip & continue).
+    /// </summary>
     public static void EnsureAvailable()
     {
         if (Result.Assembly != null) return;
-        Skip.If(true, Result.Error ?? "HomeScreenCompanion.dll not loaded.");
+        var msg = Result.Error ?? "HomeScreenCompanion.dll not loaded.";
+        if (IsCi()) throw new InvalidOperationException("HomeScreenCompanion.dll is required: " + msg);
+        Skip.If(true, msg);
     }
+
+    private static bool IsCi() =>
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI")) ||
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
 
     /// <summary>Find a non-public static method on a type by name, optionally filtering by parameter types.</summary>
     public static MethodInfo? FindStaticMethod(string typeFullName, string methodName, params Type[] parameterTypes)
